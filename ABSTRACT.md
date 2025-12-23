@@ -1,6 +1,6 @@
-# Mage Abstract
+# Magically Abstract
 
-Mage is LLMs as a Python language feature.
+Magically is LLMs as a Python language feature.
 
 It's powered by PydanticAI - an omni-provider agentic SDK.
 

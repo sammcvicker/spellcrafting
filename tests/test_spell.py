@@ -5,8 +5,8 @@ from unittest.mock import MagicMock, patch
 import pytest
 from pydantic import BaseModel
 
-from mage import spell
-from mage.spell import _build_user_prompt
+from magically import spell
+from magically.spell import _build_user_prompt
 
 
 class Summary(BaseModel):

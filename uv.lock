@@ -1151,7 +1151,7 @@ wheels = [
 ]
 
 [[package]]
-name = "mage"
+name = "magically"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [
