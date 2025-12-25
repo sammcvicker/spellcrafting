@@ -26,6 +26,16 @@ For more specific handling, catch the individual exception types:
     except MagicallyConfigError:
         # Configuration error (missing alias, invalid config, etc.)
         ...
+
+Naming Convention (issue #171, #177):
+------------------------------------
+Exception classes use the *Error suffix consistently:
+- MagicallyError: Base class (prefix indicates library origin)
+- MagicallyConfigError: Prefixed for clarity about library-specific config errors
+- GuardError: No prefix needed (guard is a magically-specific concept)
+- ValidationError: No prefix (matches common Python convention)
+
+All exceptions inherit from MagicallyError for catch-all handling.
 """
 
 from __future__ import annotations

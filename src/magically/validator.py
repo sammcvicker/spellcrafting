@@ -88,6 +88,9 @@ def llm_validator(
         The validator accepts any type and returns the original value on
         success (or the fixed string value with on_fail=OnFail.FIX).
 
+    Raises:
+        ValueError: If rule is empty or model is empty.
+
     Example:
         from pydantic import BaseModel, BeforeValidator
         from typing import Annotated
@@ -115,6 +118,12 @@ def llm_validator(
         semantic rules that are hard to express in code, and prefer
         fast/cheap models for validation.
     """
+    # Input validation (issue #176)
+    if not rule or not rule.strip():
+        raise ValueError("rule cannot be empty")
+    if not model or not model.strip():
+        raise ValueError("model cannot be empty")
+
     # Determine if we should use fix mode
     fix_mode = isinstance(on_fail, FixStrategy)
 

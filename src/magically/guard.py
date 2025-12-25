@@ -652,6 +652,9 @@ class _GuardNamespace:
         Returns:
             Decorator that adds length guards.
 
+        Raises:
+            ValueError: If input_max or output_max is not a positive integer.
+
         Example:
             @spell(model="fast")
             @guard.max_length(input_max=10000, output_max=5000)
@@ -659,6 +662,13 @@ class _GuardNamespace:
                 '''Summarize.'''
                 ...
         """
+        # Input validation (issue #176)
+        if input_max is not None:
+            if not isinstance(input_max, int) or input_max <= 0:
+                raise ValueError(f"input_max must be a positive integer, got {input_max!r}")
+        if output_max is not None:
+            if not isinstance(output_max, int) or output_max <= 0:
+                raise ValueError(f"output_max must be a positive integer, got {output_max!r}")
 
         def decorator(func: Callable[P, T]) -> Callable[P, T]:
             # Check if guards are being applied OUTSIDE @spell (wrong order)
@@ -713,7 +723,14 @@ class _GuardNamespace:
 
 
 # Create singleton instance
-guard = _GuardNamespace()
+# Note: This module uses __getattr__ to forward attribute access (like guard.input)
+# directly to the _GuardNamespace singleton. This resolves naming confusion (issue #180)
+# where `from magically import guard` imports the module but users expect to access
+# guard.input, guard.output, etc. See module-level __getattr__ below.
+_guard = _GuardNamespace()
+
+# For backwards compatibility, also export as 'guard'
+guard = _guard
 
 
 # ---------------------------------------------------------------------------
@@ -839,3 +856,30 @@ __all__ = [
     "SyncOutputGuard",
     "AsyncOutputGuard",
 ]
+
+
+# ---------------------------------------------------------------------------
+# Module-level __getattr__ for cleaner import semantics (issue #180)
+# ---------------------------------------------------------------------------
+#
+# This allows `from magically import guard` to work naturally where
+# `guard.input`, `guard.output`, and `guard.max_length` resolve to
+# the _GuardNamespace methods without confusion about whether `guard`
+# is a module or an object.
+#
+# After this change:
+#   import magically.guard  # Works: imports module
+#   magically.guard.input   # Works: forwards to _guard.input via __getattr__
+#   from magically import guard  # Works: imports the 'guard' variable from __init__.py
+#   guard.input  # Works: calls _guard.input
+
+
+def __getattr__(name: str):
+    """Forward attribute access to the _GuardNamespace singleton.
+
+    This allows `magically.guard.input(...)` to work whether guard
+    is imported as a module or accessed as an attribute.
+    """
+    if hasattr(_guard, name):
+        return getattr(_guard, name)
+    raise AttributeError(f"module 'magically.guard' has no attribute {name!r}")

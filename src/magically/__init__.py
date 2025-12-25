@@ -41,7 +41,17 @@ from magically.guard import (
     InputGuard,
     OutputGuard,
 )
-from magically.on_fail import OnFail
+from magically.on_fail import (
+    OnFail,
+    OnFailStrategy,
+    ValidatorOnFailStrategy,
+    RaiseStrategy,
+    FixStrategy,
+    RetryStrategy,
+    EscalateStrategy,
+    FallbackStrategy,
+    CustomStrategy,
+)
 from magically.validator import llm_validator, ValidationResult
 from magically.logging import (
     # Configuration
@@ -130,6 +140,14 @@ __all__ = [
     "OutputGuard",
     # Failure strategies
     "OnFail",
+    "OnFailStrategy",
+    "ValidatorOnFailStrategy",
+    "RaiseStrategy",
+    "FixStrategy",
+    "RetryStrategy",
+    "EscalateStrategy",
+    "FallbackStrategy",
+    "CustomStrategy",
     # LLM-powered validators
     "llm_validator",
     "ValidationResult",

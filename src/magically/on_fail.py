@@ -138,13 +138,21 @@ class OnFail:
         Returns:
             EscalateStrategy instance
 
+        Raises:
+            ValueError: If model is empty or retries is negative.
+
         Example:
             @spell(model="fast", on_fail=OnFail.escalate("reasoning"))
             def complex_task(query: str) -> Analysis:
                 '''Analyze the query and return structured insights.'''
                 ...
         """
-        return EscalateStrategy(model=model, retries=retries)
+        # Input validation (issue #176)
+        if not model or not model.strip():
+            raise ValueError("model cannot be empty")
+        if retries < 0:
+            raise ValueError(f"retries must be non-negative, got {retries}")
+        return EscalateStrategy(model=model.strip(), retries=retries)
 
     @staticmethod
     def fallback(default: T) -> FallbackStrategy[T]:

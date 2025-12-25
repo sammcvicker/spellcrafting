@@ -723,6 +723,133 @@ def _process_captured_result(
     )
 
 
+# ---------------------------------------------------------------------------
+# _SpellConfig: Extracted configuration class to reduce nesting (issue #135)
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class _SpellConfig:
+    """Configuration for a spell instance.
+
+    This class extracts configuration from the spell decorator's closure,
+    making the code more debuggable by reducing nested function depth.
+    All configuration is stored as instance attributes rather than captured
+    in closures.
+
+    Attributes:
+        fn: The original decorated function
+        model: Model alias or literal (may be None)
+        model_settings: Additional model settings
+        effective_system_prompt: The resolved system prompt
+        output_type: The return type of the spell
+        retries: Number of retry attempts
+        tools: List of tool functions
+        end_strategy: Strategy for handling tool calls
+        on_fail: Strategy for validation failures
+        spell_id: Unique identifier for this spell
+        is_async: Whether the decorated function is async
+    """
+
+    fn: Callable[..., Any]
+    model: str | None
+    model_settings: ModelSettings | None
+    effective_system_prompt: str
+    output_type: type[Any]
+    retries: int
+    tools: list[Callable[..., Any]] | None
+    end_strategy: EndStrategy
+    on_fail: OnFailStrategy | None
+    spell_id: int = field(default=0)  # Set after wrapper is created
+    is_async: bool = field(default=False)
+
+    def resolve_model_and_settings(self) -> tuple[str | None, ModelSettings | None, int]:
+        """Resolve model alias and merge settings at call time.
+
+        Returns:
+            Tuple of (resolved_model, resolved_settings, config_hash)
+        """
+        if self.model is None:
+            config_hash = hash((None, _settings_hash(self.model_settings)))
+            return None, self.model_settings, config_hash
+
+        # Literal model (contains :) - use as-is
+        if _is_literal_model(self.model):
+            config_hash = hash((self.model, _settings_hash(self.model_settings)))
+            return self.model, self.model_settings, config_hash
+
+        # Alias - resolve via current config
+        config = Config.current()
+        try:
+            model_config = config.resolve(self.model)
+        except MagicallyConfigError:
+            raise MagicallyConfigError(
+                f"Model alias '{self.model}' could not be resolved. "
+                f"Define it in pyproject.toml or provide via Config context."
+            )
+
+        # Get base settings from ModelConfig
+        config_settings = model_config.to_model_settings()
+
+        # Merge with explicit model_settings (explicit takes precedence)
+        if self.model_settings:
+            resolved_settings: dict[str, Any] = dict(config_settings) if config_settings else {}
+            for key, value in self.model_settings.items():
+                if value is not None:
+                    resolved_settings[key] = value
+            final_settings = ModelSettings(**resolved_settings) if resolved_settings else None
+        else:
+            final_settings = config_settings
+
+        # Hash based on resolved ModelConfig + explicit overrides
+        config_hash = hash((hash(model_config), _settings_hash(self.model_settings)))
+        return model_config.model, final_settings, config_hash
+
+    def get_or_create_agent(
+        self,
+        config_hash: int,
+        resolved_model: str | None,
+        resolved_settings: ModelSettings | None,
+    ) -> Agent[None, Any]:
+        """Get agent from cache or create a new one."""
+        cache_key = (self.spell_id, config_hash)
+        agent = _agent_cache.get(cache_key)
+
+        if agent is None:
+            agent = Agent(
+                model=resolved_model,
+                output_type=self.output_type,
+                system_prompt=self.effective_system_prompt,
+                retries=self.retries,
+                tools=self.tools or [],
+                end_strategy=self.end_strategy,
+                model_settings=resolved_settings,
+            )
+            _agent_cache.set(cache_key, agent)
+
+        return agent
+
+    def create_on_fail_context(
+        self,
+        error: Exception,
+        user_prompt: str,
+        input_args: dict[str, Any],
+    ) -> OnFailContext:
+        """Create an OnFailContext for handling validation failures."""
+        return OnFailContext(
+            error=error,
+            on_fail=self.on_fail,  # type: ignore[arg-type]
+            user_prompt=user_prompt,
+            output_type=self.output_type,
+            system_prompt=self.effective_system_prompt,
+            tools=self.tools or [],
+            end_strategy=self.end_strategy,
+            input_args=input_args,
+            spell_name=self.fn.__name__,
+            model_alias=self.model,
+        )
+
+
 def _handle_on_fail_sync(ctx: OnFailContext) -> Any:
     """Handle on_fail strategy for sync execution.
 
@@ -897,6 +1024,9 @@ def spell(
             - OnFail.fallback(default) - return default value
             - OnFail.custom(handler) - custom handler function
 
+    Raises:
+        ValueError: If retries is negative or end_strategy is invalid.
+
     Example:
         @spell
         def summarize(text: str) -> Summary:
@@ -919,6 +1049,13 @@ def spell(
             '''Docstring used for documentation, not as prompt.'''
             ...
     """
+    # Input validation (issue #176)
+    if retries < 0:
+        raise ValueError(f"retries must be non-negative, got {retries}")
+    if end_strategy not in ("early", "exhaustive"):
+        raise ValueError(
+            f"Invalid end_strategy {end_strategy!r}. Must be 'early' or 'exhaustive'"
+        )
 
     def decorator(fn: Callable[P, T]) -> Callable[P, T]:
         # Use explicit system_prompt if provided, otherwise extract from docstring
@@ -953,78 +1090,29 @@ def spell(
                     stacklevel=3,
                 )
 
-        def _resolve_model_and_settings() -> tuple[str | None, ModelSettings | None, int]:
-            """Resolve model alias and merge settings at call time.
-
-            Returns:
-                Tuple of (resolved_model, resolved_settings, config_hash)
-            """
-            if model is None:
-                config_hash = hash((None, _settings_hash(model_settings)))
-                return None, model_settings, config_hash
-
-            # Literal model (contains :) - use as-is
-            if _is_literal_model(model):
-                config_hash = hash((model, _settings_hash(model_settings)))
-                return model, model_settings, config_hash
-
-            # Alias - resolve via current config
-            config = Config.current()
-            try:
-                model_config = config.resolve(model)
-            except MagicallyConfigError:
-                raise MagicallyConfigError(
-                    f"Model alias '{model}' could not be resolved. "
-                    f"Define it in pyproject.toml or provide via Config context."
-                )
-
-            # Get base settings from ModelConfig
-            config_settings = model_config.to_model_settings()
-
-            # Merge with explicit model_settings (explicit takes precedence)
-            if model_settings:
-                resolved_settings: dict[str, Any] = dict(config_settings) if config_settings else {}
-                for key, value in model_settings.items():
-                    if value is not None:
-                        resolved_settings[key] = value
-                final_settings = ModelSettings(**resolved_settings) if resolved_settings else None
-            else:
-                final_settings = config_settings
-
-            # Hash based on resolved ModelConfig + explicit overrides
-            config_hash = hash((hash(model_config), _settings_hash(model_settings)))
-            return model_config.model, final_settings, config_hash
-
-        # Unique ID for this spell (using id of the wrapper after creation)
-        spell_id: int = 0  # Will be set after wrapper is created
-
-        def _get_or_create_agent(config_hash: int, resolved_model: str | None, resolved_settings: ModelSettings | None) -> Agent[None, Any]:
-            """Get agent from cache or create a new one."""
-            cache_key = (spell_id, config_hash)
-            agent = _agent_cache.get(cache_key)
-
-            if agent is None:
-                agent = Agent(
-                    model=resolved_model,
-                    output_type=output_type,
-                    system_prompt=effective_system_prompt,
-                    retries=retries,
-                    tools=tools or [],
-                    end_strategy=end_strategy,
-                    model_settings=resolved_settings,
-                )
-                _agent_cache.set(cache_key, agent)
-
-            return agent
+        # Create spell configuration object to reduce closure nesting (issue #135)
+        # This moves methods out of nested closures into a class, improving debuggability
+        spell_config = _SpellConfig(
+            fn=fn,
+            model=model,
+            model_settings=model_settings,
+            effective_system_prompt=effective_system_prompt,
+            output_type=output_type,
+            retries=retries,
+            tools=tools,
+            end_strategy=end_strategy,
+            on_fail=on_fail,
+            is_async=asyncio.iscoroutinefunction(fn),
+        )
 
         # Check if the decorated function is async
-        is_async = asyncio.iscoroutinefunction(fn)
+        is_async = spell_config.is_async
 
         if is_async:
             @functools.wraps(fn)
             async def async_wrapper(*args: P.args, **kwargs: P.kwargs) -> T:
-                resolved_model, resolved_settings, config_hash = _resolve_model_and_settings()
-                agent = _get_or_create_agent(config_hash, resolved_model, resolved_settings)
+                resolved_model, resolved_settings, config_hash = spell_config.resolve_model_and_settings()
+                agent = spell_config.get_or_create_agent(config_hash, resolved_model, resolved_settings)
 
                 # Check for guards
                 guard_config = GuardExecutor.get_config(fn)
@@ -1042,7 +1130,7 @@ def spell(
 
                 # Run input guards if present
                 if guard_config and guard_config.input_guards:
-                    guard_context = GuardExecutor.build_context(fn, model=model)
+                    guard_context = GuardExecutor.build_context(fn, model=spell_config.model)
                     if logging_enabled and validation_metrics:
                         guard_result = await GuardExecutor.run_input_guards_tracked_async(
                             guard_config, input_args, guard_context
@@ -1065,26 +1153,15 @@ def spell(
                         result = await agent.run(user_prompt)
                         output = result.output
                     except UnexpectedModelBehavior as e:
-                        if on_fail is not None:
-                            on_fail_ctx = OnFailContext(
-                                error=e,
-                                on_fail=on_fail,
-                                user_prompt=user_prompt,
-                                output_type=output_type,
-                                system_prompt=effective_system_prompt,
-                                tools=tools or [],
-                                end_strategy=end_strategy,
-                                input_args=input_args,
-                                spell_name=fn.__name__,
-                                model_alias=model,
-                            )
+                        if spell_config.on_fail is not None:
+                            on_fail_ctx = spell_config.create_on_fail_context(e, user_prompt, input_args)
                             output = await _handle_on_fail_async(on_fail_ctx)
                         else:
                             raise ValidationError(str(e), original_error=e) from e
 
                     # Run output guards if present
                     if guard_config and guard_config.output_guards:
-                        guard_context = GuardExecutor.build_context(fn, model=model)
+                        guard_context = GuardExecutor.build_context(fn, model=spell_config.model)
                         output = await GuardExecutor.run_output_guards_async(
                             guard_config, output, guard_context
                         )
@@ -1094,14 +1171,15 @@ def spell(
                 # Logging enabled - use helper functions to reduce duplication (issue #24)
                 with trace_context() as ctx:
                     log = _create_execution_log(
-                        fn, spell_id, ctx, resolved_model, model,
+                        fn, spell_config.spell_id, ctx, resolved_model, spell_config.model,
                         input_args, validation_metrics,
                     )
 
                     # Create logging agent with wrapped tools if needed
                     logging_agent = _create_logging_agent(
-                        tools, log, agent, resolved_model, output_type,
-                        effective_system_prompt, retries, end_strategy, resolved_settings,
+                        spell_config.tools, log, agent, resolved_model, spell_config.output_type,
+                        spell_config.effective_system_prompt, spell_config.retries,
+                        spell_config.end_strategy, resolved_settings,
                     )
 
                     result = None
@@ -1110,20 +1188,9 @@ def spell(
                             result = await logging_agent.run(user_prompt)
                             output = result.output
                         except UnexpectedModelBehavior as e:
-                            if on_fail is not None:
-                                _track_on_fail_strategy(validation_metrics, e, on_fail)
-                                on_fail_ctx = OnFailContext(
-                                    error=e,
-                                    on_fail=on_fail,
-                                    user_prompt=user_prompt,
-                                    output_type=output_type,
-                                    system_prompt=effective_system_prompt,
-                                    tools=tools or [],
-                                    end_strategy=end_strategy,
-                                    input_args=input_args,
-                                    spell_name=fn.__name__,
-                                    model_alias=model,
-                                )
+                            if spell_config.on_fail is not None:
+                                _track_on_fail_strategy(validation_metrics, e, spell_config.on_fail)
+                                on_fail_ctx = spell_config.create_on_fail_context(e, user_prompt, input_args)
                                 output = await _handle_on_fail_async(on_fail_ctx)
                             else:
                                 # Track validation error even when no on_fail strategy
@@ -1133,7 +1200,7 @@ def spell(
 
                         # Run output guards if present (with tracking)
                         if guard_config and guard_config.output_guards:
-                            guard_context = GuardExecutor.build_context(fn, model=model)
+                            guard_context = GuardExecutor.build_context(fn, model=spell_config.model)
                             if validation_metrics:
                                 guard_result = await GuardExecutor.run_output_guards_tracked_async(
                                     guard_config, output, guard_context
@@ -1158,8 +1225,8 @@ def spell(
         else:
             @functools.wraps(fn)
             def sync_wrapper(*args: P.args, **kwargs: P.kwargs) -> T:
-                resolved_model, resolved_settings, config_hash = _resolve_model_and_settings()
-                agent = _get_or_create_agent(config_hash, resolved_model, resolved_settings)
+                resolved_model, resolved_settings, config_hash = spell_config.resolve_model_and_settings()
+                agent = spell_config.get_or_create_agent(config_hash, resolved_model, resolved_settings)
 
                 # Check for guards
                 guard_config = GuardExecutor.get_config(fn)
@@ -1177,7 +1244,7 @@ def spell(
 
                 # Run input guards if present
                 if guard_config and guard_config.input_guards:
-                    guard_context = GuardExecutor.build_context(fn, model=model)
+                    guard_context = GuardExecutor.build_context(fn, model=spell_config.model)
                     if logging_enabled and validation_metrics:
                         guard_result = GuardExecutor.run_input_guards_tracked(
                             guard_config, input_args, guard_context
@@ -1200,26 +1267,15 @@ def spell(
                         result = agent.run_sync(user_prompt)
                         output = result.output
                     except UnexpectedModelBehavior as e:
-                        if on_fail is not None:
-                            on_fail_ctx = OnFailContext(
-                                error=e,
-                                on_fail=on_fail,
-                                user_prompt=user_prompt,
-                                output_type=output_type,
-                                system_prompt=effective_system_prompt,
-                                tools=tools or [],
-                                end_strategy=end_strategy,
-                                input_args=input_args,
-                                spell_name=fn.__name__,
-                                model_alias=model,
-                            )
+                        if spell_config.on_fail is not None:
+                            on_fail_ctx = spell_config.create_on_fail_context(e, user_prompt, input_args)
                             output = _handle_on_fail_sync(on_fail_ctx)
                         else:
                             raise ValidationError(str(e), original_error=e) from e
 
                     # Run output guards if present
                     if guard_config and guard_config.output_guards:
-                        guard_context = GuardExecutor.build_context(fn, model=model)
+                        guard_context = GuardExecutor.build_context(fn, model=spell_config.model)
                         output = GuardExecutor.run_output_guards(
                             guard_config, output, guard_context
                         )
@@ -1229,14 +1285,15 @@ def spell(
                 # Logging enabled - use helper functions to reduce duplication (issue #24)
                 with trace_context() as ctx:
                     log = _create_execution_log(
-                        fn, spell_id, ctx, resolved_model, model,
+                        fn, spell_config.spell_id, ctx, resolved_model, spell_config.model,
                         input_args, validation_metrics,
                     )
 
                     # Create logging agent with wrapped tools if needed
                     logging_agent = _create_logging_agent(
-                        tools, log, agent, resolved_model, output_type,
-                        effective_system_prompt, retries, end_strategy, resolved_settings,
+                        spell_config.tools, log, agent, resolved_model, spell_config.output_type,
+                        spell_config.effective_system_prompt, spell_config.retries,
+                        spell_config.end_strategy, resolved_settings,
                     )
 
                     result = None
@@ -1245,20 +1302,9 @@ def spell(
                             result = logging_agent.run_sync(user_prompt)
                             output = result.output
                         except UnexpectedModelBehavior as e:
-                            if on_fail is not None:
-                                _track_on_fail_strategy(validation_metrics, e, on_fail)
-                                on_fail_ctx = OnFailContext(
-                                    error=e,
-                                    on_fail=on_fail,
-                                    user_prompt=user_prompt,
-                                    output_type=output_type,
-                                    system_prompt=effective_system_prompt,
-                                    tools=tools or [],
-                                    end_strategy=end_strategy,
-                                    input_args=input_args,
-                                    spell_name=fn.__name__,
-                                    model_alias=model,
-                                )
+                            if spell_config.on_fail is not None:
+                                _track_on_fail_strategy(validation_metrics, e, spell_config.on_fail)
+                                on_fail_ctx = spell_config.create_on_fail_context(e, user_prompt, input_args)
                                 output = _handle_on_fail_sync(on_fail_ctx)
                             else:
                                 # Track validation error even when no on_fail strategy
@@ -1268,7 +1314,7 @@ def spell(
 
                         # Run output guards if present (with tracking)
                         if guard_config and guard_config.output_guards:
-                            guard_context = GuardExecutor.build_context(fn, model=model)
+                            guard_context = GuardExecutor.build_context(fn, model=spell_config.model)
                             if validation_metrics:
                                 guard_result = GuardExecutor.run_output_guards_tracked(
                                     guard_config, output, guard_context
@@ -1292,21 +1338,21 @@ def spell(
             wrapper = sync_wrapper
 
         # Assign unique spell ID based on wrapper's id
-        spell_id = id(wrapper)
+        spell_config.spell_id = id(wrapper)
 
         # Store for testing/introspection
         wrapper._original_func = fn  # type: ignore[attr-defined]
 
         # Store marker to detect if guards are applied outside @spell
         wrapper._is_spell_wrapper = True  # type: ignore[attr-defined]
-        wrapper._model_alias = model  # type: ignore[attr-defined]
-        wrapper._system_prompt = effective_system_prompt  # type: ignore[attr-defined]
-        wrapper._output_type = output_type  # type: ignore[attr-defined]
-        wrapper._retries = retries  # type: ignore[attr-defined]
-        wrapper._spell_id = spell_id  # type: ignore[attr-defined]
-        wrapper._is_async = is_async  # type: ignore[attr-defined]
-        wrapper._on_fail = on_fail  # type: ignore[attr-defined]
-        wrapper._resolve_model_and_settings = _resolve_model_and_settings  # type: ignore[attr-defined]
+        wrapper._model_alias = spell_config.model  # type: ignore[attr-defined]
+        wrapper._system_prompt = spell_config.effective_system_prompt  # type: ignore[attr-defined]
+        wrapper._output_type = spell_config.output_type  # type: ignore[attr-defined]
+        wrapper._retries = spell_config.retries  # type: ignore[attr-defined]
+        wrapper._spell_id = spell_config.spell_id  # type: ignore[attr-defined]
+        wrapper._is_async = spell_config.is_async  # type: ignore[attr-defined]
+        wrapper._on_fail = spell_config.on_fail  # type: ignore[attr-defined]
+        wrapper._resolve_model_and_settings = spell_config.resolve_model_and_settings  # type: ignore[attr-defined]
 
         # Add with_metadata method for accessing execution metadata
         # This is a thin wrapper around the main execution path that captures
@@ -1321,7 +1367,7 @@ def spell(
                     output = await async_wrapper(*args, **kwargs)
 
                 return _process_captured_result(
-                    output, captured.log, caller_trace_id, _resolve_model_and_settings
+                    output, captured.log, caller_trace_id, spell_config.resolve_model_and_settings
                 )
 
             wrapper.with_metadata = with_metadata_async  # type: ignore[attr-defined]
@@ -1335,7 +1381,7 @@ def spell(
                     output = sync_wrapper(*args, **kwargs)
 
                 return _process_captured_result(
-                    output, captured.log, caller_trace_id, _resolve_model_and_settings
+                    output, captured.log, caller_trace_id, spell_config.resolve_model_and_settings
                 )
 
             wrapper.with_metadata = with_metadata_sync  # type: ignore[attr-defined]
