@@ -35,13 +35,25 @@ from magically.logging import (
     ToolCallLog,
     ValidationMetrics,
 )
-from magically.spell import spell
+from magically.spell import (
+    spell,
+    clear_agent_cache,
+    get_cache_stats,
+    set_cache_max_size,
+    CacheStats,
+)
 from magically.result import SpellResult
 
 __all__ = [
     # Core
     "spell",
     "SpellResult",
+    # Cache management
+    "clear_agent_cache",
+    "get_cache_stats",
+    "set_cache_max_size",
+    "CacheStats",
+    # Config
     "Config",
     "ModelConfig",
     "MagicallyConfigError",

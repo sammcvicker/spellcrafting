@@ -3,8 +3,11 @@ from __future__ import annotations
 import asyncio
 import functools
 import inspect
+import threading
 import warnings
+from collections import OrderedDict
 from collections.abc import Awaitable
+from dataclasses import dataclass, field
 from typing import Any, Callable, ParamSpec, Sequence, TypeVar, overload
 
 from pydantic_ai import Agent
@@ -48,8 +51,184 @@ from magically.result import SpellResult
 P = ParamSpec("P")
 T = TypeVar("T")
 
-# Agent cache: (spell_id, config_hash) -> Agent
-_agent_cache: dict[tuple[int, int], Agent[None, Any]] = {}
+# Default maximum cache size (can be configured via set_cache_max_size)
+_DEFAULT_CACHE_MAX_SIZE = 100
+
+
+@dataclass
+class CacheStats:
+    """Statistics about the agent cache."""
+
+    size: int
+    """Current number of agents in the cache."""
+    max_size: int
+    """Maximum number of agents allowed in the cache."""
+    hits: int
+    """Number of cache hits (agent reused)."""
+    misses: int
+    """Number of cache misses (new agent created)."""
+    evictions: int
+    """Number of agents evicted due to cache full."""
+
+
+class _LRUAgentCache:
+    """Thread-safe LRU cache for Agent instances.
+
+    This cache automatically evicts least-recently-used agents when
+    the maximum size is reached, preventing unbounded memory growth.
+    """
+
+    def __init__(self, max_size: int = _DEFAULT_CACHE_MAX_SIZE):
+        self._cache: OrderedDict[tuple[int, int], Agent[None, Any]] = OrderedDict()
+        self._max_size = max_size
+        self._lock = threading.RLock()
+        self._hits = 0
+        self._misses = 0
+        self._evictions = 0
+
+    def get(self, key: tuple[int, int]) -> Agent[None, Any] | None:
+        """Get an agent from the cache, moving it to most-recently-used."""
+        with self._lock:
+            if key in self._cache:
+                # Move to end (most recently used)
+                self._cache.move_to_end(key)
+                self._hits += 1
+                return self._cache[key]
+            self._misses += 1
+            return None
+
+    def set(self, key: tuple[int, int], agent: Agent[None, Any]) -> None:
+        """Add an agent to the cache, evicting LRU if necessary."""
+        with self._lock:
+            # If max_size is 0, caching is disabled
+            if self._max_size == 0:
+                return
+
+            if key in self._cache:
+                # Update existing and move to end
+                self._cache.move_to_end(key)
+                self._cache[key] = agent
+                return
+
+            # Evict oldest if at capacity
+            while len(self._cache) >= self._max_size:
+                self._cache.popitem(last=False)
+                self._evictions += 1
+
+            self._cache[key] = agent
+
+    def clear(self) -> int:
+        """Clear all agents from the cache. Returns number of agents cleared."""
+        with self._lock:
+            count = len(self._cache)
+            self._cache.clear()
+            return count
+
+    def remove_by_spell_id(self, spell_id: int) -> int:
+        """Remove all cached agents for a specific spell ID.
+
+        Args:
+            spell_id: The spell ID to remove entries for.
+
+        Returns:
+            Number of entries removed.
+        """
+        with self._lock:
+            keys_to_remove = [k for k in self._cache if k[0] == spell_id]
+            for key in keys_to_remove:
+                del self._cache[key]
+            return len(keys_to_remove)
+
+    def stats(self) -> CacheStats:
+        """Get current cache statistics."""
+        with self._lock:
+            return CacheStats(
+                size=len(self._cache),
+                max_size=self._max_size,
+                hits=self._hits,
+                misses=self._misses,
+                evictions=self._evictions,
+            )
+
+    def set_max_size(self, max_size: int) -> None:
+        """Set the maximum cache size. Evicts entries if necessary."""
+        if max_size < 0:
+            raise ValueError("max_size must be non-negative")
+        with self._lock:
+            self._max_size = max_size
+            # Evict if necessary
+            while len(self._cache) > self._max_size and self._max_size > 0:
+                self._cache.popitem(last=False)
+                self._evictions += 1
+
+    @property
+    def max_size(self) -> int:
+        """Get the current maximum cache size."""
+        with self._lock:
+            return self._max_size
+
+
+# Global agent cache instance
+_agent_cache = _LRUAgentCache()
+
+
+def clear_agent_cache() -> int:
+    """Clear all cached agents.
+
+    This is useful for:
+    - Freeing memory in long-running processes
+    - Resetting state between tests
+    - Forcing agent recreation after config changes
+
+    Returns:
+        Number of agents that were cleared from the cache.
+
+    Example:
+        >>> from magically import clear_agent_cache
+        >>> cleared = clear_agent_cache()
+        >>> print(f"Cleared {cleared} agents from cache")
+    """
+    return _agent_cache.clear()
+
+
+def get_cache_stats() -> CacheStats:
+    """Get statistics about the agent cache.
+
+    Returns a CacheStats object with:
+    - size: Current number of cached agents
+    - max_size: Maximum cache capacity
+    - hits: Number of cache hits
+    - misses: Number of cache misses
+    - evictions: Number of agents evicted due to cache full
+
+    Example:
+        >>> from magically import get_cache_stats
+        >>> stats = get_cache_stats()
+        >>> print(f"Cache: {stats.size}/{stats.max_size} agents")
+        >>> print(f"Hit rate: {stats.hits / (stats.hits + stats.misses):.1%}")
+    """
+    return _agent_cache.stats()
+
+
+def set_cache_max_size(max_size: int) -> None:
+    """Set the maximum number of agents to cache.
+
+    When the cache reaches this limit, the least-recently-used agents
+    are evicted to make room for new ones.
+
+    Args:
+        max_size: Maximum number of agents to cache. Must be non-negative.
+            Set to 0 to effectively disable caching.
+
+    Raises:
+        ValueError: If max_size is negative.
+
+    Example:
+        >>> from magically import set_cache_max_size
+        >>> set_cache_max_size(50)  # Reduce cache size
+        >>> set_cache_max_size(0)   # Disable caching
+    """
+    _agent_cache.set_max_size(max_size)
 
 
 def _is_literal_model(model: str) -> bool:
@@ -413,7 +592,7 @@ def spell(
                     end_strategy=end_strategy,  # type: ignore[arg-type]
                     model_settings=resolved_settings,
                 )
-                _agent_cache[cache_key] = agent
+                _agent_cache.set(cache_key, agent)
 
             return agent
 

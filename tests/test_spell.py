@@ -612,3 +612,210 @@ class TestAsyncSpell:
                 # Second call with same config reuses agent
                 await fn("world")
                 assert mock_agent_class.call_count == 1
+
+
+class TestCacheManagement:
+    """Tests for cache management API."""
+
+    def test_clear_agent_cache(self):
+        from magically import clear_agent_cache, get_cache_stats
+
+        @spell(model="openai:gpt-4o")
+        def fn(text: str) -> str:
+            """Test."""
+            ...
+
+        mock_result = MagicMock()
+        mock_result.output = "result"
+        mock_agent = MagicMock()
+        mock_agent.run_sync.return_value = mock_result
+
+        with patch("magically.spell.Agent", return_value=mock_agent):
+            fn("hello")
+
+        # Cache should have 1 agent
+        stats = get_cache_stats()
+        assert stats.size == 1
+
+        # Clear and verify
+        cleared = clear_agent_cache()
+        assert cleared == 1
+
+        stats = get_cache_stats()
+        assert stats.size == 0
+
+    def test_get_cache_stats_returns_correct_values(self):
+        from magically import clear_agent_cache, get_cache_stats
+
+        # Start fresh
+        clear_agent_cache()
+
+        @spell(model="openai:gpt-4o")
+        def fn(text: str) -> str:
+            """Test."""
+            ...
+
+        mock_result = MagicMock()
+        mock_result.output = "result"
+        mock_agent = MagicMock()
+        mock_agent.run_sync.return_value = mock_result
+
+        with patch("magically.spell.Agent", return_value=mock_agent):
+            # First call - cache miss
+            fn("hello")
+
+            # Second call - cache hit
+            fn("world")
+
+        stats = get_cache_stats()
+        assert stats.size == 1
+        assert stats.max_size == 100  # default
+        assert stats.misses >= 1
+        assert stats.hits >= 1
+
+    def test_set_cache_max_size(self):
+        from magically import set_cache_max_size, get_cache_stats, clear_agent_cache
+
+        # Start fresh
+        clear_agent_cache()
+
+        # Set small max size
+        set_cache_max_size(2)
+
+        mock_result = MagicMock()
+        mock_result.output = "result"
+        mock_agent = MagicMock()
+        mock_agent.run_sync.return_value = mock_result
+
+        # Create 3 spells (more than max size)
+        @spell(model="openai:gpt-4o")
+        def fn1(text: str) -> str:
+            """Test 1."""
+            ...
+
+        @spell(model="openai:gpt-4o")
+        def fn2(text: str) -> str:
+            """Test 2."""
+            ...
+
+        @spell(model="openai:gpt-4o")
+        def fn3(text: str) -> str:
+            """Test 3."""
+            ...
+
+        with patch("magically.spell.Agent", return_value=mock_agent):
+            fn1("a")
+            fn2("b")
+            fn3("c")
+
+        stats = get_cache_stats()
+        # Should only have max_size agents
+        assert stats.size == 2
+        assert stats.max_size == 2
+        assert stats.evictions >= 1
+
+        # Restore default
+        set_cache_max_size(100)
+
+    def test_set_cache_max_size_negative_raises(self):
+        from magically import set_cache_max_size
+
+        with pytest.raises(ValueError, match="non-negative"):
+            set_cache_max_size(-1)
+
+    def test_lru_eviction_order(self):
+        from magically import set_cache_max_size, clear_agent_cache, get_cache_stats
+
+        # Start fresh
+        clear_agent_cache()
+
+        # Set small max size
+        set_cache_max_size(2)
+
+        mock_result = MagicMock()
+        mock_result.output = "result"
+        mock_agent = MagicMock()
+        mock_agent.run_sync.return_value = mock_result
+
+        @spell(model="openai:gpt-4o")
+        def fn1(text: str) -> str:
+            """Test 1."""
+            ...
+
+        @spell(model="openai:gpt-4o")
+        def fn2(text: str) -> str:
+            """Test 2."""
+            ...
+
+        @spell(model="openai:gpt-4o")
+        def fn3(text: str) -> str:
+            """Test 3."""
+            ...
+
+        with patch("magically.spell.Agent", return_value=mock_agent) as mock_agent_class:
+            # Fill cache with fn1, fn2
+            fn1("a")  # Creates agent 1
+            fn2("b")  # Creates agent 2
+
+            # Access fn1 again (makes it most recently used)
+            fn1("c")
+
+            # Add fn3 (should evict fn2, not fn1)
+            fn3("d")
+
+            # fn1 should still be cached (was used more recently)
+            fn1("e")
+
+            # Count total agent creations
+            # fn1: 1 creation, fn2: 1 creation, fn3: 1 creation, fn1 again: 0 (cached)
+            assert mock_agent_class.call_count == 3
+
+        stats = get_cache_stats()
+        assert stats.evictions >= 1
+
+        # Restore default
+        set_cache_max_size(100)
+
+    def test_cache_stats_dataclass(self):
+        from magically import CacheStats
+
+        stats = CacheStats(size=5, max_size=100, hits=10, misses=3, evictions=2)
+        assert stats.size == 5
+        assert stats.max_size == 100
+        assert stats.hits == 10
+        assert stats.misses == 3
+        assert stats.evictions == 2
+
+    def test_disable_caching_with_zero_max_size(self):
+        from magically import set_cache_max_size, get_cache_stats, clear_agent_cache
+
+        # Start fresh
+        clear_agent_cache()
+
+        # Disable caching
+        set_cache_max_size(0)
+
+        mock_result = MagicMock()
+        mock_result.output = "result"
+        mock_agent = MagicMock()
+        mock_agent.run_sync.return_value = mock_result
+
+        @spell(model="openai:gpt-4o")
+        def fn(text: str) -> str:
+            """Test."""
+            ...
+
+        with patch("magically.spell.Agent", return_value=mock_agent) as mock_agent_class:
+            fn("a")
+            fn("b")
+            fn("c")
+
+            # Each call should create a new agent (no caching)
+            assert mock_agent_class.call_count == 3
+
+        stats = get_cache_stats()
+        assert stats.size == 0
+        assert stats.max_size == 0
+
+        # Restore default
+        set_cache_max_size(100)
