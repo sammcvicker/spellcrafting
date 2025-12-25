@@ -7,7 +7,6 @@ from __future__ import annotations
 
 import json
 import logging as stdlib_logging
-import time
 from contextlib import contextmanager
 from contextvars import ContextVar, Token
 from dataclasses import dataclass, field
@@ -661,20 +660,15 @@ def setup_logging(
     )
 
 
-def setup_logfire(*, redact_content: bool = False) -> None:
-    """Setup logging with Logfire (OpenTelemetry-based).
+# Convenience aliases for setup_logging(otel=True)
+# These are kept for backwards compatibility and discoverability.
+# For Logfire: install logfire and configure it, then call setup_logfire()
+# For Datadog: install ddtrace and configure it, then call setup_datadog()
+setup_logfire = lambda *, redact_content=False: setup_logging(otel=True, redact_content=redact_content)
+setup_logfire.__doc__ = "Alias for setup_logging(otel=True). Requires logfire package."
 
-    Note: Requires logfire package to be installed and configured.
-    """
-    setup_logging(otel=True, redact_content=redact_content)
-
-
-def setup_datadog(*, redact_content: bool = False) -> None:
-    """Setup logging with Datadog (OpenTelemetry-based).
-
-    Note: Requires ddtrace package to be installed and configured.
-    """
-    setup_logging(otel=True, redact_content=redact_content)
+setup_datadog = lambda *, redact_content=False: setup_logging(otel=True, redact_content=redact_content)
+setup_datadog.__doc__ = "Alias for setup_logging(otel=True). Requires ddtrace package."
 
 
 # ---------------------------------------------------------------------------

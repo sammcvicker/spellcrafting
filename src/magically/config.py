@@ -22,8 +22,6 @@ _file_config_cache: Config | None = None
 class MagicallyConfigError(Exception):
     """Raised when configuration is invalid or missing."""
 
-    pass
-
 
 class ModelConfig(BaseModel):
     """Configuration for a model alias.

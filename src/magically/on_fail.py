@@ -32,8 +32,6 @@ T = TypeVar("T")
 class RetryStrategy:
     """Default: retry with validation error in context (PydanticAI default)."""
 
-    pass
-
 
 @dataclass(frozen=True)
 class EscalateStrategy:
@@ -80,8 +78,6 @@ OnFailStrategy = RetryStrategy | EscalateStrategy | FallbackStrategy | CustomStr
 @dataclass(frozen=True)
 class RaiseStrategy:
     """Raise an error on failure (used for guards)."""
-
-    pass
 
 
 class OnFail:
