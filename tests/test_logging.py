@@ -321,6 +321,103 @@ class TestJSONFileHandler:
             assert len(handler.buffer) == 1
             assert path.exists()
 
+    def test_flush_empty_buffer(self):
+        """Flushing empty buffer should be safe and not create file."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "test.jsonl"
+            handler = JSONFileHandler(path)
+
+            handler.flush()  # Should not raise
+            # File should not be created for empty flush
+            assert not path.exists()
+
+    def test_flush_empty_buffer_multiple_times(self):
+        """Multiple flushes on empty buffer should be safe."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "test.jsonl"
+            handler = JSONFileHandler(path)
+
+            # Multiple empty flushes should all succeed
+            for _ in range(5):
+                handler.flush()
+
+            assert not path.exists()
+
+    def test_handler_creates_parent_directories(self):
+        """Handler should create parent directories on flush."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            # Nested path that doesn't exist
+            path = Path(tmpdir) / "deep" / "nested" / "dir" / "test.jsonl"
+            handler = JSONFileHandler(path)
+
+            log = SpellExecutionLog(
+                spell_name="test",
+                spell_id=1,
+                trace_id="abc",
+                span_id="def",
+            )
+            log.finalize(success=True)
+            handler.handle(log)
+            handler.flush()
+
+            assert path.exists()
+            assert path.parent.exists()
+
+    def test_handler_appends_to_existing_file(self):
+        """Handler should append to existing file, not overwrite."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "test.jsonl"
+            handler1 = JSONFileHandler(path, buffer_size=10)
+            handler2 = JSONFileHandler(path, buffer_size=10)
+
+            # Write with first handler
+            log1 = SpellExecutionLog(
+                spell_name="first",
+                spell_id=1,
+                trace_id="abc",
+                span_id="def",
+            )
+            log1.finalize(success=True)
+            handler1.handle(log1)
+            handler1.flush()
+
+            # Write with second handler (same file)
+            log2 = SpellExecutionLog(
+                spell_name="second",
+                spell_id=2,
+                trace_id="xyz",
+                span_id="uvw",
+            )
+            log2.finalize(success=True)
+            handler2.handle(log2)
+            handler2.flush()
+
+            # Both logs should be in the file
+            lines = path.read_text().strip().split("\n")
+            assert len(lines) == 2
+            assert "first" in lines[0]
+            assert "second" in lines[1]
+
+    def test_buffer_cleared_after_flush(self):
+        """Buffer should be empty after successful flush."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "test.jsonl"
+            handler = JSONFileHandler(path, buffer_size=10)
+
+            for i in range(5):
+                log = SpellExecutionLog(
+                    spell_name=f"test{i}",
+                    spell_id=i,
+                    trace_id="abc",
+                    span_id="def",
+                )
+                log.finalize(success=True)
+                handler.handle(log)
+
+            assert len(handler.buffer) == 5
+            handler.flush()
+            assert len(handler.buffer) == 0
+
 
 class TestLoggingConfig:
     """Tests for LoggingConfig."""
@@ -748,6 +845,158 @@ enabled = false
         assert config.enabled is False
         assert len(config.handlers) == 0
 
+    def test_pyproject_unknown_handler_type(self, tmp_path, monkeypatch):
+        """Test that unknown handler types are silently skipped."""
+        pyproject = tmp_path / "pyproject.toml"
+        pyproject.write_text('''
+[tool.magically.logging]
+enabled = true
+
+[tool.magically.logging.handlers.custom]
+type = "unknown_type"
+''')
+        monkeypatch.chdir(tmp_path)
+
+        logging_module._file_logging_config_cache = None
+
+        config = get_logging_config()
+        assert config.enabled is True
+        # Unknown handler type is skipped, but default Python handler is added
+        # since logging is enabled and no valid handlers were specified
+        handler_types = [type(h).__name__ for h in config.handlers]
+        assert "PythonLoggingHandler" in handler_types
+
+    def test_pyproject_json_handler_missing_path(self, tmp_path, monkeypatch):
+        """Test that json_file handler without path is skipped."""
+        pyproject = tmp_path / "pyproject.toml"
+        pyproject.write_text('''
+[tool.magically.logging]
+enabled = true
+
+[tool.magically.logging.handlers.json]
+type = "json_file"
+# Missing path - should be skipped
+''')
+        monkeypatch.chdir(tmp_path)
+
+        logging_module._file_logging_config_cache = None
+
+        config = get_logging_config()
+        assert config.enabled is True
+        # JSON handler skipped due to missing path, default Python handler added
+        handler_types = [type(h).__name__ for h in config.handlers]
+        assert "JSONFileHandler" not in handler_types
+        assert "PythonLoggingHandler" in handler_types
+
+    def test_pyproject_multiple_python_handlers(self, tmp_path, monkeypatch):
+        """Test multiple handlers of same type."""
+        pyproject = tmp_path / "pyproject.toml"
+        pyproject.write_text('''
+[tool.magically.logging]
+enabled = true
+
+[tool.magically.logging.handlers.python1]
+type = "python"
+logger_name = "logger1"
+
+[tool.magically.logging.handlers.python2]
+type = "python"
+logger_name = "logger2"
+''')
+        monkeypatch.chdir(tmp_path)
+
+        logging_module._file_logging_config_cache = None
+
+        config = get_logging_config()
+        assert config.enabled is True
+        # Both Python handlers should be created
+        python_handlers = [h for h in config.handlers if isinstance(h, PythonLoggingHandler)]
+        assert len(python_handlers) == 2
+        # Verify different logger names
+        logger_names = {h.logger.name for h in python_handlers}
+        assert logger_names == {"logger1", "logger2"}
+
+    def test_pyproject_handler_with_extra_fields(self, tmp_path, monkeypatch):
+        """Test handler config with extra unknown fields is still processed."""
+        pyproject = tmp_path / "pyproject.toml"
+        pyproject.write_text('''
+[tool.magically.logging]
+enabled = true
+
+[tool.magically.logging.handlers.python]
+type = "python"
+logger_name = "test_logger"
+unknown_field = "ignored"
+another_unknown = 123
+''')
+        monkeypatch.chdir(tmp_path)
+
+        logging_module._file_logging_config_cache = None
+
+        config = get_logging_config()
+        assert config.enabled is True
+        # Handler should still be created despite extra fields
+        handler_types = [type(h).__name__ for h in config.handlers]
+        assert "PythonLoggingHandler" in handler_types
+
+    def test_pyproject_handler_not_dict(self, tmp_path, monkeypatch):
+        """Test handler config that is not a dict is skipped."""
+        pyproject = tmp_path / "pyproject.toml"
+        pyproject.write_text('''
+[tool.magically.logging]
+enabled = true
+
+[tool.magically.logging.handlers]
+invalid = "not a dict"
+''')
+        monkeypatch.chdir(tmp_path)
+
+        logging_module._file_logging_config_cache = None
+
+        config = get_logging_config()
+        assert config.enabled is True
+        # Invalid handler skipped, default handler added
+        handler_types = [type(h).__name__ for h in config.handlers]
+        assert "PythonLoggingHandler" in handler_types
+
+    def test_pyproject_otel_handler(self, tmp_path, monkeypatch):
+        """Test OpenTelemetry handler can be configured via pyproject."""
+        pyproject = tmp_path / "pyproject.toml"
+        pyproject.write_text('''
+[tool.magically.logging]
+enabled = true
+
+[tool.magically.logging.handlers.otel]
+type = "otel"
+''')
+        monkeypatch.chdir(tmp_path)
+
+        logging_module._file_logging_config_cache = None
+
+        config = get_logging_config()
+        assert config.enabled is True
+        handler_types = [type(h).__name__ for h in config.handlers]
+        assert "OpenTelemetryHandler" in handler_types
+
+    def test_pyproject_opentelemetry_handler_alias(self, tmp_path, monkeypatch):
+        """Test OpenTelemetry handler with 'opentelemetry' type alias."""
+        pyproject = tmp_path / "pyproject.toml"
+        pyproject.write_text('''
+[tool.magically.logging]
+enabled = true
+
+[tool.magically.logging.handlers.tracing]
+type = "opentelemetry"
+''')
+        monkeypatch.chdir(tmp_path)
+
+        logging_module._file_logging_config_cache = None
+
+        config = get_logging_config()
+        assert config.enabled is True
+        handler_types = [type(h).__name__ for h in config.handlers]
+        assert "OpenTelemetryHandler" in handler_types
+
 
 class TestOpenTelemetryHandler:
     """Tests for OpenTelemetryHandler."""
@@ -765,6 +1014,63 @@ class TestOpenTelemetryHandler:
         log.finalize(success=True)
         handler.handle(log)  # Should not raise
         handler.flush()  # Should not raise
+
+    def test_otel_handler_survives_tracer_error(self):
+        """Handler should not fail if tracer raises."""
+        handler = OpenTelemetryHandler()
+
+        log = SpellExecutionLog(
+            spell_name="test",
+            spell_id=1,
+            trace_id="abc",
+            span_id="def",
+        )
+        log.finalize(success=True)
+
+        # Mock tracer to raise
+        with patch.object(handler, '_tracer', create=True) as mock_tracer:
+            mock_tracer.start_as_current_span.side_effect = Exception("Tracer error")
+            handler._available = True  # Force handler to try using tracer
+
+            # Should not raise - handler catches all exceptions
+            handler.handle(log)
+
+    def test_otel_handler_with_none_tracer(self):
+        """Handler should handle None tracer gracefully."""
+        handler = OpenTelemetryHandler()
+        handler._tracer = None
+        handler._available = True  # Simulate partial initialization
+
+        log = SpellExecutionLog(
+            spell_name="test",
+            spell_id=1,
+            trace_id="abc",
+            span_id="def",
+        )
+        log.finalize(success=True)
+
+        # Should not raise - handler checks for None tracer
+        handler.handle(log)
+
+    def test_otel_handler_handles_import_error(self):
+        """Handler should handle ImportError during span creation."""
+        handler = OpenTelemetryHandler()
+
+        log = SpellExecutionLog(
+            spell_name="test",
+            spell_id=1,
+            trace_id="abc",
+            span_id="def",
+        )
+        log.finalize(success=True)
+
+        # Mock to simulate import error in handle path
+        with patch.object(handler, '_available', True):
+            with patch.object(handler, '_tracer') as mock_tracer:
+                mock_tracer.start_as_current_span.side_effect = ImportError("otel not found")
+
+                # Should not raise - handler catches all exceptions
+                handler.handle(log)
 
 
 class TestValidationMetrics:
