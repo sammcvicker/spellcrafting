@@ -109,9 +109,7 @@ If the value is invalid, return valid=False with a brief reason explaining why."
 
     spell_id = validate._spell_id
     # Remove any cached agents for this spell
-    keys_to_remove = [k for k in _agent_cache if k[0] == spell_id]
-    for key in keys_to_remove:
-        del _agent_cache[key]
+    _agent_cache.remove_by_spell_id(spell_id)
 
     def validator(value: str) -> str:
         """Pydantic validator function."""

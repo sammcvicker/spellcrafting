@@ -250,9 +250,9 @@ class TestLlmValidatorCacheClearing:
     def test_clears_cached_agents(self):
         from magically.spell import _agent_cache
 
-        # Pre-populate with a fake entry
+        # Pre-populate with a fake entry using the cache API
         fake_spell_id = 99999
-        _agent_cache[(fake_spell_id, 0)] = MagicMock()
+        _agent_cache.set((fake_spell_id, 0), MagicMock())
 
         with patch("magically.validator.spell") as mock_spell:
             def make_spell(model):
@@ -267,4 +267,4 @@ class TestLlmValidatorCacheClearing:
             llm_validator("Test rule")
 
             # The cache entry should be cleared
-            assert (fake_spell_id, 0) not in _agent_cache
+            assert _agent_cache.get((fake_spell_id, 0)) is None
