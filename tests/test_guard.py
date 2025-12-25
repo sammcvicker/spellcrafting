@@ -14,6 +14,10 @@ from magically.guard import (
     _run_output_guards,
     _run_input_guards_tracked,
     _run_output_guards_tracked,
+    _run_input_guards_async,
+    _run_output_guards_async,
+    _run_input_guards_tracked_async,
+    _run_output_guards_tracked_async,
     _build_context,
 )
 
@@ -1623,6 +1627,357 @@ class TestTrackedGuardsEarlyFailure:
 
         with pytest.raises(GuardError):
             _run_input_guards_tracked(guards, {"text": "hello"}, TEST_CONTEXT)
+
+
+class TestAsyncGuardRunners:
+    """Tests for async guard runner functions directly (#12).
+
+    These tests verify that the _run_*_async guard runner functions properly
+    await async guard functions. This tests the guard module's internal
+    implementation separate from spell integration.
+    """
+
+    @pytest.mark.asyncio
+    async def test_async_input_guard_runner(self):
+        """Async guard runner properly awaits async guard functions."""
+        import asyncio
+
+        async def async_guard(args: dict, ctx: dict) -> dict:
+            await asyncio.sleep(0)
+            return {k: v.upper() if isinstance(v, str) else v for k, v in args.items()}
+
+        guards = [(async_guard, OnFail.RAISE)]
+
+        result = await _run_input_guards_async(guards, {"text": "hello"}, TEST_CONTEXT)
+
+        assert result == {"text": "HELLO"}
+
+    @pytest.mark.asyncio
+    async def test_async_output_guard_runner(self):
+        """Async output guard runner properly awaits async guard functions."""
+        import asyncio
+
+        async def async_guard(output: str, ctx: dict) -> str:
+            await asyncio.sleep(0)
+            return output.upper()
+
+        guards = [(async_guard, OnFail.RAISE)]
+
+        result = await _run_output_guards_async(guards, "hello", TEST_CONTEXT)
+
+        assert result == "HELLO"
+
+    @pytest.mark.asyncio
+    async def test_async_input_guard_runner_tracked(self):
+        """Async input guard runner with tracking properly awaits async guards."""
+        import asyncio
+
+        async def async_guard(args: dict, ctx: dict) -> dict:
+            await asyncio.sleep(0)
+            return args
+
+        guards = [(async_guard, OnFail.RAISE)]
+
+        result = await _run_input_guards_tracked_async(guards, {"text": "hello"}, TEST_CONTEXT)
+
+        assert result.result == {"text": "hello"}
+        assert "async_guard" in result.passed
+        assert len(result.failed) == 0
+
+    @pytest.mark.asyncio
+    async def test_async_output_guard_runner_tracked(self):
+        """Async output guard runner with tracking properly awaits async guards."""
+        import asyncio
+
+        async def async_guard(output: str, ctx: dict) -> str:
+            await asyncio.sleep(0)
+            return output
+
+        guards = [(async_guard, OnFail.RAISE)]
+
+        result = await _run_output_guards_tracked_async(guards, "test", TEST_CONTEXT)
+
+        assert result.result == "test"
+        assert "async_guard" in result.passed
+        assert len(result.failed) == 0
+
+    @pytest.mark.asyncio
+    async def test_async_guard_runner_rejection(self):
+        """Async guard runner properly handles rejection from async guard."""
+        import asyncio
+
+        async def rejecting_guard(args: dict, ctx: dict) -> dict:
+            await asyncio.sleep(0)
+            raise ValueError("Async guard rejection")
+
+        guards = [(rejecting_guard, OnFail.RAISE)]
+
+        with pytest.raises(GuardError, match="Async guard rejection"):
+            await _run_input_guards_async(guards, {"text": "hello"}, TEST_CONTEXT)
+
+    @pytest.mark.asyncio
+    async def test_async_guard_runner_mixed_sync_async(self):
+        """Async guard runner handles mix of sync and async guards."""
+        import asyncio
+
+        call_order = []
+
+        def sync_guard(args: dict, ctx: dict) -> dict:
+            call_order.append("sync")
+            return args
+
+        async def async_guard(args: dict, ctx: dict) -> dict:
+            await asyncio.sleep(0)
+            call_order.append("async")
+            return args
+
+        guards = [(sync_guard, OnFail.RAISE), (async_guard, OnFail.RAISE)]
+
+        result = await _run_input_guards_async(guards, {"text": "hello"}, TEST_CONTEXT)
+
+        assert result == {"text": "hello"}
+        assert call_order == ["sync", "async"]
+
+    @pytest.mark.asyncio
+    async def test_async_guard_runner_chain_transforms(self):
+        """Async guard runner properly chains transforms from multiple async guards."""
+        import asyncio
+
+        async def add_prefix(args: dict, ctx: dict) -> dict:
+            await asyncio.sleep(0)
+            return {k: f"PREFIX_{v}" if isinstance(v, str) else v for k, v in args.items()}
+
+        async def add_suffix(args: dict, ctx: dict) -> dict:
+            await asyncio.sleep(0)
+            return {k: f"{v}_SUFFIX" if isinstance(v, str) else v for k, v in args.items()}
+
+        guards = [(add_prefix, OnFail.RAISE), (add_suffix, OnFail.RAISE)]
+
+        result = await _run_input_guards_async(guards, {"text": "hello"}, TEST_CONTEXT)
+
+        assert result == {"text": "PREFIX_hello_SUFFIX"}
+
+
+class TestAsyncGuardFunctions:
+    """Tests for async guard functions with spell integration (#12).
+
+    These tests verify that guard functions which are async (use await) are
+    properly awaited during spell execution. This exercises the code path
+    where `asyncio.iscoroutine(result)` returns True.
+    """
+
+    @pytest.mark.asyncio
+    async def test_async_input_guard_with_await(self):
+        """Async input guard that does await is properly executed."""
+        import asyncio
+
+        guard_calls = []
+        captured_prompts = []
+
+        async def async_input_guard(args: dict, ctx: dict) -> dict:
+            # Simulate async work
+            await asyncio.sleep(0)
+            guard_calls.append("async_input")
+            return {k: v.upper() if isinstance(v, str) else v for k, v in args.items()}
+
+        @spell
+        @guard.input(async_input_guard)
+        async def summarize(text: str) -> str:
+            """Summarize."""
+            ...
+
+        mock_result = MagicMock()
+        mock_result.output = "summary"
+        mock_agent = MagicMock()
+
+        async def mock_run(prompt):
+            captured_prompts.append(prompt)
+            return mock_result
+
+        mock_agent.run = mock_run
+
+        with patch("magically.spell.Agent", return_value=mock_agent):
+            result = await summarize("hello")
+
+        assert guard_calls == ["async_input"]
+        # Verify the guard transformed the input
+        assert len(captured_prompts) == 1
+        # The prompt should contain the uppercased text
+        assert "HELLO" in captured_prompts[0]
+
+    @pytest.mark.asyncio
+    async def test_async_output_guard_with_await(self):
+        """Async output guard that does await is properly executed."""
+        import asyncio
+
+        guard_calls = []
+
+        async def async_output_guard(output: str, ctx: dict) -> str:
+            # Simulate async work
+            await asyncio.sleep(0)
+            guard_calls.append("async_output")
+            return output.upper()
+
+        @spell
+        @guard.output(async_output_guard)
+        async def summarize(text: str) -> str:
+            """Summarize."""
+            ...
+
+        mock_result = MagicMock()
+        mock_result.output = "summary"
+        mock_agent = MagicMock()
+
+        async def mock_run(prompt):
+            return mock_result
+
+        mock_agent.run = mock_run
+
+        with patch("magically.spell.Agent", return_value=mock_agent):
+            result = await summarize("test")
+
+        assert guard_calls == ["async_output"]
+        assert result == "SUMMARY"
+
+    @pytest.mark.asyncio
+    async def test_async_input_guard_can_reject(self):
+        """Async input guard that raises is properly handled."""
+        import asyncio
+
+        async def rejecting_async_guard(args: dict, ctx: dict) -> dict:
+            await asyncio.sleep(0)  # Simulate async work
+            raise ValueError("Async rejection!")
+
+        @spell
+        @guard.input(rejecting_async_guard)
+        async def summarize(text: str) -> str:
+            """Summarize."""
+            ...
+
+        mock_agent = MagicMock()
+
+        with patch("magically.spell.Agent", return_value=mock_agent):
+            with pytest.raises(GuardError, match="Async rejection!"):
+                await summarize("test")
+
+    @pytest.mark.asyncio
+    async def test_async_output_guard_can_reject(self):
+        """Async output guard that raises is properly handled."""
+        import asyncio
+
+        async def rejecting_async_guard(output: str, ctx: dict) -> str:
+            await asyncio.sleep(0)  # Simulate async work
+            raise ValueError("Async output rejection!")
+
+        @spell
+        @guard.output(rejecting_async_guard)
+        async def summarize(text: str) -> str:
+            """Summarize."""
+            ...
+
+        mock_result = MagicMock()
+        mock_result.output = "summary"
+        mock_agent = MagicMock()
+
+        async def mock_run(prompt):
+            return mock_result
+
+        mock_agent.run = mock_run
+
+        with patch("magically.spell.Agent", return_value=mock_agent):
+            with pytest.raises(GuardError, match="Async output rejection!"):
+                await summarize("test")
+
+    @pytest.mark.asyncio
+    async def test_mixed_sync_and_async_guards(self):
+        """Mix of sync and async guards execute correctly."""
+        import asyncio
+
+        call_order = []
+
+        def sync_input_guard(args: dict, ctx: dict) -> dict:
+            call_order.append("sync_input")
+            return args
+
+        async def async_input_guard(args: dict, ctx: dict) -> dict:
+            await asyncio.sleep(0)
+            call_order.append("async_input")
+            return args
+
+        def sync_output_guard(output: str, ctx: dict) -> str:
+            call_order.append("sync_output")
+            return output
+
+        async def async_output_guard(output: str, ctx: dict) -> str:
+            await asyncio.sleep(0)
+            call_order.append("async_output")
+            return output
+
+        @spell
+        @guard.input(sync_input_guard)
+        @guard.input(async_input_guard)
+        @guard.output(sync_output_guard)
+        @guard.output(async_output_guard)
+        async def summarize(text: str) -> str:
+            """Summarize."""
+            ...
+
+        mock_result = MagicMock()
+        mock_result.output = "summary"
+        mock_agent = MagicMock()
+
+        async def mock_run(prompt):
+            return mock_result
+
+        mock_agent.run = mock_run
+
+        with patch("magically.spell.Agent", return_value=mock_agent):
+            await summarize("test")
+
+        # Input guards run first (in decorator order), then output guards
+        assert "sync_input" in call_order
+        assert "async_input" in call_order
+        assert "sync_output" in call_order
+        assert "async_output" in call_order
+
+    @pytest.mark.asyncio
+    async def test_async_guard_chain_transforms(self):
+        """Multiple async guards properly chain their transforms."""
+        import asyncio
+
+        captured_prompts = []
+
+        async def add_prefix(args: dict, ctx: dict) -> dict:
+            await asyncio.sleep(0)
+            return {k: f"PREFIX_{v}" if isinstance(v, str) else v for k, v in args.items()}
+
+        async def add_suffix(args: dict, ctx: dict) -> dict:
+            await asyncio.sleep(0)
+            return {k: f"{v}_SUFFIX" if isinstance(v, str) else v for k, v in args.items()}
+
+        @spell
+        @guard.input(add_prefix)
+        @guard.input(add_suffix)
+        async def summarize(text: str) -> str:
+            """Summarize."""
+            ...
+
+        mock_result = MagicMock()
+        mock_result.output = "summary"
+        mock_agent = MagicMock()
+
+        async def mock_run(prompt):
+            captured_prompts.append(prompt)
+            return mock_result
+
+        mock_agent.run = mock_run
+
+        with patch("magically.spell.Agent", return_value=mock_agent):
+            await summarize("hello")
+
+        # Check the prompt contains the transformed input
+        assert len(captured_prompts) == 1
+        assert "PREFIX_hello_SUFFIX" in captured_prompts[0]
 
 
 class TestGuardErrorHandling:

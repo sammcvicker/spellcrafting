@@ -256,6 +256,159 @@ The `on_fail` parameter controls behavior when validation fails:
 
 > **Note**: LLM validators add latency and cost. Use fast/cheap models for validation checks.
 
+## Guardrails
+
+Use `@guard` decorators to add input/output validation around your spells:
+
+```python
+from magically import spell, guard, GuardError
+
+def validate_not_empty(input_args: dict, context: dict) -> dict:
+    """Validate that input text is not empty."""
+    if not input_args.get("text", "").strip():
+        raise ValueError("Input text cannot be empty")
+    return input_args
+
+def check_no_competitors(output: str, context: dict) -> str:
+    """Ensure output doesn't mention competitor names."""
+    competitors = {"acme", "globex"}
+    if any(c in output.lower() for c in competitors):
+        raise ValueError("Response mentions competitor")
+    return output
+
+@spell(model="fast")
+@guard.input(validate_not_empty)
+@guard.output(check_no_competitors)
+def summarize(text: str) -> str:
+    """Summarize the given text."""
+    ...
+```
+
+**Important**: Guards must be applied *inside* `@spell` (spell is the outermost decorator).
+
+### Built-in Guards
+
+```python
+# Limit input and output character lengths
+@spell(model="fast")
+@guard.max_length(input_max=10000, output_max=5000)
+def summarize(text: str) -> str:
+    """Summarize the text."""
+    ...
+```
+
+### Guard Context
+
+Guard functions receive a context dict with execution metadata:
+
+```python
+def my_guard(input_args: dict, context: dict) -> dict:
+    print(f"Spell: {context['spell_name']}")
+    print(f"Model: {context['model']}")
+    print(f"Attempt: {context['attempt_number']}")
+    return input_args
+```
+
+### Async Guards
+
+Guards can be async functions when used with async spells:
+
+```python
+async def async_validator(input_args: dict, context: dict) -> dict:
+    result = await some_async_validation(input_args)
+    return input_args
+
+@spell(model="fast")
+@guard.input(async_validator)
+async def my_async_spell(text: str) -> str:
+    """Process text."""
+    ...
+```
+
+## Handling Validation Failures
+
+The `on_fail` parameter controls what happens when the LLM output fails Pydantic validation after all retries are exhausted:
+
+```python
+from magically import spell, OnFail
+
+# Escalate to a more capable model on failure
+@spell(model="fast", on_fail=OnFail.escalate("reasoning"))
+def complex_task(query: str) -> Analysis:
+    """Complex analysis that may need a better model."""
+    ...
+
+# Return a default value instead of raising
+@spell(on_fail=OnFail.fallback(default=DefaultResponse()))
+def optional_enrichment(data: str) -> Enriched:
+    """Optionally enrich the data."""
+    ...
+
+# Custom handler for domain-specific fixes
+def fix_dates(error: Exception, attempt: int, context: dict) -> Dates:
+    if "date format" in str(error):
+        return parse_dates_manually(context["input_args"]["text"])
+    raise error
+
+@spell(on_fail=OnFail.custom(fix_dates))
+def extract_dates(text: str) -> Dates:
+    """Extract dates from text."""
+    ...
+```
+
+### Available Strategies
+
+| Strategy | Description |
+|----------|-------------|
+| `OnFail.retry()` | Default. Retry with validation error in context. |
+| `OnFail.escalate(model)` | Try a more capable model after retries exhausted. |
+| `OnFail.fallback(default)` | Return a default value instead of raising. |
+| `OnFail.custom(handler)` | Call a custom handler function. |
+
+## Execution Metadata with SpellResult
+
+Use `.with_metadata()` to get detailed execution information alongside the spell output:
+
+```python
+from magically import spell
+
+@spell(model="fast")
+def classify(text: str) -> Category:
+    """Classify the text."""
+    ...
+
+# Normal call - just returns Category
+result = classify("some text")
+
+# With metadata - returns SpellResult[Category]
+result = classify.with_metadata("some text")
+
+# Access the output and metadata
+print(result.output)        # Category instance
+print(result.input_tokens)  # 50
+print(result.output_tokens) # 25
+print(result.total_tokens)  # 75
+print(result.model_used)    # "openai:gpt-4o-mini"
+print(result.duration_ms)   # 234.5
+print(result.cost_estimate) # 0.00015 (USD)
+print(result.attempt_count) # 1 (no retries)
+print(result.trace_id)      # "abc123..." (for log correlation)
+```
+
+### SpellResult Fields
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `output` | `T` | The spell's return value |
+| `input_tokens` | `int` | Number of input tokens used |
+| `output_tokens` | `int` | Number of output tokens generated |
+| `total_tokens` | `int` | Sum of input and output tokens |
+| `model_used` | `str` | The actual model that was used |
+| `duration_ms` | `float` | Execution time in milliseconds |
+| `cost_estimate` | `float \| None` | Estimated cost in USD |
+| `attempt_count` | `int` | Number of attempts (1 = no retries) |
+| `trace_id` | `str \| None` | Trace ID for log correlation |
+
 ## Observability
 
 Magically provides comprehensive logging, tracing, and cost tracking.
@@ -300,19 +453,6 @@ from magically import with_trace_id
 # Correlate with external request trace
 with with_trace_id(request.headers["X-Trace-ID"]):
     result = my_spell("input")
-```
-
-### Execution Metadata
-
-Access token usage and cost estimates:
-
-```python
-result = my_spell.with_metadata("input")
-
-print(f"Tokens: {result.input_tokens} in, {result.output_tokens} out")
-print(f"Cost: ${result.cost_estimate.total_cost:.4f}")
-print(f"Duration: {result.duration_ms}ms")
-print(f"Output: {result.output}")
 ```
 
 ### Configuration via pyproject.toml
