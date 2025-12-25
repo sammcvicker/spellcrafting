@@ -680,3 +680,168 @@ class TestSpellResultTotalTokens:
             assert result.input_tokens == 150
             assert result.output_tokens == 250
             assert result.total_tokens == 400
+
+
+class TestWithMetadataOnFailStrategies:
+    """Tests for with_metadata tracking of on_fail strategies."""
+
+    def test_with_metadata_tracks_fallback(self):
+        """with_metadata returns fallback default when on_fail=fallback is triggered."""
+        from magically.on_fail import OnFail
+        from magically._pydantic_ai import UnexpectedModelBehavior
+
+        fallback_default = "fallback result"
+
+        @spell(model="openai:gpt-4o", on_fail=OnFail.fallback(default=fallback_default))
+        def analyze(text: str) -> str:
+            """Analyze the text."""
+            ...
+
+        mock_agent = MagicMock()
+        mock_agent.run_sync.side_effect = UnexpectedModelBehavior("Validation failed")
+
+        with patch("magically.spell.Agent", return_value=mock_agent):
+            result = analyze.with_metadata("test input")
+
+            assert isinstance(result, SpellResult)
+            assert result.output == fallback_default
+            # Fallback should still track attempt_count as 1 (initial attempt failed)
+            assert result.attempt_count == 1
+
+    def test_with_metadata_tracks_escalation(self):
+        """with_metadata tracks escalated model when on_fail=escalate is triggered."""
+        from magically.on_fail import OnFail
+        from magically._pydantic_ai import UnexpectedModelBehavior
+
+        @spell(model="openai:gpt-4o-mini", on_fail=OnFail.escalate("openai:gpt-4o"))
+        def analyze(text: str) -> str:
+            """Analyze the text."""
+            ...
+
+        # First agent fails
+        mock_agent_mini = MagicMock()
+        mock_agent_mini.run_sync.side_effect = UnexpectedModelBehavior("Validation failed")
+
+        # Escalated agent succeeds
+        mock_usage = MagicMock()
+        mock_usage.request_tokens = 100
+        mock_usage.response_tokens = 50
+
+        mock_result = MagicMock()
+        mock_result.output = "escalated result"
+        mock_result.usage.return_value = mock_usage
+
+        mock_agent_escalated = MagicMock()
+        mock_agent_escalated.run_sync.return_value = mock_result
+
+        call_count = [0]
+
+        def agent_side_effect(*args, **kwargs):
+            call_count[0] += 1
+            if call_count[0] == 1:
+                return mock_agent_mini
+            return mock_agent_escalated
+
+        with patch("magically.spell.Agent", side_effect=agent_side_effect):
+            result = analyze.with_metadata("test input")
+
+            assert isinstance(result, SpellResult)
+            assert result.output == "escalated result"
+            # The result should reflect successful completion
+            # (escalation model is tracked in ValidationMetrics, not model_used directly)
+
+    def test_with_metadata_tracks_custom_handler(self):
+        """with_metadata works with custom on_fail handler."""
+        from magically.on_fail import OnFail
+        from magically._pydantic_ai import UnexpectedModelBehavior
+
+        custom_output = "custom handled result"
+
+        def my_handler(error: Exception, attempt: int, context: dict) -> str:
+            return custom_output
+
+        @spell(model="openai:gpt-4o", on_fail=OnFail.custom(my_handler))
+        def analyze(text: str) -> str:
+            """Analyze the text."""
+            ...
+
+        mock_agent = MagicMock()
+        mock_agent.run_sync.side_effect = UnexpectedModelBehavior("Validation failed")
+
+        with patch("magically.spell.Agent", return_value=mock_agent):
+            result = analyze.with_metadata("test input")
+
+            assert isinstance(result, SpellResult)
+            assert result.output == custom_output
+
+    @pytest.mark.asyncio
+    async def test_async_with_metadata_tracks_fallback(self):
+        """Async with_metadata returns fallback default when on_fail=fallback is triggered."""
+        from magically.on_fail import OnFail
+        from magically._pydantic_ai import UnexpectedModelBehavior
+
+        fallback_default = "async fallback"
+
+        @spell(model="openai:gpt-4o", on_fail=OnFail.fallback(default=fallback_default))
+        async def analyze(text: str) -> str:
+            """Analyze the text."""
+            ...
+
+        mock_agent = MagicMock()
+
+        async def mock_run(prompt):
+            raise UnexpectedModelBehavior("Validation failed")
+        mock_agent.run = mock_run
+
+        with patch("magically.spell.Agent", return_value=mock_agent):
+            result = await analyze.with_metadata("test input")
+
+            assert isinstance(result, SpellResult)
+            assert result.output == fallback_default
+
+    @pytest.mark.asyncio
+    async def test_async_with_metadata_tracks_escalation(self):
+        """Async with_metadata tracks escalation when on_fail=escalate is triggered."""
+        from magically.on_fail import OnFail
+        from magically._pydantic_ai import UnexpectedModelBehavior
+
+        @spell(model="openai:gpt-4o-mini", on_fail=OnFail.escalate("openai:gpt-4o"))
+        async def analyze(text: str) -> str:
+            """Analyze the text."""
+            ...
+
+        # First agent fails
+        mock_agent_mini = MagicMock()
+
+        async def mock_run_fail(prompt):
+            raise UnexpectedModelBehavior("Validation failed")
+        mock_agent_mini.run = mock_run_fail
+
+        # Escalated agent succeeds
+        mock_usage = MagicMock()
+        mock_usage.request_tokens = 100
+        mock_usage.response_tokens = 50
+
+        mock_result = MagicMock()
+        mock_result.output = "async escalated result"
+        mock_result.usage.return_value = mock_usage
+
+        mock_agent_escalated = MagicMock()
+
+        async def mock_run_success(prompt):
+            return mock_result
+        mock_agent_escalated.run = mock_run_success
+
+        call_count = [0]
+
+        def agent_side_effect(*args, **kwargs):
+            call_count[0] += 1
+            if call_count[0] == 1:
+                return mock_agent_mini
+            return mock_agent_escalated
+
+        with patch("magically.spell.Agent", side_effect=agent_side_effect):
+            result = await analyze.with_metadata("test input")
+
+            assert isinstance(result, SpellResult)
+            assert result.output == "async escalated result"
