@@ -845,3 +845,293 @@ class TestWithMetadataOnFailStrategies:
 
             assert isinstance(result, SpellResult)
             assert result.output == "async escalated result"
+
+
+class TestWithMetadataWithGuards:
+    """Tests for with_metadata when guards are attached to spells (issue #25)."""
+
+    def test_with_metadata_runs_input_guards_sync(self):
+        """Sync: with_metadata runs input guards before LLM call."""
+        from magically import guard
+
+        guard_called = []
+
+        def track_input_guard(input_args: dict, ctx: dict) -> dict:
+            guard_called.append("input")
+            return input_args
+
+        @spell
+        @guard.input(track_input_guard)
+        def classify(text: str) -> str:
+            """Classify the text."""
+            ...
+
+        mock_usage = MagicMock()
+        mock_usage.request_tokens = 50
+        mock_usage.response_tokens = 100
+
+        mock_result = MagicMock()
+        mock_result.output = "positive"
+        mock_result.usage.return_value = mock_usage
+
+        mock_agent = MagicMock()
+        mock_agent.run_sync.return_value = mock_result
+
+        with patch("magically.spell.Agent", return_value=mock_agent):
+            result = classify.with_metadata("test input")
+
+            assert isinstance(result, SpellResult)
+            assert result.output == "positive"
+            assert guard_called == ["input"]
+
+    def test_with_metadata_runs_output_guards_sync(self):
+        """Sync: with_metadata runs output guards after LLM call."""
+        from magically import guard
+
+        guard_called = []
+
+        def track_output_guard(output: str, ctx: dict) -> str:
+            guard_called.append("output")
+            return output.upper()
+
+        @spell
+        @guard.output(track_output_guard)
+        def classify(text: str) -> str:
+            """Classify the text."""
+            ...
+
+        mock_usage = MagicMock()
+        mock_usage.request_tokens = 50
+        mock_usage.response_tokens = 100
+
+        mock_result = MagicMock()
+        mock_result.output = "positive"
+        mock_result.usage.return_value = mock_usage
+
+        mock_agent = MagicMock()
+        mock_agent.run_sync.return_value = mock_result
+
+        with patch("magically.spell.Agent", return_value=mock_agent):
+            result = classify.with_metadata("test input")
+
+            assert isinstance(result, SpellResult)
+            # Output should be transformed by the guard
+            assert result.output == "POSITIVE"
+            assert guard_called == ["output"]
+
+    def test_with_metadata_runs_both_guards_sync(self):
+        """Sync: with_metadata runs both input and output guards in correct order."""
+        from magically import guard
+
+        guard_order = []
+
+        def input_guard(input_args: dict, ctx: dict) -> dict:
+            guard_order.append("input")
+            return input_args
+
+        def output_guard(output: str, ctx: dict) -> str:
+            guard_order.append("output")
+            return output
+
+        @spell
+        @guard.input(input_guard)
+        @guard.output(output_guard)
+        def classify(text: str) -> str:
+            """Classify the text."""
+            ...
+
+        mock_usage = MagicMock()
+        mock_usage.request_tokens = 50
+        mock_usage.response_tokens = 100
+
+        mock_result = MagicMock()
+        mock_result.output = "result"
+        mock_result.usage.return_value = mock_usage
+
+        mock_agent = MagicMock()
+        mock_agent.run_sync.return_value = mock_result
+
+        with patch("magically.spell.Agent", return_value=mock_agent):
+            result = classify.with_metadata("test input")
+
+            assert isinstance(result, SpellResult)
+            assert result.output == "result"
+            # Input guard runs before output guard
+            assert guard_order == ["input", "output"]
+
+    @pytest.mark.asyncio
+    async def test_with_metadata_runs_input_guards_async(self):
+        """Async: with_metadata runs input guards before LLM call."""
+        from magically import guard
+
+        guard_called = []
+
+        def track_input_guard(input_args: dict, ctx: dict) -> dict:
+            guard_called.append("input")
+            return input_args
+
+        @spell
+        @guard.input(track_input_guard)
+        async def classify(text: str) -> str:
+            """Classify the text."""
+            ...
+
+        mock_usage = MagicMock()
+        mock_usage.request_tokens = 50
+        mock_usage.response_tokens = 100
+
+        mock_result = MagicMock()
+        mock_result.output = "positive"
+        mock_result.usage.return_value = mock_usage
+
+        mock_agent = MagicMock()
+
+        async def mock_run(prompt):
+            return mock_result
+        mock_agent.run = mock_run
+
+        with patch("magically.spell.Agent", return_value=mock_agent):
+            result = await classify.with_metadata("test input")
+
+            assert isinstance(result, SpellResult)
+            assert result.output == "positive"
+            assert guard_called == ["input"]
+
+    @pytest.mark.asyncio
+    async def test_with_metadata_runs_output_guards_async(self):
+        """Async: with_metadata runs output guards after LLM call."""
+        from magically import guard
+
+        guard_called = []
+
+        def track_output_guard(output: str, ctx: dict) -> str:
+            guard_called.append("output")
+            return output.upper()
+
+        @spell
+        @guard.output(track_output_guard)
+        async def classify(text: str) -> str:
+            """Classify the text."""
+            ...
+
+        mock_usage = MagicMock()
+        mock_usage.request_tokens = 50
+        mock_usage.response_tokens = 100
+
+        mock_result = MagicMock()
+        mock_result.output = "positive"
+        mock_result.usage.return_value = mock_usage
+
+        mock_agent = MagicMock()
+
+        async def mock_run(prompt):
+            return mock_result
+        mock_agent.run = mock_run
+
+        with patch("magically.spell.Agent", return_value=mock_agent):
+            result = await classify.with_metadata("test input")
+
+            assert isinstance(result, SpellResult)
+            # Output should be transformed by the guard
+            assert result.output == "POSITIVE"
+            assert guard_called == ["output"]
+
+    @pytest.mark.asyncio
+    async def test_with_metadata_runs_async_guards(self):
+        """Async: with_metadata properly awaits async guard functions."""
+        from magically import guard
+
+        guard_called = []
+
+        async def async_input_guard(input_args: dict, ctx: dict) -> dict:
+            guard_called.append("async_input")
+            return input_args
+
+        async def async_output_guard(output: str, ctx: dict) -> str:
+            guard_called.append("async_output")
+            return output
+
+        @spell
+        @guard.input(async_input_guard)
+        @guard.output(async_output_guard)
+        async def classify(text: str) -> str:
+            """Classify the text."""
+            ...
+
+        mock_usage = MagicMock()
+        mock_usage.request_tokens = 50
+        mock_usage.response_tokens = 100
+
+        mock_result = MagicMock()
+        mock_result.output = "result"
+        mock_result.usage.return_value = mock_usage
+
+        mock_agent = MagicMock()
+
+        async def mock_run(prompt):
+            return mock_result
+        mock_agent.run = mock_run
+
+        with patch("magically.spell.Agent", return_value=mock_agent):
+            result = await classify.with_metadata("test input")
+
+            assert isinstance(result, SpellResult)
+            assert result.output == "result"
+            # Both async guards should have been called
+            assert guard_called == ["async_input", "async_output"]
+
+    def test_with_metadata_guard_transforms_input(self):
+        """with_metadata correctly uses transformed input from guard."""
+        from magically import guard
+
+        def uppercase_input(input_args: dict, ctx: dict) -> dict:
+            # Transform the text input to uppercase
+            if "text" in input_args:
+                input_args["text"] = input_args["text"].upper()
+            return input_args
+
+        @spell
+        @guard.input(uppercase_input)
+        def classify(text: str) -> str:
+            """Classify the text."""
+            ...
+
+        mock_usage = MagicMock()
+        mock_usage.request_tokens = 50
+        mock_usage.response_tokens = 100
+
+        mock_result = MagicMock()
+        mock_result.output = "result"
+        mock_result.usage.return_value = mock_usage
+
+        mock_agent = MagicMock()
+        mock_agent.run_sync.return_value = mock_result
+
+        with patch("magically.spell.Agent", return_value=mock_agent):
+            result = classify.with_metadata("hello world")
+
+            assert isinstance(result, SpellResult)
+            # Verify the agent was called with the transformed input
+            call_args = mock_agent.run_sync.call_args[0][0]
+            # The user prompt should contain the uppercased text
+            assert "HELLO WORLD" in call_args
+
+    def test_with_metadata_guard_error_propagates(self):
+        """with_metadata propagates guard errors correctly."""
+        from magically import guard
+        from magically.exceptions import GuardError
+
+        def failing_guard(input_args: dict, ctx: dict) -> dict:
+            raise ValueError("Guard validation failed")
+
+        @spell
+        @guard.input(failing_guard)
+        def classify(text: str) -> str:
+            """Classify the text."""
+            ...
+
+        mock_agent = MagicMock()
+
+        with patch("magically.spell.Agent", return_value=mock_agent):
+            with pytest.raises(GuardError, match="Guard validation failed"):
+                classify.with_metadata("test input")

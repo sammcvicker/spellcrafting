@@ -10,7 +10,7 @@ import warnings
 from collections import OrderedDict
 from collections.abc import Awaitable
 from dataclasses import dataclass, field
-from typing import Any, Callable, ParamSpec, TypeVar, overload
+from typing import Any, Callable, ParamSpec, Protocol, TypeVar, overload, runtime_checkable
 
 # Module-level logger for debug messages about internal operations
 _logger = logging.getLogger(__name__)
@@ -57,6 +57,105 @@ SpellId = int
 ConfigHash = int
 AgentCacheKey = tuple[SpellId, ConfigHash]
 CachedAgent = Agent[None, Any]
+
+
+# ---------------------------------------------------------------------------
+# Protocol types for spell wrappers (issue #26, #27)
+# ---------------------------------------------------------------------------
+
+
+@runtime_checkable
+class SpellWrapper(Protocol[P, T]):
+    """Protocol for sync functions decorated with @spell.
+
+    This protocol provides type safety for the additional attributes and methods
+    added by the @spell decorator to synchronous functions.
+
+    Attributes:
+        _original_func: The original undecorated function
+        _is_spell_wrapper: Marker to detect if function is a spell wrapper
+        _model_alias: The model alias specified in @spell (may be None)
+        _system_prompt: The effective system prompt (from docstring or explicit)
+        _output_type: The output type extracted from return annotation
+        _retries: Number of retries configured
+        _spell_id: Unique identifier for this spell instance
+        _is_async: Whether the wrapped function is async (False for sync)
+        _on_fail: The configured on_fail strategy
+
+    Methods:
+        __call__: Call the spell with arguments
+        with_metadata: Call the spell and return SpellResult with execution metadata
+        _resolve_model_and_settings: Resolve model alias at call time
+    """
+
+    _original_func: Callable[P, T]
+    _is_spell_wrapper: bool
+    _model_alias: str | None
+    _system_prompt: str
+    _output_type: type[T]
+    _retries: int
+    _spell_id: int
+    _is_async: bool
+    _on_fail: OnFailStrategy | None
+
+    def __call__(self, *args: P.args, **kwargs: P.kwargs) -> T:
+        """Execute the spell with the given arguments."""
+        ...
+
+    def with_metadata(self, *args: P.args, **kwargs: P.kwargs) -> SpellResult[T]:
+        """Execute the spell and return output with execution metadata."""
+        ...
+
+    def _resolve_model_and_settings(self) -> tuple[str | None, ModelSettings | None, int]:
+        """Resolve model alias and merge settings at call time."""
+        ...
+
+
+@runtime_checkable
+class AsyncSpellWrapper(Protocol[P, T]):
+    """Protocol for async functions decorated with @spell.
+
+    This protocol provides type safety for the additional attributes and methods
+    added by the @spell decorator to asynchronous functions.
+
+    Attributes:
+        _original_func: The original undecorated function
+        _is_spell_wrapper: Marker to detect if function is a spell wrapper
+        _model_alias: The model alias specified in @spell (may be None)
+        _system_prompt: The effective system prompt (from docstring or explicit)
+        _output_type: The output type extracted from return annotation
+        _retries: Number of retries configured
+        _spell_id: Unique identifier for this spell instance
+        _is_async: Whether the wrapped function is async (True for async)
+        _on_fail: The configured on_fail strategy
+
+    Methods:
+        __call__: Call the spell with arguments (returns Awaitable)
+        with_metadata: Call the spell and return SpellResult with execution metadata
+        _resolve_model_and_settings: Resolve model alias at call time
+    """
+
+    _original_func: Callable[P, Awaitable[T]]
+    _is_spell_wrapper: bool
+    _model_alias: str | None
+    _system_prompt: str
+    _output_type: type[T]
+    _retries: int
+    _spell_id: int
+    _is_async: bool
+    _on_fail: OnFailStrategy | None
+
+    def __call__(self, *args: P.args, **kwargs: P.kwargs) -> Awaitable[T]:
+        """Execute the spell with the given arguments."""
+        ...
+
+    def with_metadata(self, *args: P.args, **kwargs: P.kwargs) -> Awaitable[SpellResult[T]]:
+        """Execute the spell and return output with execution metadata."""
+        ...
+
+    def _resolve_model_and_settings(self) -> tuple[str | None, ModelSettings | None, int]:
+        """Resolve model alias and merge settings at call time."""
+        ...
 
 # Default maximum cache size (can be configured via set_cache_max_size)
 _DEFAULT_CACHE_MAX_SIZE = 100
@@ -430,6 +529,107 @@ def _resolve_escalation_model(
     return model_config.model, model_config.to_model_settings()
 
 
+# ---------------------------------------------------------------------------
+# Shared helper functions for sync/async wrapper DRY (issue #24)
+# ---------------------------------------------------------------------------
+
+
+def _track_on_fail_strategy(
+    validation_metrics: ValidationMetrics | None,
+    error: Exception,
+    on_fail: OnFailStrategy,
+) -> None:
+    """Track validation error and on_fail strategy in metrics.
+
+    This helper reduces duplication between sync and async wrappers by
+    centralizing the validation tracking logic.
+    """
+    if validation_metrics is None:
+        return
+
+    validation_metrics.pydantic_errors.append(str(error))
+    if isinstance(on_fail, EscalateStrategy):
+        validation_metrics.on_fail_triggered = "escalate"
+        validation_metrics.escalated_to_model = on_fail.model
+    elif isinstance(on_fail, FallbackStrategy):
+        validation_metrics.on_fail_triggered = "fallback"
+    elif isinstance(on_fail, CustomStrategy):
+        validation_metrics.on_fail_triggered = "custom"
+    elif isinstance(on_fail, RetryStrategy):
+        validation_metrics.on_fail_triggered = "retry"
+
+
+def _create_execution_log(
+    fn: Callable[..., Any],
+    spell_id: int,
+    ctx: Any,  # TraceContext
+    resolved_model: str | None,
+    model_alias: str | None,
+    input_args: dict[str, Any],
+    validation_metrics: ValidationMetrics | None,
+) -> SpellExecutionLog:
+    """Create a SpellExecutionLog with common parameters.
+
+    This helper reduces duplication between sync and async wrappers.
+    """
+    return SpellExecutionLog(
+        spell_name=fn.__name__,
+        spell_id=spell_id,
+        trace_id=ctx.trace_id,
+        span_id=ctx.span_id,
+        parent_span_id=ctx.parent_span_id,
+        model=resolved_model or "",
+        model_alias=model_alias,
+        input_args=input_args,
+        validation=validation_metrics,
+    )
+
+
+def _create_logging_agent(
+    tools: list[Callable[..., Any]] | None,
+    log: SpellExecutionLog,
+    agent: Agent[None, Any],
+    resolved_model: str | None,
+    output_type: type,
+    effective_system_prompt: str,
+    retries: int,
+    end_strategy: EndStrategy,
+    resolved_settings: ModelSettings | None,
+) -> Agent[None, Any]:
+    """Create a logging agent with wrapped tools, or return the existing agent.
+
+    This helper reduces duplication between sync and async wrappers.
+    """
+    if tools:
+        wrapped_tools = _wrap_tools_for_logging(tools, log)
+        return Agent(
+            model=resolved_model,
+            output_type=output_type,
+            system_prompt=effective_system_prompt,
+            retries=retries,
+            tools=wrapped_tools,
+            end_strategy=end_strategy,
+            model_settings=resolved_settings,
+        )
+    return agent
+
+
+def _finalize_log_success(
+    log: SpellExecutionLog,
+    result: Any,
+    resolved_model: str | None,
+    output: Any,
+) -> None:
+    """Finalize log on successful execution.
+
+    This helper reduces duplication between sync and async wrappers.
+    """
+    if result is not None:
+        log.token_usage = _extract_token_usage(result)
+        log.cost_estimate = estimate_cost(resolved_model or "", log.token_usage)
+    log.finalize(success=True, output=output)
+
+
 def _handle_on_fail_sync(
     error: Exception,
     on_fail: OnFailStrategy,
@@ -532,27 +732,9 @@ async def _handle_on_fail_async(
     raise ValidationError(str(error), original_error=error) from error
 
 
-# Overloads for sync functions
+# Overloads for sync functions - use SpellWrapper Protocol for proper typing
 @overload
-def spell(func: Callable[P, T]) -> Callable[P, T]: ...
-
-
-@overload
-def spell(
-    *,
-    model: str | None = None,
-    model_settings: ModelSettings | None = None,
-    system_prompt: str | None = None,
-    retries: int = 1,
-    tools: list[Callable[..., Any]] | None = None,
-    end_strategy: EndStrategy = "early",
-    on_fail: OnFailStrategy | None = None,
-) -> Callable[[Callable[P, T]], Callable[P, T]]: ...
-
-
-# Overloads for async functions
-@overload
-def spell(func: Callable[P, Awaitable[T]]) -> Callable[P, Awaitable[T]]: ...
+def spell(func: Callable[P, T]) -> SpellWrapper[P, T]: ...
 
 
 @overload
@@ -565,7 +747,25 @@ def spell(
     tools: list[Callable[..., Any]] | None = None,
     end_strategy: EndStrategy = "early",
     on_fail: OnFailStrategy | None = None,
-) -> Callable[[Callable[P, Awaitable[T]]], Callable[P, Awaitable[T]]]: ...
+) -> Callable[[Callable[P, T]], SpellWrapper[P, T]]: ...
+
+
+# Overloads for async functions - use AsyncSpellWrapper Protocol for proper typing
+@overload
+def spell(func: Callable[P, Awaitable[T]]) -> AsyncSpellWrapper[P, T]: ...
+
+
+@overload
+def spell(
+    *,
+    model: str | None = None,
+    model_settings: ModelSettings | None = None,
+    system_prompt: str | None = None,
+    retries: int = 1,
+    tools: list[Callable[..., Any]] | None = None,
+    end_strategy: EndStrategy = "early",
+    on_fail: OnFailStrategy | None = None,
+) -> Callable[[Callable[P, Awaitable[T]]], AsyncSpellWrapper[P, T]]: ...
 
 
 def spell(
@@ -639,13 +839,24 @@ def spell(
         # Use explicit system_prompt if provided, otherwise extract from docstring
         effective_system_prompt = system_prompt if system_prompt is not None else (inspect.getdoc(fn) or "")
 
-        # Extract return type for output validation
+        # Extract return type for output validation (issue #28: validate output_type)
         hints = fn.__annotations__
+        if "return" not in hints:
+            warnings.warn(
+                f"Function '{fn.__name__}' has no return type annotation, defaulting to str. "
+                f"Add a return type annotation (e.g., -> str, -> MyModel) for explicit typing.",
+                UserWarning,
+                stacklevel=3,
+            )
         output_type = hints.get("return", str)
 
-        # Handle None return type
-        if output_type is type(None):
-            output_type = str
+        # Handle None return type - raise error since spells must return a value
+        # Check both type(None) (from -> type(None)) and None (from -> None)
+        if output_type is type(None) or output_type is None:
+            raise TypeError(
+                f"Function '{fn.__name__}' has None return type. "
+                f"Spells must return a value. Use -> str or a Pydantic model."
+            )
 
         # Definition-time warning: check if alias exists in file config
         if model is not None and not _is_literal_model(model):
@@ -794,35 +1005,18 @@ def spell(
 
                     return output  # type: ignore[return-value]
 
-                # Logging enabled
+                # Logging enabled - use helper functions to reduce duplication (issue #24)
                 with trace_context() as ctx:
-                    log = SpellExecutionLog(
-                        spell_name=fn.__name__,
-                        spell_id=spell_id,
-                        trace_id=ctx.trace_id,
-                        span_id=ctx.span_id,
-                        parent_span_id=ctx.parent_span_id,
-                        model=resolved_model or "",
-                        model_alias=model,
-                        input_args=input_args,
-                        validation=validation_metrics,
+                    log = _create_execution_log(
+                        fn, spell_id, ctx, resolved_model, model,
+                        input_args, validation_metrics,
                     )
 
-                    # When logging is enabled and we have tools, create a temporary
-                    # agent with wrapped tools to capture tool call logs
-                    if tools:
-                        wrapped_tools = _wrap_tools_for_logging(tools, log)
-                        logging_agent = Agent(
-                            model=resolved_model,
-                            output_type=output_type,
-                            system_prompt=effective_system_prompt,
-                            retries=retries,
-                            tools=wrapped_tools,
-                            end_strategy=end_strategy,
-                            model_settings=resolved_settings,
-                        )
-                    else:
-                        logging_agent = agent
+                    # Create logging agent with wrapped tools if needed
+                    logging_agent = _create_logging_agent(
+                        tools, log, agent, resolved_model, output_type,
+                        effective_system_prompt, retries, end_strategy, resolved_settings,
+                    )
 
                     result = None
                     try:
@@ -831,30 +1025,11 @@ def spell(
                             output = result.output
                         except UnexpectedModelBehavior as e:
                             if on_fail is not None:
-                                # Track validation error and on_fail strategy
-                                if validation_metrics:
-                                    validation_metrics.pydantic_errors.append(str(e))
-                                    if isinstance(on_fail, EscalateStrategy):
-                                        validation_metrics.on_fail_triggered = "escalate"
-                                        validation_metrics.escalated_to_model = on_fail.model
-                                    elif isinstance(on_fail, FallbackStrategy):
-                                        validation_metrics.on_fail_triggered = "fallback"
-                                    elif isinstance(on_fail, CustomStrategy):
-                                        validation_metrics.on_fail_triggered = "custom"
-                                    elif isinstance(on_fail, RetryStrategy):
-                                        validation_metrics.on_fail_triggered = "retry"
-
+                                _track_on_fail_strategy(validation_metrics, e, on_fail)
                                 output = await _handle_on_fail_async(
-                                    e,
-                                    on_fail,
-                                    user_prompt,
-                                    output_type,
-                                    effective_system_prompt,
-                                    tools or [],
-                                    end_strategy,
-                                    input_args,
-                                    fn.__name__,
-                                    model,
+                                    e, on_fail, user_prompt, output_type,
+                                    effective_system_prompt, tools or [], end_strategy,
+                                    input_args, fn.__name__, model,
                                 )
                             else:
                                 # Track validation error even when no on_fail strategy
@@ -877,10 +1052,7 @@ def spell(
                                     guard_config, output, guard_context
                                 )
 
-                        if result is not None:
-                            log.token_usage = _extract_token_usage(result)
-                            log.cost_estimate = estimate_cost(resolved_model or "", log.token_usage)
-                        log.finalize(success=True, output=output)
+                        _finalize_log_success(log, result, resolved_model, output)
                         return output  # type: ignore[return-value]
                     except Exception as e:
                         log.finalize(success=False, error=e)
@@ -959,35 +1131,18 @@ def spell(
 
                     return output  # type: ignore[return-value]
 
-                # Logging enabled
+                # Logging enabled - use helper functions to reduce duplication (issue #24)
                 with trace_context() as ctx:
-                    log = SpellExecutionLog(
-                        spell_name=fn.__name__,
-                        spell_id=spell_id,
-                        trace_id=ctx.trace_id,
-                        span_id=ctx.span_id,
-                        parent_span_id=ctx.parent_span_id,
-                        model=resolved_model or "",
-                        model_alias=model,
-                        input_args=input_args,
-                        validation=validation_metrics,
+                    log = _create_execution_log(
+                        fn, spell_id, ctx, resolved_model, model,
+                        input_args, validation_metrics,
                     )
 
-                    # When logging is enabled and we have tools, create a temporary
-                    # agent with wrapped tools to capture tool call logs
-                    if tools:
-                        wrapped_tools = _wrap_tools_for_logging(tools, log)
-                        logging_agent = Agent(
-                            model=resolved_model,
-                            output_type=output_type,
-                            system_prompt=effective_system_prompt,
-                            retries=retries,
-                            tools=wrapped_tools,
-                            end_strategy=end_strategy,
-                            model_settings=resolved_settings,
-                        )
-                    else:
-                        logging_agent = agent
+                    # Create logging agent with wrapped tools if needed
+                    logging_agent = _create_logging_agent(
+                        tools, log, agent, resolved_model, output_type,
+                        effective_system_prompt, retries, end_strategy, resolved_settings,
+                    )
 
                     result = None
                     try:
@@ -996,30 +1151,11 @@ def spell(
                             output = result.output
                         except UnexpectedModelBehavior as e:
                             if on_fail is not None:
-                                # Track validation error and on_fail strategy
-                                if validation_metrics:
-                                    validation_metrics.pydantic_errors.append(str(e))
-                                    if isinstance(on_fail, EscalateStrategy):
-                                        validation_metrics.on_fail_triggered = "escalate"
-                                        validation_metrics.escalated_to_model = on_fail.model
-                                    elif isinstance(on_fail, FallbackStrategy):
-                                        validation_metrics.on_fail_triggered = "fallback"
-                                    elif isinstance(on_fail, CustomStrategy):
-                                        validation_metrics.on_fail_triggered = "custom"
-                                    elif isinstance(on_fail, RetryStrategy):
-                                        validation_metrics.on_fail_triggered = "retry"
-
+                                _track_on_fail_strategy(validation_metrics, e, on_fail)
                                 output = _handle_on_fail_sync(
-                                    e,
-                                    on_fail,
-                                    user_prompt,
-                                    output_type,
-                                    effective_system_prompt,
-                                    tools or [],
-                                    end_strategy,
-                                    input_args,
-                                    fn.__name__,
-                                    model,
+                                    e, on_fail, user_prompt, output_type,
+                                    effective_system_prompt, tools or [], end_strategy,
+                                    input_args, fn.__name__, model,
                                 )
                             else:
                                 # Track validation error even when no on_fail strategy
@@ -1042,10 +1178,7 @@ def spell(
                                     guard_config, output, guard_context
                                 )
 
-                        if result is not None:
-                            log.token_usage = _extract_token_usage(result)
-                            log.cost_estimate = estimate_cost(resolved_model or "", log.token_usage)
-                        log.finalize(success=True, output=output)
+                        _finalize_log_success(log, result, resolved_model, output)
                         return output  # type: ignore[return-value]
                     except Exception as e:
                         log.finalize(success=False, error=e)
