@@ -1,4 +1,16 @@
-"""SpellResult type for accessing execution metadata alongside spell output."""
+"""SpellResult type for accessing execution metadata alongside spell output.
+
+Design Note: Pydantic vs Dataclass Usage
+----------------------------------------
+SpellResult uses a dataclass (not Pydantic) because:
+- It's an internal type created by spell execution, not user-provided input
+- No parsing or validation from external sources is needed
+- Dataclasses have lower overhead and simpler semantics
+- Generic[T] support is cleaner with dataclasses
+
+See config.py for contrast - it uses Pydantic for parsing user configuration
+where validation and helpful error messages are important.
+"""
 
 from __future__ import annotations
 

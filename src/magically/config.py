@@ -1,6 +1,16 @@
 """Configuration system for magically.
 
 Separates intent (model aliases) from implementation (provider strings).
+
+Design Note: Pydantic vs Dataclass Usage
+----------------------------------------
+This module uses Pydantic BaseModel for `ModelConfig` because:
+- It validates user-provided configuration from pyproject.toml
+- It parses and coerces TOML data into typed Python objects
+- It provides helpful error messages for invalid config
+
+See logging.py and result.py for contrast - those use dataclasses for
+internal telemetry types where validation overhead is not needed.
 """
 
 from __future__ import annotations

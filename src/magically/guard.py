@@ -4,6 +4,12 @@ Guards provide composable validation that runs before (input) or after (output)
 spell execution. They're designed to work alongside Pydantic structural validation
 for semantic/safety checks that need the full context.
 
+Design Note: Pydantic vs Dataclass Usage
+----------------------------------------
+This module uses dataclasses for internal types (_GuardConfig, GuardRunResult)
+because they are internal bookkeeping, not user-provided configuration.
+See config.py for contrast - it uses Pydantic for parsing user configuration.
+
 IMPORTANT: Decorator order matters! @spell must be the OUTERMOST decorator,
 with guards applied INSIDE:
 
