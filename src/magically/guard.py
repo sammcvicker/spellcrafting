@@ -25,8 +25,9 @@ from __future__ import annotations
 import asyncio
 import functools
 from dataclasses import dataclass, field
-from enum import Enum
 from typing import Any, Callable, ParamSpec, Protocol, TypeVar
+
+from magically.on_fail import OnFail, RaiseStrategy
 
 P = ParamSpec("P")
 T = TypeVar("T")
@@ -36,13 +37,6 @@ class GuardError(Exception):
     """Raised when a guard validation fails."""
 
     pass
-
-
-class OnFail(Enum):
-    """Action to take when a guard fails."""
-
-    RAISE = "raise"  # Raise GuardError (default)
-    # RETRY and other strategies are deferred to issue #3
 
 
 class InputGuard(Protocol):
@@ -113,7 +107,7 @@ def _build_context(func: Callable, attempt: int = 1) -> dict[str, Any]:
 
 
 def _run_input_guards(
-    guards: list[tuple[InputGuard, OnFail]],
+    guards: list[tuple[InputGuard, RaiseStrategy]],
     input_args: dict[str, Any],
     context: dict[str, Any],
 ) -> dict[str, Any]:
@@ -123,17 +117,17 @@ def _run_input_guards(
         try:
             current_args = guard_fn(current_args, context)
         except Exception as e:
-            if on_fail == OnFail.RAISE:
+            if isinstance(on_fail, RaiseStrategy):
                 if isinstance(e, GuardError):
                     raise
                 raise GuardError(str(e)) from e
-            # Future: handle RETRY etc.
+            # Future: handle other strategies
             raise
     return current_args
 
 
 def _run_output_guards(
-    guards: list[tuple[OutputGuard, OnFail]],
+    guards: list[tuple[OutputGuard, RaiseStrategy]],
     output: T,
     context: dict[str, Any],
 ) -> T:
@@ -143,17 +137,17 @@ def _run_output_guards(
         try:
             current_output = guard_fn(current_output, context)
         except Exception as e:
-            if on_fail == OnFail.RAISE:
+            if isinstance(on_fail, RaiseStrategy):
                 if isinstance(e, GuardError):
                     raise
                 raise GuardError(str(e)) from e
-            # Future: handle RETRY etc.
+            # Future: handle other strategies
             raise
     return current_output
 
 
 async def _run_input_guards_async(
-    guards: list[tuple[InputGuard, OnFail]],
+    guards: list[tuple[InputGuard, RaiseStrategy]],
     input_args: dict[str, Any],
     context: dict[str, Any],
 ) -> dict[str, Any]:
@@ -167,7 +161,7 @@ async def _run_input_guards_async(
             else:
                 current_args = result
         except Exception as e:
-            if on_fail == OnFail.RAISE:
+            if isinstance(on_fail, RaiseStrategy):
                 if isinstance(e, GuardError):
                     raise
                 raise GuardError(str(e)) from e
@@ -176,7 +170,7 @@ async def _run_input_guards_async(
 
 
 async def _run_output_guards_async(
-    guards: list[tuple[OutputGuard, OnFail]],
+    guards: list[tuple[OutputGuard, RaiseStrategy]],
     output: T,
     context: dict[str, Any],
 ) -> T:
@@ -190,7 +184,7 @@ async def _run_output_guards_async(
             else:
                 current_output = result
         except Exception as e:
-            if on_fail == OnFail.RAISE:
+            if isinstance(on_fail, RaiseStrategy):
                 if isinstance(e, GuardError):
                     raise
                 raise GuardError(str(e)) from e

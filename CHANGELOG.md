@@ -8,6 +8,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- `on_fail` parameter for `@spell` decorator to handle validation failures after retries
+  - `OnFail.escalate("model")` - retry with a more capable model on failure
+  - `OnFail.fallback(default)` - return a default value instead of raising
+  - `OnFail.custom(handler)` - use a custom handler for domain-specific fixes
+  - `OnFail.retry()` - default behavior, re-raise after retries exhausted
 - `llm_validator` factory for creating Pydantic validators powered by LLM calls
   - Natural language rules: `llm_validator("Must be family-friendly")`
   - Works with Pydantic's `BeforeValidator` for field validation

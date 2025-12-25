@@ -2,11 +2,11 @@ from magically.config import Config, MagicallyConfigError, ModelConfig, current_
 from magically.guard import (
     guard,
     GuardError,
-    OnFail,
     InputGuard,
     OutputGuard,
     GuardContext,
 )
+from magically.on_fail import OnFail
 from magically.validator import llm_validator, ValidationResult
 from magically.logging import (
     # Configuration

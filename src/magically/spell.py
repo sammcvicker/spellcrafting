@@ -8,9 +8,17 @@ from collections.abc import Awaitable
 from typing import Any, Callable, ParamSpec, Sequence, TypeVar, overload
 
 from pydantic_ai import Agent
+from pydantic_ai.exceptions import UnexpectedModelBehavior
 from pydantic_ai.settings import ModelSettings
 
 from magically.config import Config, MagicallyConfigError, ModelConfig
+from magically.on_fail import (
+    OnFailStrategy,
+    RetryStrategy,
+    EscalateStrategy,
+    FallbackStrategy,
+    CustomStrategy,
+)
 from magically.guard import (
     GuardError,
     _build_context,
@@ -86,6 +94,140 @@ def _extract_token_usage(result: Any) -> TokenUsage:
         return TokenUsage()
 
 
+def _resolve_escalation_model(
+    escalate_model: str,
+) -> tuple[str, ModelSettings | None]:
+    """Resolve the escalation model alias to actual model and settings."""
+    if _is_literal_model(escalate_model):
+        return escalate_model, None
+
+    # Alias - resolve via current config
+    config = Config.current()
+    try:
+        model_config = config.resolve(escalate_model)
+    except MagicallyConfigError:
+        raise MagicallyConfigError(
+            f"Escalation model alias '{escalate_model}' could not be resolved. "
+            f"Define it in pyproject.toml or provide via Config context."
+        )
+
+    # Build ModelSettings from ModelConfig
+    resolved_settings: dict[str, Any] = {}
+    if model_config.temperature is not None:
+        resolved_settings["temperature"] = model_config.temperature
+    if model_config.max_tokens is not None:
+        resolved_settings["max_tokens"] = model_config.max_tokens
+    if model_config.top_p is not None:
+        resolved_settings["top_p"] = model_config.top_p
+    if model_config.timeout is not None:
+        resolved_settings["timeout"] = model_config.timeout
+
+    final_settings = ModelSettings(**resolved_settings) if resolved_settings else None
+    return model_config.model, final_settings
+
+
+def _handle_on_fail_sync(
+    error: Exception,
+    on_fail: OnFailStrategy,
+    user_prompt: str,
+    output_type: type,
+    system_prompt: str,
+    tools: list,
+    end_strategy: str,
+    input_args: dict[str, Any],
+    spell_name: str,
+    model_alias: str | None,
+) -> Any:
+    """Handle on_fail strategy for sync execution."""
+    if isinstance(on_fail, RetryStrategy):
+        # Default behavior - just re-raise, PydanticAI already handled retries
+        raise error
+
+    if isinstance(on_fail, FallbackStrategy):
+        # Return the default value
+        return on_fail.default
+
+    if isinstance(on_fail, CustomStrategy):
+        # Call the custom handler
+        context = {
+            "spell_name": spell_name,
+            "model": model_alias,
+            "input_args": input_args,
+        }
+        return on_fail.handler(error, 1, context)
+
+    if isinstance(on_fail, EscalateStrategy):
+        # Create a new agent with the escalated model
+        escalated_model, escalated_settings = _resolve_escalation_model(on_fail.model)
+        escalated_agent = Agent(
+            model=escalated_model,
+            output_type=output_type,
+            system_prompt=system_prompt,
+            retries=on_fail.retries,
+            tools=tools,
+            end_strategy=end_strategy,  # type: ignore[arg-type]
+            model_settings=escalated_settings,
+        )
+        result = escalated_agent.run_sync(user_prompt)
+        return result.output
+
+    # Unknown strategy type - re-raise
+    raise error
+
+
+async def _handle_on_fail_async(
+    error: Exception,
+    on_fail: OnFailStrategy,
+    user_prompt: str,
+    output_type: type,
+    system_prompt: str,
+    tools: list,
+    end_strategy: str,
+    input_args: dict[str, Any],
+    spell_name: str,
+    model_alias: str | None,
+) -> Any:
+    """Handle on_fail strategy for async execution."""
+    if isinstance(on_fail, RetryStrategy):
+        # Default behavior - just re-raise, PydanticAI already handled retries
+        raise error
+
+    if isinstance(on_fail, FallbackStrategy):
+        # Return the default value
+        return on_fail.default
+
+    if isinstance(on_fail, CustomStrategy):
+        # Call the custom handler
+        context = {
+            "spell_name": spell_name,
+            "model": model_alias,
+            "input_args": input_args,
+        }
+        result = on_fail.handler(error, 1, context)
+        # Support async handlers
+        if asyncio.iscoroutine(result):
+            return await result
+        return result
+
+    if isinstance(on_fail, EscalateStrategy):
+        # Create a new agent with the escalated model
+        escalated_model, escalated_settings = _resolve_escalation_model(on_fail.model)
+        escalated_agent = Agent(
+            model=escalated_model,
+            output_type=output_type,
+            system_prompt=system_prompt,
+            retries=on_fail.retries,
+            tools=tools,
+            end_strategy=end_strategy,  # type: ignore[arg-type]
+            model_settings=escalated_settings,
+        )
+        result = await escalated_agent.run(user_prompt)
+        return result.output
+
+    # Unknown strategy type - re-raise
+    raise error
+
+
 # Overloads for sync functions
 @overload
 def spell(func: Callable[P, T]) -> Callable[P, T]: ...
@@ -99,6 +241,7 @@ def spell(
     retries: int = 1,
     tools: Sequence[Callable[..., Any]] = (),
     end_strategy: str = "early",
+    on_fail: OnFailStrategy | None = None,
 ) -> Callable[[Callable[P, T]], Callable[P, T]]: ...
 
 
@@ -115,6 +258,7 @@ def spell(
     retries: int = 1,
     tools: Sequence[Callable[..., Any]] = (),
     end_strategy: str = "early",
+    on_fail: OnFailStrategy | None = None,
 ) -> Callable[[Callable[P, Awaitable[T]]], Callable[P, Awaitable[T]]]: ...
 
 
@@ -126,6 +270,7 @@ def spell(
     retries: int = 1,
     tools: Sequence[Callable[..., Any]] = (),
     end_strategy: str = "early",
+    on_fail: OnFailStrategy | None = None,
 ) -> Callable[P, T] | Callable[[Callable[P, T]], Callable[P, T]]:
     """
     Decorator that turns a function into an LLM-powered spell.
@@ -141,6 +286,11 @@ def spell(
         retries: Number of retries for output validation failures
         tools: Additional tool functions the agent can use
         end_strategy: 'early' (default) or 'exhaustive' for tool call handling
+        on_fail: Strategy for handling validation failures after retries exhausted.
+            - OnFail.retry() - default, retry with error in context
+            - OnFail.escalate("model") - try a more capable model
+            - OnFail.fallback(default) - return default value
+            - OnFail.custom(handler) - custom handler function
 
     Example:
         @spell
@@ -151,6 +301,11 @@ def spell(
         @spell(model="anthropic:claude-sonnet", retries=2)
         def analyze(data: str) -> Analysis:
             '''Analyze the data and return structured insights.'''
+            ...
+
+        @spell(model="fast", on_fail=OnFail.escalate("reasoning"))
+        def complex_task(query: str) -> Analysis:
+            '''Complex analysis that may need a better model.'''
             ...
     """
 
@@ -273,8 +428,25 @@ def spell(
                 # Fast path: no logging overhead
                 logging_config = get_logging_config()
                 if not logging_config.enabled:
-                    result = await agent.run(user_prompt)
-                    output = result.output
+                    try:
+                        result = await agent.run(user_prompt)
+                        output = result.output
+                    except UnexpectedModelBehavior as e:
+                        if on_fail is not None:
+                            output = await _handle_on_fail_async(
+                                e,
+                                on_fail,
+                                user_prompt,
+                                output_type,
+                                system_prompt,
+                                list(tools),
+                                end_strategy,
+                                input_args,
+                                fn.__name__,
+                                model,
+                            )
+                        else:
+                            raise
 
                     # Run output guards if present
                     if guard_config and guard_config.output_guards:
@@ -299,9 +471,27 @@ def spell(
                         input_args=input_args,
                     )
 
+                    result = None
                     try:
-                        result = await agent.run(user_prompt)
-                        output = result.output
+                        try:
+                            result = await agent.run(user_prompt)
+                            output = result.output
+                        except UnexpectedModelBehavior as e:
+                            if on_fail is not None:
+                                output = await _handle_on_fail_async(
+                                    e,
+                                    on_fail,
+                                    user_prompt,
+                                    output_type,
+                                    system_prompt,
+                                    list(tools),
+                                    end_strategy,
+                                    input_args,
+                                    fn.__name__,
+                                    model,
+                                )
+                            else:
+                                raise
 
                         # Run output guards if present
                         if guard_config and guard_config.output_guards:
@@ -311,8 +501,9 @@ def spell(
                                 guard_config.output_guards, output, guard_context
                             )
 
-                        log.token_usage = _extract_token_usage(result)
-                        log.cost_estimate = estimate_cost(resolved_model or "", log.token_usage)
+                        if result is not None:
+                            log.token_usage = _extract_token_usage(result)
+                            log.cost_estimate = estimate_cost(resolved_model or "", log.token_usage)
                         log.finalize(success=True, output=output)
                         return output  # type: ignore[return-value]
                     except Exception as e:
@@ -346,8 +537,25 @@ def spell(
                 # Fast path: no logging overhead
                 logging_config = get_logging_config()
                 if not logging_config.enabled:
-                    result = agent.run_sync(user_prompt)
-                    output = result.output
+                    try:
+                        result = agent.run_sync(user_prompt)
+                        output = result.output
+                    except UnexpectedModelBehavior as e:
+                        if on_fail is not None:
+                            output = _handle_on_fail_sync(
+                                e,
+                                on_fail,
+                                user_prompt,
+                                output_type,
+                                system_prompt,
+                                list(tools),
+                                end_strategy,
+                                input_args,
+                                fn.__name__,
+                                model,
+                            )
+                        else:
+                            raise
 
                     # Run output guards if present
                     if guard_config and guard_config.output_guards:
@@ -372,9 +580,27 @@ def spell(
                         input_args=input_args,
                     )
 
+                    result = None
                     try:
-                        result = agent.run_sync(user_prompt)
-                        output = result.output
+                        try:
+                            result = agent.run_sync(user_prompt)
+                            output = result.output
+                        except UnexpectedModelBehavior as e:
+                            if on_fail is not None:
+                                output = _handle_on_fail_sync(
+                                    e,
+                                    on_fail,
+                                    user_prompt,
+                                    output_type,
+                                    system_prompt,
+                                    list(tools),
+                                    end_strategy,
+                                    input_args,
+                                    fn.__name__,
+                                    model,
+                                )
+                            else:
+                                raise
 
                         # Run output guards if present
                         if guard_config and guard_config.output_guards:
@@ -384,8 +610,9 @@ def spell(
                                 guard_config.output_guards, output, guard_context
                             )
 
-                        log.token_usage = _extract_token_usage(result)
-                        log.cost_estimate = estimate_cost(resolved_model or "", log.token_usage)
+                        if result is not None:
+                            log.token_usage = _extract_token_usage(result)
+                            log.cost_estimate = estimate_cost(resolved_model or "", log.token_usage)
                         log.finalize(success=True, output=output)
                         return output  # type: ignore[return-value]
                     except Exception as e:
@@ -407,6 +634,7 @@ def spell(
         wrapper._retries = retries  # type: ignore[attr-defined]
         wrapper._spell_id = spell_id  # type: ignore[attr-defined]
         wrapper._is_async = is_async  # type: ignore[attr-defined]
+        wrapper._on_fail = on_fail  # type: ignore[attr-defined]
         wrapper._resolve_model_and_settings = _resolve_model_and_settings  # type: ignore[attr-defined]
 
         return wrapper
