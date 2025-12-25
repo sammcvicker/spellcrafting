@@ -644,6 +644,50 @@ def _finalize_log_success(
     log.finalize(success=True, output=output)
 
 
+def _process_captured_result(
+    output: T,
+    captured_log: SpellExecutionLog | None,
+    caller_trace_id: str | None,
+    resolve_model_fn: Callable[[], tuple[str | None, Any, int]],
+) -> SpellResult[T]:
+    """Process captured execution log into SpellResult.
+
+    This helper reduces duplication between sync and async with_metadata methods.
+
+    Args:
+        output: The spell output value
+        captured_log: The captured execution log (may be None)
+        caller_trace_id: The caller's trace ID (None if no active trace)
+        resolve_model_fn: Function to resolve model and settings
+
+    Returns:
+        SpellResult populated from the log or with fallback values
+    """
+    if captured_log:
+        result = SpellResult.from_execution_log(output, captured_log)
+        # Only include trace_id if caller had an active trace context
+        # (the logging path creates its own internal trace context)
+        if caller_trace_id is None:
+            result = SpellResult(
+                output=result.output,
+                input_tokens=result.input_tokens,
+                output_tokens=result.output_tokens,
+                model_used=result.model_used,
+                attempt_count=result.attempt_count,
+                duration_ms=result.duration_ms,
+                cost_estimate=result.cost_estimate,
+                trace_id=None,
+            )
+        return result
+
+    # Fallback if no log was captured (should not happen in normal use)
+    resolved_model, _, _ = resolve_model_fn()
+    return SpellResult(
+        output=output,
+        model_used=resolved_model or "",
+    )
+
+
 def _handle_on_fail_sync(
     error: Exception,
     on_fail: OnFailStrategy,
@@ -1225,70 +1269,28 @@ def spell(
         if is_async:
             async def with_metadata_async(*args: P.args, **kwargs: P.kwargs) -> SpellResult[T]:
                 """Run the spell and return output with execution metadata."""
-                # Check if caller has an active trace context
                 caller_trace = current_trace()
                 caller_trace_id = caller_trace.trace_id if caller_trace else None
 
                 with capture_execution_log() as captured:
                     output = await async_wrapper(*args, **kwargs)
 
-                if captured.log:
-                    result = SpellResult.from_execution_log(output, captured.log)
-                    # Only include trace_id if caller had an active trace context
-                    # (the logging path creates its own internal trace context)
-                    if caller_trace_id is None:
-                        result = SpellResult(
-                            output=result.output,
-                            input_tokens=result.input_tokens,
-                            output_tokens=result.output_tokens,
-                            model_used=result.model_used,
-                            attempt_count=result.attempt_count,
-                            duration_ms=result.duration_ms,
-                            cost_estimate=result.cost_estimate,
-                            trace_id=None,
-                        )
-                    return result
-
-                # Fallback if no log was captured (should not happen in normal use)
-                resolved_model, _, _ = _resolve_model_and_settings()
-                return SpellResult(
-                    output=output,
-                    model_used=resolved_model or "",
+                return _process_captured_result(
+                    output, captured.log, caller_trace_id, _resolve_model_and_settings
                 )
 
             wrapper.with_metadata = with_metadata_async  # type: ignore[attr-defined]
         else:
             def with_metadata_sync(*args: P.args, **kwargs: P.kwargs) -> SpellResult[T]:
                 """Run the spell and return output with execution metadata."""
-                # Check if caller has an active trace context
                 caller_trace = current_trace()
                 caller_trace_id = caller_trace.trace_id if caller_trace else None
 
                 with capture_execution_log() as captured:
                     output = sync_wrapper(*args, **kwargs)
 
-                if captured.log:
-                    result = SpellResult.from_execution_log(output, captured.log)
-                    # Only include trace_id if caller had an active trace context
-                    # (the logging path creates its own internal trace context)
-                    if caller_trace_id is None:
-                        result = SpellResult(
-                            output=result.output,
-                            input_tokens=result.input_tokens,
-                            output_tokens=result.output_tokens,
-                            model_used=result.model_used,
-                            attempt_count=result.attempt_count,
-                            duration_ms=result.duration_ms,
-                            cost_estimate=result.cost_estimate,
-                            trace_id=None,
-                        )
-                    return result
-
-                # Fallback if no log was captured (should not happen in normal use)
-                resolved_model, _, _ = _resolve_model_and_settings()
-                return SpellResult(
-                    output=output,
-                    model_used=resolved_model or "",
+                return _process_captured_result(
+                    output, captured.log, caller_trace_id, _resolve_model_and_settings
                 )
 
             wrapper.with_metadata = with_metadata_sync  # type: ignore[attr-defined]
