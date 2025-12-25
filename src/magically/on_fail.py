@@ -49,7 +49,7 @@ class FallbackStrategy(Generic[T]):
 
 
 @dataclass(frozen=True)
-class CustomStrategy:
+class CustomStrategy(Generic[T]):
     """Custom handler for domain-specific fixes or escalation logic.
 
     The handler receives:
@@ -68,7 +68,7 @@ class CustomStrategy:
             raise error  # Re-raise if we can't fix it
     """
 
-    handler: Callable[[Exception, int, dict[str, Any]], Any]
+    handler: Callable[[Exception, int, dict[str, Any]], T]
 
 
 # Type alias for all strategy types
@@ -154,7 +154,7 @@ class OnFail:
     @staticmethod
     def custom(
         handler: Callable[[Exception, int, dict[str, Any]], T]
-    ) -> CustomStrategy:
+    ) -> CustomStrategy[T]:
         """Use a custom handler for domain-specific fixes.
 
         The handler receives the error, attempt number, and context.
