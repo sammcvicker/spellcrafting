@@ -52,74 +52,139 @@ from __future__ import annotations
 
 import asyncio
 import warnings
+from collections.abc import Awaitable, Coroutine
 from dataclasses import dataclass, field
-from typing import Any, Callable, Generic, ParamSpec, Protocol, TypeVar
+from typing import Any, Callable, Generic, ParamSpec, Protocol, TypeVar, Union, runtime_checkable
 
 from magically.exceptions import GuardError
 from magically.on_fail import OnFail, RaiseStrategy
 
 P = ParamSpec("P")
 T = TypeVar("T")
+T_co = TypeVar("T_co", covariant=True)
 
 
-class InputGuard(Protocol):
-    """Protocol for input guard functions.
+@runtime_checkable
+class SyncInputGuard(Protocol):
+    """Protocol for synchronous input guard functions.
 
     Input guards validate/transform input arguments before the LLM call.
     They receive the bound arguments as a dict and a context dict.
     They can modify and return the arguments, or raise to reject.
-
-    Guards can be either synchronous or asynchronous:
-    - Sync guards: Called directly in both sync and async spell execution
-    - Async guards: Awaited when spell is async, run via asyncio when spell is sync
-
-    Note:
-        For async guards, define them as async functions::
-
-            async def my_async_guard(input_args: dict, ctx: dict) -> dict:
-                result = await some_async_validation(input_args)
-                return input_args
-
-        Async guards will be awaited when used with async spells.
     """
 
     def __call__(self, input_args: dict[str, Any], context: dict[str, Any]) -> dict[str, Any]:
-        """Validate/transform inputs. Raise to reject.
-
-        Can also return a coroutine for async guards.
-        """
+        """Validate/transform inputs synchronously. Raise to reject."""
         ...
 
 
-class OutputGuard(Protocol):
-    """Protocol for output guard functions.
+@runtime_checkable
+class AsyncInputGuard(Protocol):
+    """Protocol for asynchronous input guard functions.
+
+    Async input guards validate/transform input arguments before the LLM call.
+    They receive the bound arguments as a dict and a context dict.
+    They can modify and return the arguments, or raise to reject.
+
+    Example:
+        async def my_async_guard(input_args: dict, ctx: dict) -> dict:
+            result = await some_async_validation(input_args)
+            return input_args
+    """
+
+    def __call__(
+        self, input_args: dict[str, Any], context: dict[str, Any]
+    ) -> Coroutine[Any, Any, dict[str, Any]]:
+        """Validate/transform inputs asynchronously. Raise to reject."""
+        ...
+
+
+# Union type for guards that can be either sync or async
+InputGuard = Union[SyncInputGuard, AsyncInputGuard]
+"""Type alias for input guard functions (sync or async).
+
+Input guards validate/transform input arguments before the LLM call.
+They receive the bound arguments as a dict and a context dict.
+They can modify and return the arguments, or raise to reject.
+
+Guards can be either synchronous or asynchronous:
+- Sync guards: Called directly in both sync and async spell execution
+- Async guards: Awaited when spell is async
+
+Example (sync):
+    def validate_length(input_args: dict, ctx: dict) -> dict:
+        if len(input_args.get("text", "")) > 10000:
+            raise ValueError("Input too long")
+        return input_args
+
+Example (async):
+    async def validate_with_api(input_args: dict, ctx: dict) -> dict:
+        await some_async_validation(input_args)
+        return input_args
+"""
+
+
+@runtime_checkable
+class SyncOutputGuard(Protocol[T_co]):
+    """Protocol for synchronous output guard functions.
 
     Output guards validate/transform the output after the LLM call.
     They receive the output value and a context dict.
     They can modify and return the output, or raise to reject.
-
-    Guards can be either synchronous or asynchronous:
-    - Sync guards: Called directly in both sync and async spell execution
-    - Async guards: Awaited when spell is async, run via asyncio when spell is sync
-
-    Note:
-        For async guards, define them as async functions::
-
-            async def my_async_guard(output: str, ctx: dict) -> str:
-                is_valid = await some_async_check(output)
-                if not is_valid:
-                    raise ValueError("Invalid output")
-                return output
-
-        Async guards will be awaited when used with async spells.
     """
 
-    def __call__(self, output: T, context: dict[str, Any]) -> T:
-        """Validate/transform output. Raise to reject.
-
-        Can also return a coroutine for async guards.
-        """
+    def __call__(self, output: Any, context: dict[str, Any]) -> Any:
+        """Validate/transform output synchronously. Raise to reject."""
         ...
+
+
+@runtime_checkable
+class AsyncOutputGuard(Protocol[T_co]):
+    """Protocol for asynchronous output guard functions.
+
+    Async output guards validate/transform the output after the LLM call.
+    They receive the output value and a context dict.
+    They can modify and return the output, or raise to reject.
+
+    Example:
+        async def my_async_guard(output: str, ctx: dict) -> str:
+            is_valid = await some_async_check(output)
+            if not is_valid:
+                raise ValueError("Invalid output")
+            return output
+    """
+
+    def __call__(self, output: Any, context: dict[str, Any]) -> Coroutine[Any, Any, Any]:
+        """Validate/transform output asynchronously. Raise to reject."""
+        ...
+
+
+# Union type for guards that can be either sync or async
+OutputGuard = Union[SyncOutputGuard[Any], AsyncOutputGuard[Any]]
+"""Type alias for output guard functions (sync or async).
+
+Output guards validate/transform the output after the LLM call.
+They receive the output value and a context dict.
+They can modify and return the output, or raise to reject.
+
+Guards can be either synchronous or asynchronous:
+- Sync guards: Called directly in both sync and async spell execution
+- Async guards: Awaited when spell is async
+
+Example (sync):
+    def no_competitors(output: str, ctx: dict) -> str:
+        competitors = {"acme", "globex"}
+        if any(c in output.lower() for c in competitors):
+            raise ValueError("Response mentions competitor")
+        return output
+
+Example (async):
+    async def check_with_api(output: str, ctx: dict) -> str:
+        is_valid = await some_async_check(output)
+        if not is_valid:
+            raise ValueError("Invalid output")
+        return output
+"""
 
 
 # Internal marker attribute name - use get_guard_config() for public access
@@ -801,4 +866,8 @@ __all__ = [
     "OnFail",
     "InputGuard",
     "OutputGuard",
+    "SyncInputGuard",
+    "AsyncInputGuard",
+    "SyncOutputGuard",
+    "AsyncOutputGuard",
 ]

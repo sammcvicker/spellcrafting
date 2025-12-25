@@ -8,6 +8,24 @@ dependencies = [
     "pydantic-ai>=1.38.0",
 ]
 
+[project.optional-dependencies]
+otel = [
+    "opentelemetry-api>=1.0.0",
+    "opentelemetry-sdk>=1.0.0",
+]
+logfire = [
+    "logfire>=0.1.0",
+]
+datadog = [
+    "ddtrace>=2.0.0",
+]
+all = [
+    "opentelemetry-api>=1.0.0",
+    "opentelemetry-sdk>=1.0.0",
+    "logfire>=0.1.0",
+    "ddtrace>=2.0.0",
+]
+
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"

@@ -437,6 +437,7 @@ class OpenTelemetryHandler:
     """Handler that exports to OpenTelemetry.
 
     Requires opentelemetry-api and opentelemetry-sdk packages.
+    Install with: pip install magically[otel]
     Gracefully degrades if packages not installed.
     """
 
@@ -536,8 +537,85 @@ def configure_logging(config: LoggingConfig) -> None:
     _process_logging_config = config
 
 
+# ---------------------------------------------------------------------------
+# Handler Factory for Config Parsing
+# ---------------------------------------------------------------------------
+
+
+def _create_handler(handler_type: str, config: dict[str, Any]) -> LogHandler | None:
+    """Create a log handler from configuration.
+
+    Args:
+        handler_type: The type of handler to create.
+        config: Handler configuration dict.
+
+    Returns:
+        LogHandler instance or None if handler cannot be created.
+    """
+    if handler_type == "python":
+        logger_name = config.get("logger_name", "magically")
+        return PythonLoggingHandler(logger_name)
+
+    if handler_type == "json_file":
+        path = config.get("path")
+        if not path:
+            return None
+        return JSONFileHandler(path)
+
+    if handler_type in ("otel", "opentelemetry"):
+        return OpenTelemetryHandler()
+
+    # Unknown handler type
+    return None
+
+
+def _parse_handlers(handlers_config: dict[str, Any]) -> list[LogHandler]:
+    """Parse handler configurations into handler instances.
+
+    Args:
+        handlers_config: Dict mapping handler names to their configurations.
+
+    Returns:
+        List of successfully created LogHandler instances.
+    """
+    handlers: list[LogHandler] = []
+
+    for handler_name, handler_settings in handlers_config.items():
+        if not isinstance(handler_settings, dict):
+            continue
+
+        handler_type = handler_settings.get("type", handler_name)
+        handler = _create_handler(handler_type, handler_settings)
+        if handler is not None:
+            handlers.append(handler)
+
+    return handlers
+
+
+def _parse_log_level(level_str: str) -> LogLevel:
+    """Parse a log level string into a LogLevel enum.
+
+    Args:
+        level_str: Case-insensitive level string ("debug", "info", etc.)
+
+    Returns:
+        Corresponding LogLevel, defaults to INFO if unknown.
+    """
+    level_map = {
+        "debug": LogLevel.DEBUG,
+        "info": LogLevel.INFO,
+        "warning": LogLevel.WARNING,
+        "error": LogLevel.ERROR,
+    }
+    return level_map.get(level_str.lower(), LogLevel.INFO)
+
+
 def _load_logging_config_from_file() -> LoggingConfig | None:
-    """Load logging configuration from pyproject.toml."""
+    """Load logging configuration from pyproject.toml.
+
+    Returns:
+        LoggingConfig if valid configuration found, None otherwise.
+    """
     pyproject_path = find_pyproject()
     if pyproject_path is None:
         return None
@@ -546,49 +624,21 @@ def _load_logging_config_from_file() -> LoggingConfig | None:
         with open(pyproject_path, "rb") as f:
             data = tomllib.load(f)
     except (OSError, tomllib.TOMLDecodeError):
-        # File read or parse errors - gracefully return no config
         return None
 
     logging_config = data.get("tool", {}).get("magically", {}).get("logging", {})
     if not logging_config:
         return None
 
-    # Parse handlers
-    handlers: list[LogHandler] = []
-    handlers_config = logging_config.get("handlers", {})
-
-    for handler_name, handler_settings in handlers_config.items():
-        if not isinstance(handler_settings, dict):
-            continue
-
-        handler_type = handler_settings.get("type", handler_name)
-
-        if handler_type == "python":
-            logger_name = handler_settings.get("logger_name", "magically")
-            handlers.append(PythonLoggingHandler(logger_name))
-        elif handler_type == "json_file":
-            path = handler_settings.get("path")
-            if path:
-                handlers.append(JSONFileHandler(path))
-        elif handler_type == "otel" or handler_type == "opentelemetry":
-            handlers.append(OpenTelemetryHandler())
-
-    # If no handlers specified but logging enabled, add default Python handler
     enabled = logging_config.get("enabled", False)
+    handlers = _parse_handlers(logging_config.get("handlers", {}))
+
+    # Add default Python handler if logging enabled but no handlers specified
     if enabled and not handlers:
         handlers.append(PythonLoggingHandler())
 
-    # Parse level
-    level_str = logging_config.get("level", "info").lower()
-    level_map = {
-        "debug": LogLevel.DEBUG,
-        "info": LogLevel.INFO,
-        "warning": LogLevel.WARNING,
-        "error": LogLevel.ERROR,
-    }
-    level = level_map.get(level_str, LogLevel.INFO)
+    level = _parse_log_level(logging_config.get("level", "info"))
 
-    # Parse default tags
     default_tags = logging_config.get("default_tags", {})
     if not isinstance(default_tags, dict):
         default_tags = {}
@@ -880,7 +930,7 @@ def setup_logfire(*, redact_content: bool = False) -> None:
     2. Future extensibility - provider-specific options can be added later
 
     Prerequisites:
-        pip install logfire
+        pip install magically[logfire]
         Configure via LOGFIRE_TOKEN environment variable or logfire.configure()
 
     Args:
@@ -908,7 +958,7 @@ def setup_datadog(*, redact_content: bool = False) -> None:
     2. Future extensibility - provider-specific options can be added later
 
     Prerequisites:
-        pip install ddtrace
+        pip install magically[datadog]  # installs ddtrace
         Configure via DD_* environment variables
 
     Args:
