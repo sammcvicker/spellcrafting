@@ -104,6 +104,21 @@ def travel_assistant(query: str) -> str:
 response = travel_assistant("What's the weather like in Tokyo?")
 ```
 
+The `end_strategy` parameter controls tool call behavior:
+- `"early"` (default): Stop as soon as the model produces a final response
+- `"exhaustive"`: Continue until all tool calls are processed
+
+```python
+@spell(
+    model="anthropic:claude-sonnet-4-20250514",
+    tools=[search_database, fetch_url],
+    end_strategy="exhaustive",  # Process all tool calls
+)
+def research(topic: str) -> Report:
+    """Research the topic thoroughly using all available tools."""
+    ...
+```
+
 ## Configuration
 
 ### Direct Model Specification

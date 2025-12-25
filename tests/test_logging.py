@@ -1699,8 +1699,9 @@ class TestPricingDictCoverage:
             assert "output" in prices, f"{model_name} missing output price"
             assert isinstance(prices["input"], (int, float)), f"{model_name} input is not numeric"
             assert isinstance(prices["output"], (int, float)), f"{model_name} output is not numeric"
-            assert prices["input"] > 0, f"{model_name} has non-positive input price"
-            assert prices["output"] > 0, f"{model_name} has non-positive output price"
+            # Allow 0.0 for free/experimental models (e.g., gemini-2.0-flash-exp)
+            assert prices["input"] >= 0, f"{model_name} has negative input price"
+            assert prices["output"] >= 0, f"{model_name} has negative output price"
 
     def test_cost_estimation_for_all_pricing_models(self):
         """Every model in PRICING should return valid cost estimate."""
@@ -1712,9 +1713,10 @@ class TestPricingDictCoverage:
             cost = estimate_cost(model_name, usage)
 
             assert cost is not None, f"{model_name} returned None cost"
-            assert cost.total_cost > 0, f"{model_name} has non-positive total cost"
-            assert cost.input_cost > 0, f"{model_name} has non-positive input cost"
-            assert cost.output_cost > 0, f"{model_name} has non-positive output cost"
+            # Allow 0.0 for free/experimental models (e.g., gemini-2.0-flash-exp)
+            assert cost.total_cost >= 0, f"{model_name} has negative total cost"
+            assert cost.input_cost >= 0, f"{model_name} has negative input cost"
+            assert cost.output_cost >= 0, f"{model_name} has negative output cost"
             assert cost.total_cost == cost.input_cost + cost.output_cost, f"{model_name} total != input + output"
 
     def test_anthropic_models_in_pricing(self):
@@ -1743,9 +1745,9 @@ class TestPricingDictCoverage:
         from magically.logging import PRICING
 
         for model_name, prices in PRICING.items():
-            # Input price should be between $0.01 and $100 per 1M tokens
-            assert 0.01 <= prices["input"] <= 100, f"{model_name} input price out of range"
-            # Output price should be between $0.01 and $150 per 1M tokens
-            assert 0.01 <= prices["output"] <= 150, f"{model_name} output price out of range"
+            # Input price should be between $0 (free/experimental) and $100 per 1M tokens
+            assert 0 <= prices["input"] <= 100, f"{model_name} input price out of range"
+            # Output price should be between $0 (free/experimental) and $150 per 1M tokens
+            assert 0 <= prices["output"] <= 150, f"{model_name} output price out of range"
             # Output typically costs more than input (or equal)
             assert prices["output"] >= prices["input"], f"{model_name} output < input price"

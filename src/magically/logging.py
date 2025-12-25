@@ -612,7 +612,8 @@ def logging_context(config: LoggingConfig) -> Generator[None, None, None]:
 # Cost Estimation
 # ---------------------------------------------------------------------------
 
-# Pricing per 1M tokens (as of 2024-01)
+# Pricing per 1M tokens (as of 2025-01)
+# NOTE: Prices are estimates and may change. Check provider pricing pages for current rates.
 PRICING: dict[str, dict[str, float]] = {
     # Anthropic
     "claude-opus-4-20250514": {"input": 15.00, "output": 75.00},
@@ -628,10 +629,14 @@ PRICING: dict[str, dict[str, float]] = {
     "gpt-4-turbo": {"input": 10.00, "output": 30.00},
     "gpt-4": {"input": 30.00, "output": 60.00},
     "gpt-3.5-turbo": {"input": 0.50, "output": 1.50},
+    "o1": {"input": 15.00, "output": 60.00},
+    "o1-mini": {"input": 3.00, "output": 12.00},
+    "o3-mini": {"input": 1.10, "output": 4.40},
     # Google
     "gemini-1.5-pro": {"input": 1.25, "output": 5.00},
     "gemini-1.5-flash": {"input": 0.075, "output": 0.30},
     "gemini-2.0-flash": {"input": 0.10, "output": 0.40},
+    "gemini-2.0-flash-exp": {"input": 0.0, "output": 0.0},  # Free during experimental period
 }
 
 
