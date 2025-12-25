@@ -528,7 +528,7 @@ class TestMaxLengthGuard:
     """Tests for the built-in max_length guard."""
 
     def test_max_length_input_passes(self):
-        @guard.max_length(input=100)
+        @guard.max_length(input_max=100)
         def fn(text: str) -> str:
             return text
 
@@ -542,7 +542,7 @@ class TestMaxLengthGuard:
         assert result == {"text": "short text"}
 
     def test_max_length_input_fails(self):
-        @guard.max_length(input=10)
+        @guard.max_length(input_max=10)
         def fn(text: str) -> str:
             return text
 
@@ -557,7 +557,7 @@ class TestMaxLengthGuard:
             )
 
     def test_max_length_output_passes(self):
-        @guard.max_length(output=100)
+        @guard.max_length(output_max=100)
         def fn(text: str) -> str:
             return text
 
@@ -571,7 +571,7 @@ class TestMaxLengthGuard:
         assert result == "short output"
 
     def test_max_length_output_fails(self):
-        @guard.max_length(output=5)
+        @guard.max_length(output_max=5)
         def fn(text: str) -> str:
             return text
 
@@ -586,7 +586,7 @@ class TestMaxLengthGuard:
             )
 
     def test_max_length_both_input_and_output(self):
-        @guard.max_length(input=100, output=50)
+        @guard.max_length(input_max=100, output_max=50)
         def fn(text: str) -> str:
             return text
 
@@ -594,6 +594,69 @@ class TestMaxLengthGuard:
         assert config is not None
         assert len(config.input_guards) == 1
         assert len(config.output_guards) == 1
+
+    def test_max_length_closure_captures_correctly(self):
+        """Verify max_length closures capture the correct limit values (#101).
+
+        This test ensures the closure captures by value, not reference,
+        by creating multiple guards with different limits.
+        """
+        # Create two functions with different limits
+        @guard.max_length(input_max=5)
+        def short_limit(text: str) -> str:
+            return text
+
+        @guard.max_length(input_max=100)
+        def long_limit(text: str) -> str:
+            return text
+
+        short_config = get_guard_config(short_limit)
+        long_config = get_guard_config(long_limit)
+
+        # Short limit should reject text with 10 chars
+        with pytest.raises(GuardError, match="exceeds maximum length of 5"):
+            _run_input_guards(
+                short_config.input_guards,
+                {"text": "1234567890"},  # 10 chars
+                {},
+            )
+
+        # Long limit should accept text with 10 chars
+        result = _run_input_guards(
+            long_config.input_guards,
+            {"text": "1234567890"},  # 10 chars
+            {},
+        )
+        assert result == {"text": "1234567890"}
+
+    def test_max_length_output_closure_captures_correctly(self):
+        """Verify output max_length closures capture the correct limit values (#101)."""
+        @guard.max_length(output_max=3)
+        def short_output(text: str) -> str:
+            return text
+
+        @guard.max_length(output_max=50)
+        def long_output(text: str) -> str:
+            return text
+
+        short_config = get_guard_config(short_output)
+        long_config = get_guard_config(long_output)
+
+        # Short output limit should reject 10 chars
+        with pytest.raises(GuardError, match="exceeds maximum length of 3"):
+            _run_output_guards(
+                short_config.output_guards,
+                "1234567890",
+                {},
+            )
+
+        # Long output limit should accept 10 chars
+        result = _run_output_guards(
+            long_config.output_guards,
+            "1234567890",
+            {},
+        )
+        assert result == "1234567890"
 
 
 class TestBuildContext:
@@ -768,7 +831,7 @@ class TestGuardWithSpell:
 
     def test_max_length_guard_with_spell(self):
         @spell
-        @guard.max_length(input=10, output=100)
+        @guard.max_length(input_max=10, output_max=100)
         def summarize(text: str) -> str:
             """Summarize."""
             ...
@@ -1064,7 +1127,7 @@ class TestDecoratorOrderWarning:
         with warnings.catch_warnings(record=True) as w:
             warnings.simplefilter("always")
 
-            @guard.max_length(input=100)
+            @guard.max_length(input_max=100)
             @spell
             def my_spell(text: str) -> str:
                 """Test."""
@@ -1431,3 +1494,181 @@ class TestTrackedGuardsEarlyFailure:
 
         with pytest.raises(GuardError):
             _run_input_guards_tracked(guards, {"text": "hello"}, {})
+
+
+class TestGuardErrorHandling:
+    """Negative tests for guard error handling (#103).
+
+    Guards can raise various types of exceptions. These tests verify that
+    different exception types are properly wrapped in GuardError.
+    """
+
+    def test_input_guard_typeerror_wrapped(self):
+        """Guards raising TypeError should be wrapped in GuardError."""
+        def type_error_guard(input_args: dict, context: dict) -> dict:
+            raise TypeError("Expected string, got int")
+
+        guards = [(type_error_guard, OnFail.RAISE)]
+
+        with pytest.raises(GuardError, match="Expected string, got int"):
+            _run_input_guards(guards, {"text": "hello"}, {})
+
+    def test_output_guard_typeerror_wrapped(self):
+        """Output guards raising TypeError should be wrapped in GuardError."""
+        def type_error_guard(output: str, context: dict) -> str:
+            raise TypeError("Invalid output type")
+
+        guards = [(type_error_guard, OnFail.RAISE)]
+
+        with pytest.raises(GuardError, match="Invalid output type"):
+            _run_output_guards(guards, "test", {})
+
+    def test_input_guard_custom_exception_wrapped(self):
+        """Guards raising custom exceptions should be wrapped in GuardError."""
+        class CustomValidationError(Exception):
+            pass
+
+        def custom_error_guard(input_args: dict, context: dict) -> dict:
+            raise CustomValidationError("Custom validation failed")
+
+        guards = [(custom_error_guard, OnFail.RAISE)]
+
+        with pytest.raises(GuardError, match="Custom validation failed"):
+            _run_input_guards(guards, {"text": "hello"}, {})
+
+    def test_output_guard_custom_exception_wrapped(self):
+        """Output guards raising custom exceptions should be wrapped in GuardError."""
+        class CustomOutputError(Exception):
+            pass
+
+        def custom_error_guard(output: str, context: dict) -> str:
+            raise CustomOutputError("Custom output error")
+
+        guards = [(custom_error_guard, OnFail.RAISE)]
+
+        with pytest.raises(GuardError, match="Custom output error"):
+            _run_output_guards(guards, "test", {})
+
+    def test_input_guard_returns_none_passthrough(self):
+        """Guards returning None should pass through (None is a valid return).
+
+        Note: Guards returning None can cause downstream issues if the spell
+        expects a dict, but the guard runner doesn't enforce return type.
+        """
+        def none_guard(input_args: dict, context: dict) -> dict:
+            return None  # type: ignore
+
+        guards = [(none_guard, OnFail.RAISE)]
+
+        # None is passed through - guard runner doesn't type-check returns
+        result = _run_input_guards(guards, {"text": "hello"}, {})
+        assert result is None
+
+    def test_output_guard_returns_none_passthrough(self):
+        """Output guards returning None should pass through.
+
+        Note: This can cause downstream issues, but guard runner is permissive.
+        """
+        def none_guard(output: str, context: dict) -> str:
+            return None  # type: ignore
+
+        guards = [(none_guard, OnFail.RAISE)]
+
+        result = _run_output_guards(guards, "test", {})
+        assert result is None
+
+    def test_output_guard_wrong_return_type_passthrough(self):
+        """Output guards returning wrong type should pass through.
+
+        Guard runners don't enforce return types - this is the spell's
+        responsibility via Pydantic validation.
+        """
+        def wrong_type_guard(output: str, context: dict) -> str:
+            return 42  # type: ignore  # Wrong type
+
+        guards = [(wrong_type_guard, OnFail.RAISE)]
+
+        result = _run_output_guards(guards, "test", {})
+        assert result == 42  # Passes through without type checking
+
+    def test_input_guard_exception_preserves_original(self):
+        """GuardError should preserve the original exception via __cause__."""
+        class OriginalError(Exception):
+            pass
+
+        def raising_guard(input_args: dict, context: dict) -> dict:
+            raise OriginalError("Original error message")
+
+        guards = [(raising_guard, OnFail.RAISE)]
+
+        with pytest.raises(GuardError) as exc_info:
+            _run_input_guards(guards, {"text": "hello"}, {})
+
+        # Verify the original exception is preserved in the chain
+        assert exc_info.value.__cause__ is not None
+        assert isinstance(exc_info.value.__cause__, OriginalError)
+
+    def test_guard_error_not_double_wrapped(self):
+        """GuardError raised by guard should not be wrapped again."""
+        def guard_error_guard(input_args: dict, context: dict) -> dict:
+            raise GuardError("Already a guard error")
+
+        guards = [(guard_error_guard, OnFail.RAISE)]
+
+        with pytest.raises(GuardError, match="Already a guard error") as exc_info:
+            _run_input_guards(guards, {"text": "hello"}, {})
+
+        # Should not have a __cause__ since it wasn't wrapped
+        assert exc_info.value.__cause__ is None
+
+    def test_input_guard_attribute_error_wrapped(self):
+        """AttributeError in guard should be wrapped in GuardError."""
+        def attr_error_guard(input_args: dict, context: dict) -> dict:
+            # Simulate accessing attribute that doesn't exist
+            return input_args["text"].nonexistent_method()
+
+        guards = [(attr_error_guard, OnFail.RAISE)]
+
+        with pytest.raises(GuardError):
+            _run_input_guards(guards, {"text": "hello"}, {})
+
+    def test_input_guard_key_error_wrapped(self):
+        """KeyError in guard should be wrapped in GuardError."""
+        def key_error_guard(input_args: dict, context: dict) -> dict:
+            # Access key that doesn't exist
+            return {"result": input_args["missing_key"]}
+
+        guards = [(key_error_guard, OnFail.RAISE)]
+
+        with pytest.raises(GuardError):
+            _run_input_guards(guards, {"text": "hello"}, {})
+
+    def test_multiple_guards_first_error_stops_chain(self):
+        """When first guard raises, subsequent guards should not run."""
+        call_order = []
+
+        def first_guard(args: dict, ctx: dict) -> dict:
+            call_order.append("first")
+            raise ValueError("First guard failed")
+
+        def second_guard(args: dict, ctx: dict) -> dict:
+            call_order.append("second")
+            return args
+
+        guards = [(first_guard, OnFail.RAISE), (second_guard, OnFail.RAISE)]
+
+        with pytest.raises(GuardError, match="First guard failed"):
+            _run_input_guards(guards, {"text": "hello"}, {})
+
+        # Only first guard should have been called
+        assert call_order == ["first"]
+
+    def test_runtime_error_in_guard_wrapped(self):
+        """RuntimeError in guard should be wrapped in GuardError."""
+        def runtime_error_guard(input_args: dict, context: dict) -> dict:
+            raise RuntimeError("Unexpected runtime error")
+
+        guards = [(runtime_error_guard, OnFail.RAISE)]
+
+        with pytest.raises(GuardError, match="Unexpected runtime error"):
+            _run_input_guards(guards, {"text": "hello"}, {})

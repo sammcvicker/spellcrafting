@@ -1106,3 +1106,252 @@ class TestNoneReturnType:
             result = await fn("hello")
             assert result == "async output"
             assert isinstance(result, str)
+
+
+class TestSpellDecoratorInvalidParams:
+    """Negative tests for invalid decorator arguments (#93).
+
+    These tests document the behavior when invalid parameters are passed to
+    @spell. Currently, validation is delegated to pydantic-ai's Agent, so
+    errors surface at Agent creation time (call time), not definition time.
+    """
+
+    def test_negative_retries_passed_to_agent(self):
+        """Negative retries passed to Agent - PydanticAI handles validation.
+
+        Note: The spell decorator doesn't validate retries at definition time.
+        The Agent class may or may not validate this.
+        """
+        # Decorator accepts negative retries at definition time
+        @spell(retries=-1)
+        def fn(text: str) -> str:
+            """Test."""
+            ...
+
+        # The value is stored
+        assert fn._retries == -1
+
+    def test_float_retries_accepted_at_definition(self):
+        """Float retries accepted at definition time, converted to int by Python.
+
+        Note: Python truncates float to int implicitly in some contexts.
+        """
+        @spell(retries=2.7)  # type: ignore
+        def fn(text: str) -> str:
+            """Test."""
+            ...
+
+        # Float is stored as-is; Agent may reject at call time
+        assert fn._retries == 2.7
+
+    def test_invalid_end_strategy_stored(self):
+        """Invalid end_strategy stored - Agent validates at call time."""
+        @spell(end_strategy="invalid")  # type: ignore
+        def fn(text: str) -> str:
+            """Test."""
+            ...
+
+        # Stored without validation; error would occur at Agent creation
+        mock_result = MagicMock()
+        mock_result.output = "result"
+
+        # Agent would receive the invalid strategy
+        with patch("magically.spell.Agent") as mock_agent_class:
+            mock_agent = MagicMock()
+            mock_agent.run_sync.return_value = mock_result
+            mock_agent_class.return_value = mock_agent
+
+            # Call succeeds because we mocked Agent
+            fn("test")
+
+            # Verify the invalid strategy was passed to Agent
+            call_kwargs = mock_agent_class.call_args[1]
+            assert call_kwargs["end_strategy"] == "invalid"
+
+    def test_non_callable_tools_stored(self):
+        """Non-callable tools stored - Agent validates at call time."""
+        @spell(tools=["not", "callable"])  # type: ignore
+        def fn(text: str) -> str:
+            """Test."""
+            ...
+
+        # With mocked Agent, the call succeeds
+        mock_result = MagicMock()
+        mock_result.output = "result"
+
+        with patch("magically.spell.Agent") as mock_agent_class:
+            mock_agent = MagicMock()
+            mock_agent.run_sync.return_value = mock_result
+            mock_agent_class.return_value = mock_agent
+
+            fn("test")
+
+            # Verify non-callable tools were passed
+            call_kwargs = mock_agent_class.call_args[1]
+            assert call_kwargs["tools"] == ["not", "callable"]
+
+    def test_empty_docstring_uses_empty_prompt(self):
+        """Spell with no docstring uses empty string as system prompt.
+
+        Note: Currently no warning is issued for missing docstrings.
+        The empty prompt is passed to the LLM.
+        """
+        @spell
+        def fn(text: str) -> str:
+            ...  # No docstring
+
+        # Empty string used as system prompt
+        assert fn._system_prompt == ""
+
+    def test_none_model_settings_accepted(self):
+        """None model_settings is accepted (default behavior)."""
+        @spell(model_settings=None)
+        def fn(text: str) -> str:
+            """Test."""
+            ...
+
+        # Should resolve without error
+        resolved_model, resolved_settings, _ = fn._resolve_model_and_settings()
+        assert resolved_settings is None
+
+    def test_empty_tools_list_accepted(self):
+        """Empty tools list is valid."""
+        @spell(tools=[])
+        def fn(text: str) -> str:
+            """Test."""
+            ...
+
+        mock_result = MagicMock()
+        mock_result.output = "result"
+
+        with patch("magically.spell.Agent") as mock_agent_class:
+            mock_agent = MagicMock()
+            mock_agent.run_sync.return_value = mock_result
+            mock_agent_class.return_value = mock_agent
+
+            fn("test")
+
+            call_kwargs = mock_agent_class.call_args[1]
+            assert call_kwargs["tools"] == []
+
+    def test_retries_zero_accepted(self):
+        """Zero retries is valid (no retries)."""
+        @spell(retries=0)
+        def fn(text: str) -> str:
+            """Test."""
+            ...
+
+        assert fn._retries == 0
+
+    def test_exhaustive_end_strategy_valid(self):
+        """'exhaustive' end_strategy is valid."""
+        @spell(end_strategy="exhaustive")
+        def fn(text: str) -> str:
+            """Test."""
+            ...
+
+        mock_result = MagicMock()
+        mock_result.output = "result"
+
+        with patch("magically.spell.Agent") as mock_agent_class:
+            mock_agent = MagicMock()
+            mock_agent.run_sync.return_value = mock_result
+            mock_agent_class.return_value = mock_agent
+
+            fn("test")
+
+            call_kwargs = mock_agent_class.call_args[1]
+            assert call_kwargs["end_strategy"] == "exhaustive"
+
+    def test_early_end_strategy_valid(self):
+        """'early' end_strategy is valid (default)."""
+        @spell(end_strategy="early")
+        def fn(text: str) -> str:
+            """Test."""
+            ...
+
+        mock_result = MagicMock()
+        mock_result.output = "result"
+
+        with patch("magically.spell.Agent") as mock_agent_class:
+            mock_agent = MagicMock()
+            mock_agent.run_sync.return_value = mock_result
+            mock_agent_class.return_value = mock_agent
+
+            fn("test")
+
+            call_kwargs = mock_agent_class.call_args[1]
+            assert call_kwargs["end_strategy"] == "early"
+
+    def test_model_settings_with_extra_keys(self):
+        """ModelSettings with arbitrary keys passed to Agent."""
+        @spell(model_settings={"temperature": 0.5, "custom_key": "value"})
+        def fn(text: str) -> str:
+            """Test."""
+            ...
+
+        mock_result = MagicMock()
+        mock_result.output = "result"
+
+        with patch("magically.spell.Agent") as mock_agent_class:
+            mock_agent = MagicMock()
+            mock_agent.run_sync.return_value = mock_result
+            mock_agent_class.return_value = mock_agent
+
+            fn("test")
+
+            call_kwargs = mock_agent_class.call_args[1]
+            assert call_kwargs["model_settings"]["temperature"] == 0.5
+            assert call_kwargs["model_settings"]["custom_key"] == "value"
+
+    def test_callable_tools_valid(self):
+        """Callable tools are valid and passed to Agent."""
+        def my_tool(x: int) -> int:
+            return x * 2
+
+        @spell(tools=[my_tool])
+        def fn(text: str) -> str:
+            """Test."""
+            ...
+
+        mock_result = MagicMock()
+        mock_result.output = "result"
+
+        with patch("magically.spell.Agent") as mock_agent_class:
+            mock_agent = MagicMock()
+            mock_agent.run_sync.return_value = mock_result
+            mock_agent_class.return_value = mock_agent
+
+            fn("test")
+
+            call_kwargs = mock_agent_class.call_args[1]
+            assert my_tool in call_kwargs["tools"]
+
+    def test_system_prompt_override_docstring(self):
+        """Explicit system_prompt overrides docstring."""
+        @spell(system_prompt="Custom prompt")
+        def fn(text: str) -> str:
+            """This docstring is ignored."""
+            ...
+
+        assert fn._system_prompt == "Custom prompt"
+
+    def test_system_prompt_empty_string(self):
+        """Empty system_prompt string is valid."""
+        @spell(system_prompt="")
+        def fn(text: str) -> str:
+            """This docstring is ignored."""
+            ...
+
+        assert fn._system_prompt == ""
+
+    def test_whitespace_only_docstring(self):
+        """Whitespace-only docstring becomes whitespace system prompt."""
+        @spell
+        def fn(text: str) -> str:
+            """   """
+            ...
+
+        # inspect.getdoc strips leading/trailing whitespace
+        # but preserves the docstring if it exists
+        assert fn._system_prompt.strip() == ""
