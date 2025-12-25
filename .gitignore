@@ -1,6 +1,29 @@
+# Environment and secrets
 .env
+
+# Python
 __pycache__/
 *.pyc
 .pytest_cache/
 dist/
 *.egg-info/
+
+# Virtual environments
+.venv/
+venv/
+env/
+.python-version
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Coverage
+.coverage
+htmlcov/
