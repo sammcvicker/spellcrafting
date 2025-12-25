@@ -7,11 +7,12 @@
 
 After analyzing four research documents covering framework comparisons, input validation, output validation, and enterprise patterns, this design takes an opinionated stance:
 
-**Build:**
+**Built:**
 - Output validation via Pydantic (already have it - document patterns)
 - Retry with validation feedback (already have it via `retries` parameter)
-- A simple `@validate` decorator for composable output checks
-- Validator spells - using `@spell` to validate other spell outputs
+- `@guard.input()` and `@guard.output()` decorators for composable validation
+- `llm_validator()` for LLM-powered validation
+- Validator spells pattern - using `@spell` to validate other spell outputs
 
 **Don't Build:**
 - Input validation framework (use specialized libraries)
@@ -73,72 +74,62 @@ PydanticAI sends validation errors back to the LLM, which corrects its output. T
 
 ---
 
-## 2. What to Add: Semantic Validation
+## 2. What We Added: Guards for Input/Output Validation
 
-Pydantic handles *structural* validation (types, ranges, formats). But some validation is *semantic* - it requires understanding content, not just structure.
+Pydantic handles *structural* validation (types, ranges, formats). But some validation is *semantic* - it requires understanding content, not just structure. We implemented this via **guards**.
 
-### 2.1 The `@validate` Decorator
+### 2.1 The `@guard.input()` and `@guard.output()` Decorators
 
-A lightweight decorator for composable output validation:
+Guards are composable decorators for input and output validation:
 
 ```python
-from magically import spell, validate
+from magically import spell, guard
 
-@spell
-@validate(lambda r: len(r.key_points) >= 3, "Must have at least 3 key points")
-@validate(lambda r: r.confidence > 0.5, "Confidence too low")
+def check_key_points(result: Analysis, ctx: dict) -> Analysis:
+    """Validate that we have enough key points."""
+    if len(result.key_points) < 3:
+        raise ValueError("Must have at least 3 key points")
+    return result
+
+def check_confidence(result: Analysis, ctx: dict) -> Analysis:
+    """Validate confidence is high enough."""
+    if result.confidence <= 0.5:
+        raise ValueError("Confidence too low")
+    return result
+
+@spell                          # Always outermost
+@guard.output(check_key_points) # Output guards run after LLM
+@guard.output(check_confidence)
 def analyze(text: str) -> Analysis:
     """Analyze the sentiment and key points of the given text."""
     ...
 ```
 
-**Design:**
+**Key Design Decisions:**
 
-```python
-from typing import Callable, TypeVar
-from functools import wraps
+1. **Guards are inside @spell:** The `@spell` decorator must be outermost. Input guards run before the LLM call, output guards run after.
 
-T = TypeVar("T")
+2. **Guards receive context:** Each guard function receives a typed `GuardContext` (converted to dict for backwards compatibility) with spell metadata:
+   - `spell_name`: Name of the decorated function
+   - `model`: Model alias being used
+   - `attempt_number`: Current retry attempt
 
-class ValidationError(Exception):
-    """Raised when output validation fails."""
-    pass
+3. **Guards can transform:** Guards return the (possibly modified) input/output, enabling normalization and sanitization.
 
-def validate(
-    check: Callable[[T], bool],
-    message: str = "Validation failed",
-    *,
-    on_fail: str = "raise",  # "raise" | "warn" | "log"
-) -> Callable[[Callable[..., T]], Callable[..., T]]:
-    """
-    Decorator for semantic output validation.
+4. **Built-in `max_length` guard:** We ship a common guard for length validation:
+   ```python
+   @spell
+   @guard.max_length(input_max=1000, output_max=500)
+   def summarize(text: str) -> str:
+       """Summarize the text."""
+       ...
+   ```
 
-    Args:
-        check: Predicate function that returns True if valid
-        message: Error message on failure
-        on_fail: Action on failure - raise exception, warn, or just log
-    """
-    def decorator(func: Callable[..., T]) -> Callable[..., T]:
-        @wraps(func)
-        def wrapper(*args, **kwargs) -> T:
-            result = func(*args, **kwargs)
-            if not check(result):
-                if on_fail == "raise":
-                    raise ValidationError(message)
-                elif on_fail == "warn":
-                    import warnings
-                    warnings.warn(message, stacklevel=2)
-                # "log" handled by logging system
-            return result
-        return wrapper
-    return decorator
-```
-
-**Why this is enough:**
-- Simple, Pythonic API
-- Composable (stack decorators)
-- Works with any callable, not just spells
-- No configuration DSL
+**Why guards instead of `@validate`:**
+- Separate input and output concerns
+- Guards can transform values, not just validate
+- Better integration with spell execution (context, logging)
+- Clearer decorator ordering (`@spell` is always outermost)
 
 ### 2.2 Validator Spells
 
@@ -416,34 +407,43 @@ def process(text: str) -> Output:
 
 ---
 
-## 5. Implementation Plan
+## 5. Implementation Status
 
-### Phase 1: Documentation (Week 1)
+### Completed: Guards System
 
-No code changes. Document existing patterns:
-1. Pydantic validation patterns for spells
-2. `retries` parameter usage
-3. Custom validators via `Annotated` and `field_validator`
-4. Integration patterns with external libraries
+We implemented guards instead of the originally proposed `@validate` decorator:
 
-### Phase 2: `@validate` Decorator (Week 2)
+1. **`@guard.input(fn)`** - Input validation/transformation before LLM call
+2. **`@guard.output(fn)`** - Output validation/transformation after LLM call
+3. **`@guard.max_length(input_max, output_max)`** - Built-in length guard
+4. **`GuardContext`** - Typed context dataclass passed to guard functions
+5. **`GuardError`** - Exception raised on guard failures
 
-Add the lightweight validation decorator:
-1. `validate(predicate, message, on_fail)` decorator
-2. `ValidationError` exception
-3. Async support
-4. Integration with logging system
+This approach is more flexible than the proposed `@validate` because:
+- Guards can validate AND transform
+- Separate input/output concerns
+- Full context about the spell execution
 
-Estimated: ~100 lines of code.
+### Completed: LLM Validator Helper
 
-### Phase 3: Validator Spells (Week 3, Optional)
+We also added `llm_validator()` for LLM-powered validation:
 
-Ship 1-3 common validator spells in `magically.validators`:
-1. `check_tone(content, expected_tone) -> ToneCheck`
-2. `check_grounding(claim, sources) -> GroundingCheck`
-3. `check_completeness(question, answer) -> CompletenessCheck`
+```python
+from magically import llm_validator
 
-These are just examples showing the pattern, not a comprehensive library.
+# Create a validator that uses an LLM to check constraints
+validator = llm_validator("Must be polite and professional")
+
+@spell
+@guard.output(validator)
+def generate_response(query: str) -> str:
+    """Generate a response to the query."""
+    ...
+```
+
+### Not Implemented: Validator Spells Module
+
+The optional `magically.validators` module with pre-built validator spells was not implemented. Users can create their own validator spells as needed.
 
 ---
 
@@ -453,7 +453,7 @@ These are just examples showing the pattern, not a comprehensive library.
 
 ```python
 from pydantic import BaseModel, Field, field_validator
-from magically import spell, validate
+from magically import spell, guard
 
 class Report(BaseModel):
     title: str = Field(min_length=5)
@@ -464,21 +464,26 @@ class Report(BaseModel):
     def no_empty_sections(cls, v):
         return [s for s in v if s.strip()]
 
-@spell(retries=2)
-@validate(lambda r: len(r.sections) >= 3, "Need at least 3 sections")
+def check_sections(report: Report, ctx: dict) -> Report:
+    if len(report.sections) < 3:
+        raise ValueError("Need at least 3 sections")
+    return report
+
+@spell(retries=2)               # Always outermost
+@guard.output(check_sections)   # Guards inside @spell
 def generate_report(topic: str) -> Report:
     """Generate a comprehensive report on the topic."""
     ...
 ```
 
 - Structural validation via Pydantic types
-- Semantic validation via `@validate`
-- Automatic retry on failure
-- Zero new concepts to learn
+- Semantic validation via `@guard.output()` or `llm_validator()`
+- Automatic retry on Pydantic validation failure
+- Guards can also transform, not just validate
 
 ### For the Library
 
-- Small surface area (one decorator, one exception)
+- Small surface area (`guard.input/output`, `max_length`, `GuardContext`, `GuardError`)
 - No new dependencies
 - Composable with existing Python patterns
 - Follows the "spells are just functions" philosophy
@@ -525,9 +530,10 @@ def generate_report(topic: str) -> Report:
 | No rate limiting | Infrastructure concern, not library concern |
 | No configuration DSL | Python is our DSL |
 | No validator hub | PyPI is our hub |
-| Simple `@validate` decorator | Matches library's "Python-native" philosophy |
-| Validator spells pattern | Uses core abstraction, infinitely flexible |
+| Guards instead of `@validate` | Guards can transform AND validate; separate input/output concerns; better integration with spell execution |
+| `llm_validator()` helper | Easy way to create LLM-powered validation guards |
 | Pydantic-first validation | Already have it, it's the right approach |
+| `GuardContext` dataclass | Typed context instead of plain dict; frozen for immutability; backwards compatible via `to_dict()` |
 
 ---
 

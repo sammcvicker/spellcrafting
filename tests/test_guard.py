@@ -5,7 +5,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from magically import spell, guard, GuardError, OnFail
+from magically import spell, guard, GuardError, OnFail, GuardContext
 from magically.guard import (
     GuardConfig,
     get_guard_config,
@@ -16,6 +16,9 @@ from magically.guard import (
     _run_output_guards_tracked,
     _build_context,
 )
+
+# Default test context for guard runner tests
+TEST_CONTEXT = GuardContext(spell_name="test_spell")
 
 
 # ---------------------------------------------------------------------------
@@ -44,7 +47,7 @@ class TestGuardBehavior:
         guards = [(tracking_guard, OnFail.RAISE)]
         input_args = {"text": "test"}
 
-        result = _run_input_guards(guards, input_args, {})
+        result = _run_input_guards(guards, input_args, TEST_CONTEXT)
 
         # Guard should have been called with correct args
         assert len(called) == 1
@@ -61,7 +64,7 @@ class TestGuardBehavior:
 
         guards = [(tracking_guard, OnFail.RAISE)]
 
-        result = _run_output_guards(guards, "test output", {})
+        result = _run_output_guards(guards, "test output", TEST_CONTEXT)
 
         assert len(called) == 1
         assert called[0] == "test output"
@@ -73,7 +76,7 @@ class TestGuardBehavior:
             return {k: v.upper() if isinstance(v, str) else v for k, v in args.items()}
 
         guards = [(uppercase_guard, OnFail.RAISE)]
-        result = _run_input_guards(guards, {"text": "hello"}, {})
+        result = _run_input_guards(guards, {"text": "hello"}, TEST_CONTEXT)
 
         assert result == {"text": "HELLO"}
 
@@ -83,7 +86,7 @@ class TestGuardBehavior:
             return output.upper()
 
         guards = [(uppercase_guard, OnFail.RAISE)]
-        result = _run_output_guards(guards, "hello", {})
+        result = _run_output_guards(guards, "hello", TEST_CONTEXT)
 
         assert result == "HELLO"
 
@@ -98,10 +101,10 @@ class TestGuardBehavior:
 
         # Short input should be rejected
         with pytest.raises(GuardError, match="Input too short"):
-            _run_input_guards(guards, {"text": "hi"}, {})
+            _run_input_guards(guards, {"text": "hi"}, TEST_CONTEXT)
 
         # Valid input should work
-        result = _run_input_guards(guards, {"text": "hello world"}, {})
+        result = _run_input_guards(guards, {"text": "hello world"}, TEST_CONTEXT)
         assert result == {"text": "hello world"}
 
     def test_output_guard_can_reject_via_runner(self):
@@ -115,10 +118,10 @@ class TestGuardBehavior:
 
         # Bad output should be rejected
         with pytest.raises(GuardError, match="Bad output detected"):
-            _run_output_guards(guards, "this is bad content", {})
+            _run_output_guards(guards, "this is bad content", TEST_CONTEXT)
 
         # Good output should work
-        result = _run_output_guards(guards, "this is good content", {})
+        result = _run_output_guards(guards, "this is good content", TEST_CONTEXT)
         assert result == "this is good content"
 
     def test_multiple_input_guards_all_called_via_runner(self):
@@ -134,7 +137,7 @@ class TestGuardBehavior:
             return args
 
         guards = [(guard1, OnFail.RAISE), (guard2, OnFail.RAISE)]
-        _run_input_guards(guards, {"text": "test"}, {})
+        _run_input_guards(guards, {"text": "test"}, TEST_CONTEXT)
 
         assert call_order == ["guard1", "guard2"]
 
@@ -151,7 +154,7 @@ class TestGuardBehavior:
             return output
 
         guards = [(guard1, OnFail.RAISE), (guard2, OnFail.RAISE)]
-        _run_output_guards(guards, "test", {})
+        _run_output_guards(guards, "test", TEST_CONTEXT)
 
         assert call_order == ["guard1", "guard2"]
 
@@ -164,7 +167,7 @@ class TestGuardBehavior:
             return args
 
         guards = [(context_guard, OnFail.RAISE)]
-        context = {"spell_name": "my_function", "model": "fast"}
+        context = GuardContext(spell_name="my_function", model="fast")
 
         _run_input_guards(guards, {"text": "test"}, context)
 
@@ -182,7 +185,7 @@ class TestGuardBehavior:
             return args
 
         guards = [(add_prefix, OnFail.RAISE), (add_suffix, OnFail.RAISE)]
-        result = _run_input_guards(guards, {"text": "hello"}, {})
+        result = _run_input_guards(guards, {"text": "hello"}, TEST_CONTEXT)
 
         assert result["text"] == "PREFIX_hello_SUFFIX"
 
@@ -409,7 +412,7 @@ class TestInputGuardExecution:
         guards = [(capture_guard, OnFail.RAISE)]
         input_args = {"text": "hello", "count": 5}
 
-        _run_input_guards(guards, input_args, {})
+        _run_input_guards(guards, input_args, TEST_CONTEXT)
         assert received_args == {"text": "hello", "count": 5}
 
     def test_input_guard_receives_context(self):
@@ -420,7 +423,7 @@ class TestInputGuardExecution:
             return input_args
 
         guards = [(capture_guard, OnFail.RAISE)]
-        context = {"spell_name": "test_spell", "model": "fast"}
+        context = GuardContext(spell_name="test_spell", model="fast")
 
         _run_input_guards(guards, {}, context)
         assert received_context["spell_name"] == "test_spell"
@@ -431,7 +434,7 @@ class TestInputGuardExecution:
             return {k: v.upper() if isinstance(v, str) else v for k, v in input_args.items()}
 
         guards = [(uppercase_guard, OnFail.RAISE)]
-        result = _run_input_guards(guards, {"text": "hello"}, {})
+        result = _run_input_guards(guards, {"text": "hello"}, TEST_CONTEXT)
 
         assert result == {"text": "HELLO"}
 
@@ -443,7 +446,7 @@ class TestInputGuardExecution:
             return {k: f"{v}_suffix" if isinstance(v, str) else v for k, v in args.items()}
 
         guards = [(add_prefix, OnFail.RAISE), (add_suffix, OnFail.RAISE)]
-        result = _run_input_guards(guards, {"text": "hello"}, {})
+        result = _run_input_guards(guards, {"text": "hello"}, TEST_CONTEXT)
 
         assert result == {"text": "prefix_hello_suffix"}
 
@@ -454,7 +457,7 @@ class TestInputGuardExecution:
         guards = [(rejecting_guard, OnFail.RAISE)]
 
         with pytest.raises(GuardError, match="Invalid input"):
-            _run_input_guards(guards, {"text": "hello"}, {})
+            _run_input_guards(guards, {"text": "hello"}, TEST_CONTEXT)
 
     def test_input_guard_preserves_guard_error(self):
         def rejecting_guard(input_args: dict, context: dict) -> dict:
@@ -463,7 +466,7 @@ class TestInputGuardExecution:
         guards = [(rejecting_guard, OnFail.RAISE)]
 
         with pytest.raises(GuardError, match="Already a guard error"):
-            _run_input_guards(guards, {}, {})
+            _run_input_guards(guards, {}, TEST_CONTEXT)
 
 
 class TestOutputGuardExecution:
@@ -478,7 +481,7 @@ class TestOutputGuardExecution:
 
         guards = [(capture_guard, OnFail.RAISE)]
 
-        _run_output_guards(guards, "hello world", {})
+        _run_output_guards(guards, "hello world", TEST_CONTEXT)
         assert received_output == ["hello world"]
 
     def test_output_guard_receives_context(self):
@@ -489,8 +492,9 @@ class TestOutputGuardExecution:
             return output
 
         guards = [(capture_guard, OnFail.RAISE)]
+        context = GuardContext(spell_name="my_spell")
 
-        _run_output_guards(guards, "test", {"spell_name": "my_spell"})
+        _run_output_guards(guards, "test", context)
         assert received_context["spell_name"] == "my_spell"
 
     def test_output_guard_can_transform(self):
@@ -498,7 +502,7 @@ class TestOutputGuardExecution:
             return output.upper()
 
         guards = [(uppercase_guard, OnFail.RAISE)]
-        result = _run_output_guards(guards, "hello", {})
+        result = _run_output_guards(guards, "hello", TEST_CONTEXT)
 
         assert result == "HELLO"
 
@@ -510,7 +514,7 @@ class TestOutputGuardExecution:
             return f"{out}_suffix"
 
         guards = [(add_prefix, OnFail.RAISE), (add_suffix, OnFail.RAISE)]
-        result = _run_output_guards(guards, "hello", {})
+        result = _run_output_guards(guards, "hello", TEST_CONTEXT)
 
         assert result == "prefix_hello_suffix"
 
@@ -521,7 +525,7 @@ class TestOutputGuardExecution:
         guards = [(rejecting_guard, OnFail.RAISE)]
 
         with pytest.raises(GuardError, match="Invalid output"):
-            _run_output_guards(guards, "test", {})
+            _run_output_guards(guards, "test", TEST_CONTEXT)
 
 
 class TestMaxLengthGuard:
@@ -537,7 +541,7 @@ class TestMaxLengthGuard:
         result = _run_input_guards(
             config.input_guards,
             {"text": "short text"},
-            {},
+            TEST_CONTEXT,
         )
         assert result == {"text": "short text"}
 
@@ -553,7 +557,7 @@ class TestMaxLengthGuard:
             _run_input_guards(
                 config.input_guards,
                 {"text": "this is a longer text"},
-                {},
+                TEST_CONTEXT,
             )
 
     def test_max_length_output_passes(self):
@@ -566,7 +570,7 @@ class TestMaxLengthGuard:
         result = _run_output_guards(
             config.output_guards,
             "short output",
-            {},
+            TEST_CONTEXT,
         )
         assert result == "short output"
 
@@ -582,7 +586,7 @@ class TestMaxLengthGuard:
             _run_output_guards(
                 config.output_guards,
                 "longer output",
-                {},
+                TEST_CONTEXT,
             )
 
     def test_max_length_both_input_and_output(self):
@@ -618,14 +622,14 @@ class TestMaxLengthGuard:
             _run_input_guards(
                 short_config.input_guards,
                 {"text": "1234567890"},  # 10 chars
-                {},
+                TEST_CONTEXT,
             )
 
         # Long limit should accept text with 10 chars
         result = _run_input_guards(
             long_config.input_guards,
             {"text": "1234567890"},  # 10 chars
-            {},
+            TEST_CONTEXT,
         )
         assert result == {"text": "1234567890"}
 
@@ -647,14 +651,14 @@ class TestMaxLengthGuard:
             _run_output_guards(
                 short_config.output_guards,
                 "1234567890",
-                {},
+                TEST_CONTEXT,
             )
 
         # Long output limit should accept 10 chars
         result = _run_output_guards(
             long_config.output_guards,
             "1234567890",
-            {},
+            TEST_CONTEXT,
         )
         assert result == "1234567890"
 
@@ -667,8 +671,8 @@ class TestBuildContext:
             pass
 
         context = _build_context(my_func)
-        assert context["spell_name"] == "my_func"
-        assert context["attempt_number"] == 1
+        assert context.spell_name == "my_func"
+        assert context.attempt_number == 1
 
     def test_build_context_with_model_alias(self):
         def my_func():
@@ -677,14 +681,14 @@ class TestBuildContext:
         my_func._model_alias = "fast"
 
         context = _build_context(my_func)
-        assert context["model"] == "fast"
+        assert context.model == "fast"
 
     def test_build_context_with_attempt(self):
         def my_func():
             pass
 
         context = _build_context(my_func, attempt=3)
-        assert context["attempt_number"] == 3
+        assert context.attempt_number == 3
 
 
 class TestGuardWithSpell:
@@ -1235,18 +1239,21 @@ class TestDecoratorOrderWarning:
 
 
 class TestGuardContextDataclass:
-    """Tests for the context dict/dataclass passed to guard functions (#167).
+    """Tests for the GuardContext dataclass passed to guard functions (#167, #80).
 
     The context passed to guards contains spell metadata like spell_name,
-    model alias, and attempt number. These tests verify the context structure
-    and behavior when used by guards.
+    model alias, and attempt number. These tests verify the GuardContext
+    structure and its to_dict() method for backwards compatibility.
     """
 
     def test_context_has_spell_name(self):
         """Context should include the spell name from the decorated function."""
         context = _build_context(lambda: None)
-        assert "spell_name" in context
-        assert context["spell_name"] == "<lambda>"
+        assert context.spell_name == "<lambda>"
+        # Also verify to_dict for backwards compatibility
+        ctx_dict = context.to_dict()
+        assert "spell_name" in ctx_dict
+        assert ctx_dict["spell_name"] == "<lambda>"
 
     def test_context_has_model_alias(self):
         """Context should include model alias when set on function."""
@@ -1255,7 +1262,7 @@ class TestGuardContextDataclass:
         my_func._model_alias = "fast"
 
         context = _build_context(my_func)
-        assert context["model"] == "fast"
+        assert context.model == "fast"
 
     def test_context_model_none_when_not_set(self):
         """Context model should be None when no model alias is set."""
@@ -1263,7 +1270,7 @@ class TestGuardContextDataclass:
             pass
 
         context = _build_context(my_func)
-        assert context["model"] is None
+        assert context.model is None
 
     def test_context_has_attempt_number(self):
         """Context should include attempt number."""
@@ -1271,7 +1278,7 @@ class TestGuardContextDataclass:
             pass
 
         context = _build_context(my_func)
-        assert context["attempt_number"] == 1
+        assert context.attempt_number == 1
 
     def test_context_custom_attempt_number(self):
         """Context should respect custom attempt number."""
@@ -1279,17 +1286,18 @@ class TestGuardContextDataclass:
             pass
 
         context = _build_context(my_func, attempt=5)
-        assert context["attempt_number"] == 5
+        assert context.attempt_number == 5
 
-    def test_context_is_mutable(self):
-        """Guards can add custom data to the context dict."""
+    def test_context_to_dict_is_mutable(self):
+        """Guards receive a mutable dict via to_dict() for backwards compatibility."""
         def my_func():
             pass
 
         context = _build_context(my_func)
-        # Guards can add their own data
-        context["custom_key"] = "custom_value"
-        assert context["custom_key"] == "custom_value"
+        ctx_dict = context.to_dict()
+        # Guards can add their own data to the dict copy
+        ctx_dict["custom_key"] = "custom_value"
+        assert ctx_dict["custom_key"] == "custom_value"
 
     def test_context_passed_to_input_guard_in_spell(self):
         """Input guards receive proper context during spell execution."""
@@ -1367,7 +1375,7 @@ class TestTrackedGuardsEarlyFailure:
             (guard2, OnFail.RAISE),
         ]
 
-        result = _run_input_guards_tracked(guards, {"text": "hello"}, {})
+        result = _run_input_guards_tracked(guards, {"text": "hello"}, TEST_CONTEXT)
 
         assert len(result.passed) == 2
         assert "guard1" in result.passed
@@ -1388,7 +1396,7 @@ class TestTrackedGuardsEarlyFailure:
             (check2, OnFail.RAISE),
         ]
 
-        result = _run_output_guards_tracked(guards, "test output", {})
+        result = _run_output_guards_tracked(guards, "test output", TEST_CONTEXT)
 
         assert len(result.passed) == 2
         assert "check1" in result.passed
@@ -1414,7 +1422,7 @@ class TestTrackedGuardsEarlyFailure:
         ]
 
         with pytest.raises(GuardError, match="Guard failed!"):
-            _run_input_guards_tracked(guards, {"text": "hello"}, {})
+            _run_input_guards_tracked(guards, {"text": "hello"}, TEST_CONTEXT)
 
     def test_tracked_input_guard_first_fails(self):
         """When first guard fails, passed list should be empty."""
@@ -1430,7 +1438,7 @@ class TestTrackedGuardsEarlyFailure:
         ]
 
         with pytest.raises(GuardError, match="First guard failed!"):
-            _run_input_guards_tracked(guards, {"text": "hello"}, {})
+            _run_input_guards_tracked(guards, {"text": "hello"}, TEST_CONTEXT)
 
     def test_tracked_output_guard_early_failure(self):
         """When output guard fails, tracking should record what passed before."""
@@ -1446,7 +1454,7 @@ class TestTrackedGuardsEarlyFailure:
         ]
 
         with pytest.raises(GuardError, match="Output guard failed!"):
-            _run_output_guards_tracked(guards, "test", {})
+            _run_output_guards_tracked(guards, "test", TEST_CONTEXT)
 
     def test_tracked_guard_transforms_before_failure(self):
         """Guards can transform input before a later guard fails."""
@@ -1463,11 +1471,11 @@ class TestTrackedGuardsEarlyFailure:
         ]
 
         with pytest.raises(GuardError):
-            _run_input_guards_tracked(guards, {"text": "hello"}, {})
+            _run_input_guards_tracked(guards, {"text": "hello"}, TEST_CONTEXT)
 
     def test_tracked_guards_empty_list(self):
         """Empty guard list should return empty tracking."""
-        result = _run_input_guards_tracked([], {"text": "hello"}, {})
+        result = _run_input_guards_tracked([], {"text": "hello"}, TEST_CONTEXT)
 
         assert len(result.passed) == 0
         assert len(result.failed) == 0
@@ -1480,7 +1488,7 @@ class TestTrackedGuardsEarlyFailure:
 
         guards = [(single_guard, OnFail.RAISE)]
 
-        result = _run_input_guards_tracked(guards, {"text": "hello"}, {})
+        result = _run_input_guards_tracked(guards, {"text": "hello"}, TEST_CONTEXT)
 
         assert result.passed == ["single_guard"]
         assert result.failed == []
@@ -1493,7 +1501,7 @@ class TestTrackedGuardsEarlyFailure:
         guards = [(single_failing_guard, OnFail.RAISE)]
 
         with pytest.raises(GuardError):
-            _run_input_guards_tracked(guards, {"text": "hello"}, {})
+            _run_input_guards_tracked(guards, {"text": "hello"}, TEST_CONTEXT)
 
 
 class TestGuardErrorHandling:
@@ -1511,7 +1519,7 @@ class TestGuardErrorHandling:
         guards = [(type_error_guard, OnFail.RAISE)]
 
         with pytest.raises(GuardError, match="Expected string, got int"):
-            _run_input_guards(guards, {"text": "hello"}, {})
+            _run_input_guards(guards, {"text": "hello"}, TEST_CONTEXT)
 
     def test_output_guard_typeerror_wrapped(self):
         """Output guards raising TypeError should be wrapped in GuardError."""
@@ -1521,7 +1529,7 @@ class TestGuardErrorHandling:
         guards = [(type_error_guard, OnFail.RAISE)]
 
         with pytest.raises(GuardError, match="Invalid output type"):
-            _run_output_guards(guards, "test", {})
+            _run_output_guards(guards, "test", TEST_CONTEXT)
 
     def test_input_guard_custom_exception_wrapped(self):
         """Guards raising custom exceptions should be wrapped in GuardError."""
@@ -1534,7 +1542,7 @@ class TestGuardErrorHandling:
         guards = [(custom_error_guard, OnFail.RAISE)]
 
         with pytest.raises(GuardError, match="Custom validation failed"):
-            _run_input_guards(guards, {"text": "hello"}, {})
+            _run_input_guards(guards, {"text": "hello"}, TEST_CONTEXT)
 
     def test_output_guard_custom_exception_wrapped(self):
         """Output guards raising custom exceptions should be wrapped in GuardError."""
@@ -1547,7 +1555,7 @@ class TestGuardErrorHandling:
         guards = [(custom_error_guard, OnFail.RAISE)]
 
         with pytest.raises(GuardError, match="Custom output error"):
-            _run_output_guards(guards, "test", {})
+            _run_output_guards(guards, "test", TEST_CONTEXT)
 
     def test_input_guard_returns_none_passthrough(self):
         """Guards returning None should pass through (None is a valid return).
@@ -1561,7 +1569,7 @@ class TestGuardErrorHandling:
         guards = [(none_guard, OnFail.RAISE)]
 
         # None is passed through - guard runner doesn't type-check returns
-        result = _run_input_guards(guards, {"text": "hello"}, {})
+        result = _run_input_guards(guards, {"text": "hello"}, TEST_CONTEXT)
         assert result is None
 
     def test_output_guard_returns_none_passthrough(self):
@@ -1574,7 +1582,7 @@ class TestGuardErrorHandling:
 
         guards = [(none_guard, OnFail.RAISE)]
 
-        result = _run_output_guards(guards, "test", {})
+        result = _run_output_guards(guards, "test", TEST_CONTEXT)
         assert result is None
 
     def test_output_guard_wrong_return_type_passthrough(self):
@@ -1588,7 +1596,7 @@ class TestGuardErrorHandling:
 
         guards = [(wrong_type_guard, OnFail.RAISE)]
 
-        result = _run_output_guards(guards, "test", {})
+        result = _run_output_guards(guards, "test", TEST_CONTEXT)
         assert result == 42  # Passes through without type checking
 
     def test_input_guard_exception_preserves_original(self):
@@ -1602,7 +1610,7 @@ class TestGuardErrorHandling:
         guards = [(raising_guard, OnFail.RAISE)]
 
         with pytest.raises(GuardError) as exc_info:
-            _run_input_guards(guards, {"text": "hello"}, {})
+            _run_input_guards(guards, {"text": "hello"}, TEST_CONTEXT)
 
         # Verify the original exception is preserved in the chain
         assert exc_info.value.__cause__ is not None
@@ -1616,7 +1624,7 @@ class TestGuardErrorHandling:
         guards = [(guard_error_guard, OnFail.RAISE)]
 
         with pytest.raises(GuardError, match="Already a guard error") as exc_info:
-            _run_input_guards(guards, {"text": "hello"}, {})
+            _run_input_guards(guards, {"text": "hello"}, TEST_CONTEXT)
 
         # Should not have a __cause__ since it wasn't wrapped
         assert exc_info.value.__cause__ is None
@@ -1630,7 +1638,7 @@ class TestGuardErrorHandling:
         guards = [(attr_error_guard, OnFail.RAISE)]
 
         with pytest.raises(GuardError):
-            _run_input_guards(guards, {"text": "hello"}, {})
+            _run_input_guards(guards, {"text": "hello"}, TEST_CONTEXT)
 
     def test_input_guard_key_error_wrapped(self):
         """KeyError in guard should be wrapped in GuardError."""
@@ -1641,7 +1649,7 @@ class TestGuardErrorHandling:
         guards = [(key_error_guard, OnFail.RAISE)]
 
         with pytest.raises(GuardError):
-            _run_input_guards(guards, {"text": "hello"}, {})
+            _run_input_guards(guards, {"text": "hello"}, TEST_CONTEXT)
 
     def test_multiple_guards_first_error_stops_chain(self):
         """When first guard raises, subsequent guards should not run."""
@@ -1658,7 +1666,7 @@ class TestGuardErrorHandling:
         guards = [(first_guard, OnFail.RAISE), (second_guard, OnFail.RAISE)]
 
         with pytest.raises(GuardError, match="First guard failed"):
-            _run_input_guards(guards, {"text": "hello"}, {})
+            _run_input_guards(guards, {"text": "hello"}, TEST_CONTEXT)
 
         # Only first guard should have been called
         assert call_order == ["first"]
@@ -1671,4 +1679,4 @@ class TestGuardErrorHandling:
         guards = [(runtime_error_guard, OnFail.RAISE)]
 
         with pytest.raises(GuardError, match="Unexpected runtime error"):
-            _run_input_guards(guards, {"text": "hello"}, {})
+            _run_input_guards(guards, {"text": "hello"}, TEST_CONTEXT)

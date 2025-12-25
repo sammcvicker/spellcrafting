@@ -31,7 +31,7 @@ from magically.on_fail import (
     FallbackStrategy,
     CustomStrategy,
 )
-from magically.guard import GuardError, GuardExecutor
+from magically.guard import GuardContext, GuardError, GuardExecutor
 from magically.logging import (
     SpellExecutionLog,
     ToolCallLog,
@@ -743,8 +743,7 @@ def spell(
 
                 # Run input guards if present
                 if guard_config and guard_config.input_guards:
-                    guard_context = GuardExecutor.build_context(fn)
-                    guard_context["model"] = model  # Use alias, not resolved
+                    guard_context = GuardExecutor.build_context(fn, model=model)
                     if logging_enabled and validation_metrics:
                         guard_result = await GuardExecutor.run_input_guards_tracked_async(
                             guard_config, input_args, guard_context
@@ -785,8 +784,7 @@ def spell(
 
                     # Run output guards if present
                     if guard_config and guard_config.output_guards:
-                        guard_context = GuardExecutor.build_context(fn)
-                        guard_context["model"] = model
+                        guard_context = GuardExecutor.build_context(fn, model=model)
                         output = await GuardExecutor.run_output_guards_async(
                             guard_config, output, guard_context
                         )
@@ -863,8 +861,7 @@ def spell(
 
                         # Run output guards if present (with tracking)
                         if guard_config and guard_config.output_guards:
-                            guard_context = GuardExecutor.build_context(fn)
-                            guard_context["model"] = model
+                            guard_context = GuardExecutor.build_context(fn, model=model)
                             if validation_metrics:
                                 guard_result = await GuardExecutor.run_output_guards_tracked_async(
                                     guard_config, output, guard_context
@@ -910,8 +907,7 @@ def spell(
 
                 # Run input guards if present
                 if guard_config and guard_config.input_guards:
-                    guard_context = GuardExecutor.build_context(fn)
-                    guard_context["model"] = model  # Use alias, not resolved
+                    guard_context = GuardExecutor.build_context(fn, model=model)
                     if logging_enabled and validation_metrics:
                         guard_result = GuardExecutor.run_input_guards_tracked(
                             guard_config, input_args, guard_context
@@ -952,8 +948,7 @@ def spell(
 
                     # Run output guards if present
                     if guard_config and guard_config.output_guards:
-                        guard_context = GuardExecutor.build_context(fn)
-                        guard_context["model"] = model
+                        guard_context = GuardExecutor.build_context(fn, model=model)
                         output = GuardExecutor.run_output_guards(
                             guard_config, output, guard_context
                         )
@@ -1030,8 +1025,7 @@ def spell(
 
                         # Run output guards if present (with tracking)
                         if guard_config and guard_config.output_guards:
-                            guard_context = GuardExecutor.build_context(fn)
-                            guard_context["model"] = model
+                            guard_context = GuardExecutor.build_context(fn, model=model)
                             if validation_metrics:
                                 guard_result = GuardExecutor.run_output_guards_tracked(
                                     guard_config, output, guard_context
@@ -1089,8 +1083,7 @@ def spell(
 
                 # Run input guards if present
                 if guard_config and guard_config.input_guards:
-                    guard_context = GuardExecutor.build_context(fn)
-                    guard_context["model"] = model
+                    guard_context = GuardExecutor.build_context(fn, model=model)
                     input_args = await GuardExecutor.run_input_guards_async(
                         guard_config, input_args, guard_context
                     )
@@ -1127,8 +1120,7 @@ def spell(
 
                 # Run output guards if present
                 if guard_config and guard_config.output_guards:
-                    guard_context = GuardExecutor.build_context(fn)
-                    guard_context["model"] = model
+                    guard_context = GuardExecutor.build_context(fn, model=model)
                     output = await GuardExecutor.run_output_guards_async(
                         guard_config, output, guard_context
                     )
@@ -1187,8 +1179,7 @@ def spell(
 
                 # Run input guards if present
                 if guard_config and guard_config.input_guards:
-                    guard_context = GuardExecutor.build_context(fn)
-                    guard_context["model"] = model
+                    guard_context = GuardExecutor.build_context(fn, model=model)
                     input_args = GuardExecutor.run_input_guards(
                         guard_config, input_args, guard_context
                     )
@@ -1225,8 +1216,7 @@ def spell(
 
                 # Run output guards if present
                 if guard_config and guard_config.output_guards:
-                    guard_context = GuardExecutor.build_context(fn)
-                    guard_context["model"] = model
+                    guard_context = GuardExecutor.build_context(fn, model=model)
                     output = GuardExecutor.run_output_guards(
                         guard_config, output, guard_context
                     )
