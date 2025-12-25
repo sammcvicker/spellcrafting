@@ -8,6 +8,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- `llm_validator` factory for creating Pydantic validators powered by LLM calls
+  - Natural language rules: `llm_validator("Must be family-friendly")`
+  - Works with Pydantic's `BeforeValidator` for field validation
+  - `on_fail="raise"` (default) or `on_fail="fix"` to auto-correct values
+  - Uses configurable model aliases for cost control
+- `ValidationResult` model for structured LLM validation responses
 - `@guard` decorator for composable input/output validation on spells
   - `guard.input(fn)` - validate/transform inputs before LLM call
   - `guard.output(fn)` - validate/transform outputs after LLM call
