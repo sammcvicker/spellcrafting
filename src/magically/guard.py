@@ -192,6 +192,137 @@ async def _run_output_guards_async(
     return current_output
 
 
+# ---------------------------------------------------------------------------
+# Guard runners with tracking (for logging/metrics)
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class GuardRunResult:
+    """Result of running guards with tracking information."""
+
+    result: Any  # The transformed input_args or output
+    passed: list[str]  # Names of guards that passed
+    failed: list[str]  # Names of guards that failed (if exception caught)
+
+
+def _get_guard_name(guard_fn: Callable) -> str:
+    """Get a human-readable name for a guard function."""
+    return getattr(guard_fn, "__name__", None) or getattr(guard_fn, "__qualname__", "unknown")
+
+
+def _run_input_guards_tracked(
+    guards: list[tuple[InputGuard, RaiseStrategy]],
+    input_args: dict[str, Any],
+    context: dict[str, Any],
+) -> GuardRunResult:
+    """Run input guards with tracking. Returns result and guard names that passed/failed."""
+    current_args = input_args
+    passed: list[str] = []
+    failed: list[str] = []
+
+    for guard_fn, on_fail in guards:
+        guard_name = _get_guard_name(guard_fn)
+        try:
+            current_args = guard_fn(current_args, context)
+            passed.append(guard_name)
+        except Exception as e:
+            failed.append(guard_name)
+            if isinstance(on_fail, RaiseStrategy):
+                if isinstance(e, GuardError):
+                    raise
+                raise GuardError(str(e)) from e
+            raise
+
+    return GuardRunResult(result=current_args, passed=passed, failed=failed)
+
+
+def _run_output_guards_tracked(
+    guards: list[tuple[OutputGuard, RaiseStrategy]],
+    output: T,
+    context: dict[str, Any],
+) -> GuardRunResult:
+    """Run output guards with tracking. Returns result and guard names that passed/failed."""
+    current_output = output
+    passed: list[str] = []
+    failed: list[str] = []
+
+    for guard_fn, on_fail in guards:
+        guard_name = _get_guard_name(guard_fn)
+        try:
+            current_output = guard_fn(current_output, context)
+            passed.append(guard_name)
+        except Exception as e:
+            failed.append(guard_name)
+            if isinstance(on_fail, RaiseStrategy):
+                if isinstance(e, GuardError):
+                    raise
+                raise GuardError(str(e)) from e
+            raise
+
+    return GuardRunResult(result=current_output, passed=passed, failed=failed)
+
+
+async def _run_input_guards_tracked_async(
+    guards: list[tuple[InputGuard, RaiseStrategy]],
+    input_args: dict[str, Any],
+    context: dict[str, Any],
+) -> GuardRunResult:
+    """Run input guards with tracking, supporting async guard functions."""
+    current_args = input_args
+    passed: list[str] = []
+    failed: list[str] = []
+
+    for guard_fn, on_fail in guards:
+        guard_name = _get_guard_name(guard_fn)
+        try:
+            result = guard_fn(current_args, context)
+            if asyncio.iscoroutine(result):
+                current_args = await result
+            else:
+                current_args = result
+            passed.append(guard_name)
+        except Exception as e:
+            failed.append(guard_name)
+            if isinstance(on_fail, RaiseStrategy):
+                if isinstance(e, GuardError):
+                    raise
+                raise GuardError(str(e)) from e
+            raise
+
+    return GuardRunResult(result=current_args, passed=passed, failed=failed)
+
+
+async def _run_output_guards_tracked_async(
+    guards: list[tuple[OutputGuard, RaiseStrategy]],
+    output: T,
+    context: dict[str, Any],
+) -> GuardRunResult:
+    """Run output guards with tracking, supporting async guard functions."""
+    current_output = output
+    passed: list[str] = []
+    failed: list[str] = []
+
+    for guard_fn, on_fail in guards:
+        guard_name = _get_guard_name(guard_fn)
+        try:
+            result = guard_fn(current_output, context)
+            if asyncio.iscoroutine(result):
+                current_output = await result
+            else:
+                current_output = result
+            passed.append(guard_name)
+        except Exception as e:
+            failed.append(guard_name)
+            if isinstance(on_fail, RaiseStrategy):
+                if isinstance(e, GuardError):
+                    raise
+                raise GuardError(str(e)) from e
+            raise
+
+    return GuardRunResult(result=current_output, passed=passed, failed=failed)
+
+
 class _GuardNamespace:
     """Namespace for guard decorators.
 

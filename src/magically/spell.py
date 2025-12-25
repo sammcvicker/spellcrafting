@@ -25,13 +25,18 @@ from magically.guard import (
     _get_or_create_guard_config,
     _run_input_guards,
     _run_input_guards_async,
+    _run_input_guards_tracked,
+    _run_input_guards_tracked_async,
     _run_output_guards,
     _run_output_guards_async,
+    _run_output_guards_tracked,
+    _run_output_guards_tracked_async,
     _GUARD_MARKER,
 )
 from magically.logging import (
     SpellExecutionLog,
     TokenUsage,
+    ValidationMetrics,
     _emit_log,
     estimate_cost,
     get_logging_config,
@@ -410,24 +415,41 @@ def spell(
                 resolved_model, resolved_settings, config_hash = _resolve_model_and_settings()
                 agent = _get_or_create_agent(config_hash, resolved_model, resolved_settings)
 
-                # Check for guards and run input guards if present
+                # Check for guards
                 guard_config = getattr(fn, _GUARD_MARKER, None)
                 input_args = _extract_input_args(fn, args, kwargs)
 
+                # Check logging config early to decide which guard runners to use
+                logging_config = get_logging_config()
+                logging_enabled = logging_config.enabled
+
+                # Initialize validation metrics for tracking
+                validation_metrics: ValidationMetrics | None = None
+                if logging_enabled:
+                    validation_metrics = ValidationMetrics()
+
+                # Run input guards if present
                 if guard_config and guard_config.input_guards:
                     guard_context = _build_context(fn)
                     guard_context["model"] = model  # Use alias, not resolved
-                    input_args = await _run_input_guards_async(
-                        guard_config.input_guards, input_args, guard_context
-                    )
+                    if logging_enabled and validation_metrics:
+                        guard_result = await _run_input_guards_tracked_async(
+                            guard_config.input_guards, input_args, guard_context
+                        )
+                        input_args = guard_result.result
+                        validation_metrics.input_guards_passed = guard_result.passed
+                        validation_metrics.input_guards_failed = guard_result.failed
+                    else:
+                        input_args = await _run_input_guards_async(
+                            guard_config.input_guards, input_args, guard_context
+                        )
                     # Rebuild user prompt with potentially transformed args
                     user_prompt = "\n".join(f"{k}: {v!r}" for k, v in input_args.items())
                 else:
                     user_prompt = _build_user_prompt(fn, args, kwargs)
 
                 # Fast path: no logging overhead
-                logging_config = get_logging_config()
-                if not logging_config.enabled:
+                if not logging_enabled:
                     try:
                         result = await agent.run(user_prompt)
                         output = result.output
@@ -469,6 +491,7 @@ def spell(
                         model=resolved_model or "",
                         model_alias=model,
                         input_args=input_args,
+                        validation=validation_metrics,
                     )
 
                     result = None
@@ -478,6 +501,19 @@ def spell(
                             output = result.output
                         except UnexpectedModelBehavior as e:
                             if on_fail is not None:
+                                # Track validation error and on_fail strategy
+                                if validation_metrics:
+                                    validation_metrics.pydantic_errors.append(str(e))
+                                    if isinstance(on_fail, EscalateStrategy):
+                                        validation_metrics.on_fail_triggered = "escalate"
+                                        validation_metrics.escalated_to_model = on_fail.model
+                                    elif isinstance(on_fail, FallbackStrategy):
+                                        validation_metrics.on_fail_triggered = "fallback"
+                                    elif isinstance(on_fail, CustomStrategy):
+                                        validation_metrics.on_fail_triggered = "custom"
+                                    elif isinstance(on_fail, RetryStrategy):
+                                        validation_metrics.on_fail_triggered = "retry"
+
                                 output = await _handle_on_fail_async(
                                     e,
                                     on_fail,
@@ -491,15 +527,26 @@ def spell(
                                     model,
                                 )
                             else:
+                                # Track validation error even when no on_fail strategy
+                                if validation_metrics:
+                                    validation_metrics.pydantic_errors.append(str(e))
                                 raise
 
-                        # Run output guards if present
+                        # Run output guards if present (with tracking)
                         if guard_config and guard_config.output_guards:
                             guard_context = _build_context(fn)
                             guard_context["model"] = model
-                            output = await _run_output_guards_async(
-                                guard_config.output_guards, output, guard_context
-                            )
+                            if validation_metrics:
+                                guard_result = await _run_output_guards_tracked_async(
+                                    guard_config.output_guards, output, guard_context
+                                )
+                                output = guard_result.result
+                                validation_metrics.output_guards_passed = guard_result.passed
+                                validation_metrics.output_guards_failed = guard_result.failed
+                            else:
+                                output = await _run_output_guards_async(
+                                    guard_config.output_guards, output, guard_context
+                                )
 
                         if result is not None:
                             log.token_usage = _extract_token_usage(result)
@@ -519,24 +566,41 @@ def spell(
                 resolved_model, resolved_settings, config_hash = _resolve_model_and_settings()
                 agent = _get_or_create_agent(config_hash, resolved_model, resolved_settings)
 
-                # Check for guards and run input guards if present
+                # Check for guards
                 guard_config = getattr(fn, _GUARD_MARKER, None)
                 input_args = _extract_input_args(fn, args, kwargs)
 
+                # Check logging config early to decide which guard runners to use
+                logging_config = get_logging_config()
+                logging_enabled = logging_config.enabled
+
+                # Initialize validation metrics for tracking
+                validation_metrics: ValidationMetrics | None = None
+                if logging_enabled:
+                    validation_metrics = ValidationMetrics()
+
+                # Run input guards if present
                 if guard_config and guard_config.input_guards:
                     guard_context = _build_context(fn)
                     guard_context["model"] = model  # Use alias, not resolved
-                    input_args = _run_input_guards(
-                        guard_config.input_guards, input_args, guard_context
-                    )
+                    if logging_enabled and validation_metrics:
+                        guard_result = _run_input_guards_tracked(
+                            guard_config.input_guards, input_args, guard_context
+                        )
+                        input_args = guard_result.result
+                        validation_metrics.input_guards_passed = guard_result.passed
+                        validation_metrics.input_guards_failed = guard_result.failed
+                    else:
+                        input_args = _run_input_guards(
+                            guard_config.input_guards, input_args, guard_context
+                        )
                     # Rebuild user prompt with potentially transformed args
                     user_prompt = "\n".join(f"{k}: {v!r}" for k, v in input_args.items())
                 else:
                     user_prompt = _build_user_prompt(fn, args, kwargs)
 
                 # Fast path: no logging overhead
-                logging_config = get_logging_config()
-                if not logging_config.enabled:
+                if not logging_enabled:
                     try:
                         result = agent.run_sync(user_prompt)
                         output = result.output
@@ -578,6 +642,7 @@ def spell(
                         model=resolved_model or "",
                         model_alias=model,
                         input_args=input_args,
+                        validation=validation_metrics,
                     )
 
                     result = None
@@ -587,6 +652,19 @@ def spell(
                             output = result.output
                         except UnexpectedModelBehavior as e:
                             if on_fail is not None:
+                                # Track validation error and on_fail strategy
+                                if validation_metrics:
+                                    validation_metrics.pydantic_errors.append(str(e))
+                                    if isinstance(on_fail, EscalateStrategy):
+                                        validation_metrics.on_fail_triggered = "escalate"
+                                        validation_metrics.escalated_to_model = on_fail.model
+                                    elif isinstance(on_fail, FallbackStrategy):
+                                        validation_metrics.on_fail_triggered = "fallback"
+                                    elif isinstance(on_fail, CustomStrategy):
+                                        validation_metrics.on_fail_triggered = "custom"
+                                    elif isinstance(on_fail, RetryStrategy):
+                                        validation_metrics.on_fail_triggered = "retry"
+
                                 output = _handle_on_fail_sync(
                                     e,
                                     on_fail,
@@ -600,15 +678,26 @@ def spell(
                                     model,
                                 )
                             else:
+                                # Track validation error even when no on_fail strategy
+                                if validation_metrics:
+                                    validation_metrics.pydantic_errors.append(str(e))
                                 raise
 
-                        # Run output guards if present
+                        # Run output guards if present (with tracking)
                         if guard_config and guard_config.output_guards:
                             guard_context = _build_context(fn)
                             guard_context["model"] = model
-                            output = _run_output_guards(
-                                guard_config.output_guards, output, guard_context
-                            )
+                            if validation_metrics:
+                                guard_result = _run_output_guards_tracked(
+                                    guard_config.output_guards, output, guard_context
+                                )
+                                output = guard_result.result
+                                validation_metrics.output_guards_passed = guard_result.passed
+                                validation_metrics.output_guards_failed = guard_result.failed
+                            else:
+                                output = _run_output_guards(
+                                    guard_config.output_guards, output, guard_context
+                                )
 
                         if result is not None:
                             log.token_usage = _extract_token_usage(result)

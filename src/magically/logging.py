@@ -95,6 +95,46 @@ class ToolCallLog:
 
 
 @dataclass
+class ValidationMetrics:
+    """Metrics about validation during spell execution.
+
+    Tracks retry attempts, guard results, Pydantic validation errors,
+    and on_fail strategy usage for observability and debugging.
+    """
+
+    # Retry tracking
+    attempt_count: int = 1  # Total attempts (1 = no retries)
+    retry_reasons: list[str] = field(default_factory=list)
+
+    # Guard results (if @guard decorators used)
+    input_guards_passed: list[str] = field(default_factory=list)
+    input_guards_failed: list[str] = field(default_factory=list)
+    output_guards_passed: list[str] = field(default_factory=list)
+    output_guards_failed: list[str] = field(default_factory=list)
+
+    # Pydantic validation errors (errors before eventual success or final failure)
+    pydantic_errors: list[str] = field(default_factory=list)
+
+    # On-fail strategy tracking
+    on_fail_triggered: str | None = None  # "escalate", "fallback", "custom", "retry"
+    escalated_to_model: str | None = None  # Model used for escalation
+
+    def to_dict(self) -> dict[str, Any]:
+        """Convert to dictionary for JSON serialization."""
+        return {
+            "attempt_count": self.attempt_count,
+            "retry_reasons": self.retry_reasons,
+            "input_guards_passed": self.input_guards_passed,
+            "input_guards_failed": self.input_guards_failed,
+            "output_guards_passed": self.output_guards_passed,
+            "output_guards_failed": self.output_guards_failed,
+            "pydantic_errors": self.pydantic_errors,
+            "on_fail_triggered": self.on_fail_triggered,
+            "escalated_to_model": self.escalated_to_model,
+        }
+
+
+@dataclass
 class SpellExecutionLog:
     """Complete log of a spell execution."""
 
@@ -134,6 +174,9 @@ class SpellExecutionLog:
 
     # Custom
     tags: dict[str, str] = field(default_factory=dict)
+
+    # Validation metrics (guards, retries, on_fail)
+    validation: ValidationMetrics | None = None
 
     def finalize(
         self,
@@ -177,6 +220,7 @@ class SpellExecutionLog:
             "error_type": self.error_type,
             "retry_count": self.retry_count,
             "tags": self.tags,
+            "validation": self.validation.to_dict() if self.validation else None,
         }
 
     def to_json(self) -> str:

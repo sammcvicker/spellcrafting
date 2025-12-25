@@ -33,6 +33,7 @@ from magically.logging import (
     TokenUsage,
     CostEstimate,
     ToolCallLog,
+    ValidationMetrics,
 )
 from magically.spell import spell
 
@@ -77,4 +78,5 @@ __all__ = [
     "TokenUsage",
     "CostEstimate",
     "ToolCallLog",
+    "ValidationMetrics",
 ]

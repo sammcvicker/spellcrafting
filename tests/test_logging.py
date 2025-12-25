@@ -21,9 +21,11 @@ from magically import (
     TokenUsage,
     ToolCallLog,
     TraceContext,
+    ValidationMetrics,
     configure_logging,
     current_trace,
     get_logging_config,
+    guard,
     setup_logging,
     spell,
     trace_context,
@@ -789,3 +791,241 @@ class TestOpenTelemetryHandler:
         log.finalize(success=True)
         handler.handle(log)  # Should not raise
         handler.flush()  # Should not raise
+
+
+class TestValidationMetrics:
+    """Tests for ValidationMetrics dataclass."""
+
+    def test_default_values(self):
+        metrics = ValidationMetrics()
+        assert metrics.attempt_count == 1
+        assert metrics.retry_reasons == []
+        assert metrics.input_guards_passed == []
+        assert metrics.input_guards_failed == []
+        assert metrics.output_guards_passed == []
+        assert metrics.output_guards_failed == []
+        assert metrics.pydantic_errors == []
+        assert metrics.on_fail_triggered is None
+        assert metrics.escalated_to_model is None
+
+    def test_to_dict(self):
+        metrics = ValidationMetrics(
+            attempt_count=2,
+            retry_reasons=["validation error"],
+            input_guards_passed=["guard1"],
+            output_guards_passed=["guard2"],
+            pydantic_errors=["field error"],
+            on_fail_triggered="escalate",
+            escalated_to_model="openai:gpt-4o",
+        )
+        d = metrics.to_dict()
+
+        assert d["attempt_count"] == 2
+        assert d["retry_reasons"] == ["validation error"]
+        assert d["input_guards_passed"] == ["guard1"]
+        assert d["output_guards_passed"] == ["guard2"]
+        assert d["pydantic_errors"] == ["field error"]
+        assert d["on_fail_triggered"] == "escalate"
+        assert d["escalated_to_model"] == "openai:gpt-4o"
+
+
+class TestSpellExecutionLogWithValidation:
+    """Tests for SpellExecutionLog with ValidationMetrics."""
+
+    def test_log_with_validation_metrics(self):
+        metrics = ValidationMetrics(
+            input_guards_passed=["check_length"],
+            on_fail_triggered="fallback",
+        )
+        log = SpellExecutionLog(
+            spell_name="test",
+            spell_id=1,
+            trace_id="abc",
+            span_id="def",
+            validation=metrics,
+        )
+        log.finalize(success=True)
+
+        d = log.to_dict()
+        assert d["validation"] is not None
+        assert d["validation"]["input_guards_passed"] == ["check_length"]
+        assert d["validation"]["on_fail_triggered"] == "fallback"
+
+    def test_log_without_validation_metrics(self):
+        log = SpellExecutionLog(
+            spell_name="test",
+            spell_id=1,
+            trace_id="abc",
+            span_id="def",
+        )
+        log.finalize(success=True)
+
+        d = log.to_dict()
+        assert d["validation"] is None
+
+    def test_validation_metrics_in_json(self):
+        metrics = ValidationMetrics(
+            attempt_count=3,
+            pydantic_errors=["error1", "error2"],
+        )
+        log = SpellExecutionLog(
+            spell_name="test",
+            spell_id=1,
+            trace_id="abc",
+            span_id="def",
+            validation=metrics,
+        )
+        log.finalize(success=True)
+
+        json_str = log.to_json()
+        parsed = json.loads(json_str)
+        assert parsed["validation"]["attempt_count"] == 3
+        assert parsed["validation"]["pydantic_errors"] == ["error1", "error2"]
+
+
+class TestValidationMetricsIntegration:
+    """Tests for ValidationMetrics integration with @spell decorator."""
+
+    @pytest.fixture(autouse=True)
+    def reset_spell_state(self):
+        """Reset spell module state."""
+        spell_module = sys.modules["magically.spell"]
+        spell_module._agent_cache.clear()
+        yield
+        spell_module._agent_cache.clear()
+
+    def test_logging_creates_validation_metrics(self):
+        """When logging is enabled, spell should create validation metrics."""
+        handler = MagicMock()
+        configure_logging(LoggingConfig(enabled=True, handlers=[handler]))
+
+        @spell
+        def test_spell(text: str) -> str:
+            """Test spell."""
+            ...
+
+        mock_result = MagicMock()
+        mock_result.output = "result"
+        mock_result.usage.return_value = MagicMock(
+            request_tokens=100,
+            response_tokens=50,
+        )
+        mock_agent = MagicMock()
+        mock_agent.run_sync.return_value = mock_result
+
+        with patch("magically.spell.Agent", return_value=mock_agent):
+            test_spell("hello")
+
+        handler.handle.assert_called_once()
+        log = handler.handle.call_args[0][0]
+        assert log.validation is not None
+        assert isinstance(log.validation, ValidationMetrics)
+        assert log.validation.attempt_count == 1
+
+    def test_input_guards_tracked_in_validation_metrics(self):
+        """Input guard results should be tracked in validation metrics."""
+        handler = MagicMock()
+        configure_logging(LoggingConfig(enabled=True, handlers=[handler]))
+
+        def my_input_guard(input_args: dict, context: dict) -> dict:
+            return input_args
+
+        @spell
+        @guard.input(my_input_guard)
+        def test_spell(text: str) -> str:
+            """Test spell."""
+            ...
+
+        mock_result = MagicMock()
+        mock_result.output = "result"
+        mock_result.usage.return_value = MagicMock(request_tokens=100, response_tokens=50)
+        mock_agent = MagicMock()
+        mock_agent.run_sync.return_value = mock_result
+
+        with patch("magically.spell.Agent", return_value=mock_agent):
+            test_spell("hello")
+
+        log = handler.handle.call_args[0][0]
+        assert log.validation is not None
+        assert "my_input_guard" in log.validation.input_guards_passed
+        assert log.validation.input_guards_failed == []
+
+    def test_output_guards_tracked_in_validation_metrics(self):
+        """Output guard results should be tracked in validation metrics."""
+        handler = MagicMock()
+        configure_logging(LoggingConfig(enabled=True, handlers=[handler]))
+
+        def my_output_guard(output: str, context: dict) -> str:
+            return output
+
+        @spell
+        @guard.output(my_output_guard)
+        def test_spell(text: str) -> str:
+            """Test spell."""
+            ...
+
+        mock_result = MagicMock()
+        mock_result.output = "result"
+        mock_result.usage.return_value = MagicMock(request_tokens=100, response_tokens=50)
+        mock_agent = MagicMock()
+        mock_agent.run_sync.return_value = mock_result
+
+        with patch("magically.spell.Agent", return_value=mock_agent):
+            test_spell("hello")
+
+        log = handler.handle.call_args[0][0]
+        assert log.validation is not None
+        assert "my_output_guard" in log.validation.output_guards_passed
+        assert log.validation.output_guards_failed == []
+
+    def test_no_validation_metrics_when_logging_disabled(self):
+        """When logging is disabled, no validation metrics overhead."""
+        configure_logging(LoggingConfig(enabled=False))
+
+        @spell
+        def test_spell(text: str) -> str:
+            """Test spell."""
+            ...
+
+        mock_result = MagicMock()
+        mock_result.output = "result"
+        mock_agent = MagicMock()
+        mock_agent.run_sync.return_value = mock_result
+
+        # This should work without any issues (fast path)
+        with patch("magically.spell.Agent", return_value=mock_agent):
+            result = test_spell("hello")
+            assert result == "result"
+
+    @pytest.mark.asyncio
+    async def test_async_spell_validation_metrics(self):
+        """Async spells should also track validation metrics."""
+        handler = MagicMock()
+        configure_logging(LoggingConfig(enabled=True, handlers=[handler]))
+
+        def my_guard(input_args: dict, context: dict) -> dict:
+            return input_args
+
+        @spell
+        @guard.input(my_guard)
+        async def test_async_spell(text: str) -> str:
+            """Test async spell."""
+            ...
+
+        mock_result = MagicMock()
+        mock_result.output = "async result"
+        mock_result.usage.return_value = MagicMock(request_tokens=100, response_tokens=50)
+
+        mock_agent = MagicMock()
+
+        async def mock_run(prompt):
+            return mock_result
+        mock_agent.run = mock_run
+
+        with patch("magically.spell.Agent", return_value=mock_agent):
+            result = await test_async_spell("hello")
+
+        assert result == "async result"
+        log = handler.handle.call_args[0][0]
+        assert log.validation is not None
+        assert "my_guard" in log.validation.input_guards_passed

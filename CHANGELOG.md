@@ -8,6 +8,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- `ValidationMetrics` dataclass for tracking validation-related metrics during spell execution
+  - `attempt_count` - Total execution attempts (1 = no retries)
+  - `retry_reasons` - List of reasons for retries
+  - `input_guards_passed` / `input_guards_failed` - Names of guards that passed/failed
+  - `output_guards_passed` / `output_guards_failed` - Names of guards that passed/failed
+  - `pydantic_errors` - Validation errors encountered before success or final failure
+  - `on_fail_triggered` - Which on_fail strategy was used ("escalate", "fallback", "custom", "retry")
+  - `escalated_to_model` - Model used when escalation strategy was triggered
+- `SpellExecutionLog.validation` field containing `ValidationMetrics` when logging is enabled
+- Guard tracking functions for capturing guard names that pass/fail during execution
 - `on_fail` parameter for `@spell` decorator to handle validation failures after retries
   - `OnFail.escalate("model")` - retry with a more capable model on failure
   - `OnFail.fallback(default)` - return a default value instead of raising
