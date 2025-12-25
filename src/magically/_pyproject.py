@@ -6,9 +6,15 @@ avoiding duplication between config.py and logging.py.
 
 from __future__ import annotations
 
-import tomllib
+import sys
 from pathlib import Path
 from typing import Any
+
+# Python 3.11+ has tomllib in stdlib; use tomli for 3.10
+if sys.version_info >= (3, 11):
+    import tomllib
+else:
+    import tomli as tomllib
 
 
 def find_pyproject() -> Path | None:

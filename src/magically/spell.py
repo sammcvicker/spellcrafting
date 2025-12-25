@@ -544,6 +544,41 @@ def _resolve_escalation_model(
 
 
 # ---------------------------------------------------------------------------
+# OnFailContext dataclass to reduce parameter count (issue #8, #119)
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class OnFailContext:
+    """Context for handling on_fail strategies.
+
+    This dataclass bundles the parameters needed for on_fail handling,
+    reducing the parameter count of _handle_on_fail_sync/async from 10 to 3.
+    """
+
+    error: Exception
+    """The error that triggered the on_fail strategy."""
+    on_fail: OnFailStrategy
+    """The on_fail strategy to execute."""
+    user_prompt: str
+    """The user prompt that was sent to the LLM."""
+    output_type: type[Any]
+    """The expected output type for the spell."""
+    system_prompt: str
+    """The system prompt for the spell."""
+    tools: list[Callable[..., Any]]
+    """Tools available for the spell."""
+    end_strategy: EndStrategy
+    """The end strategy for tool calls."""
+    input_args: dict[str, Any]
+    """The input arguments passed to the spell."""
+    spell_name: str
+    """The name of the spell function."""
+    model_alias: str | None
+    """The model alias specified in @spell (may be None)."""
+
+
+# ---------------------------------------------------------------------------
 # Shared helper functions for sync/async wrapper DRY (issue #24)
 # ---------------------------------------------------------------------------
 
@@ -688,106 +723,98 @@ def _process_captured_result(
     )
 
 
-def _handle_on_fail_sync(
-    error: Exception,
-    on_fail: OnFailStrategy,
-    user_prompt: str,
-    output_type: type[Any],
-    system_prompt: str,
-    tools: list[Callable[..., Any]],
-    end_strategy: EndStrategy,
-    input_args: dict[str, Any],
-    spell_name: str,
-    model_alias: str | None,
-) -> Any:
-    """Handle on_fail strategy for sync execution."""
-    if isinstance(on_fail, RetryStrategy):
+def _handle_on_fail_sync(ctx: OnFailContext) -> Any:
+    """Handle on_fail strategy for sync execution.
+
+    Args:
+        ctx: OnFailContext containing all parameters for on_fail handling.
+
+    Returns:
+        The result from the on_fail strategy, or raises ValidationError.
+    """
+    if isinstance(ctx.on_fail, RetryStrategy):
         # Default behavior - just re-raise wrapped, PydanticAI already handled retries
-        raise ValidationError(str(error), original_error=error) from error
+        raise ValidationError(str(ctx.error), original_error=ctx.error) from ctx.error
 
-    if isinstance(on_fail, FallbackStrategy):
+    if isinstance(ctx.on_fail, FallbackStrategy):
         # Return the default value
-        return on_fail.default
+        return ctx.on_fail.default
 
-    if isinstance(on_fail, CustomStrategy):
+    if isinstance(ctx.on_fail, CustomStrategy):
         # Call the custom handler
-        context = {
-            "spell_name": spell_name,
-            "model": model_alias,
-            "input_args": input_args,
+        handler_context = {
+            "spell_name": ctx.spell_name,
+            "model": ctx.model_alias,
+            "input_args": ctx.input_args,
         }
-        return on_fail.handler(error, 1, context)
+        return ctx.on_fail.handler(ctx.error, 1, handler_context)
 
-    if isinstance(on_fail, EscalateStrategy):
+    if isinstance(ctx.on_fail, EscalateStrategy):
         # Create a new agent with the escalated model
-        escalated_model, escalated_settings = _resolve_escalation_model(on_fail.model)
+        escalated_model, escalated_settings = _resolve_escalation_model(ctx.on_fail.model)
         escalated_agent = Agent(
             model=escalated_model,
-            output_type=output_type,
-            system_prompt=system_prompt,
-            retries=on_fail.retries,
-            tools=tools,
-            end_strategy=end_strategy,
+            output_type=ctx.output_type,
+            system_prompt=ctx.system_prompt,
+            retries=ctx.on_fail.retries,
+            tools=ctx.tools,
+            end_strategy=ctx.end_strategy,
             model_settings=escalated_settings,
         )
-        result = escalated_agent.run_sync(user_prompt)
+        result = escalated_agent.run_sync(ctx.user_prompt)
         return result.output
 
     # Unknown strategy type - re-raise wrapped
-    raise ValidationError(str(error), original_error=error) from error
+    raise ValidationError(str(ctx.error), original_error=ctx.error) from ctx.error
 
 
-async def _handle_on_fail_async(
-    error: Exception,
-    on_fail: OnFailStrategy,
-    user_prompt: str,
-    output_type: type[Any],
-    system_prompt: str,
-    tools: list[Callable[..., Any]],
-    end_strategy: EndStrategy,
-    input_args: dict[str, Any],
-    spell_name: str,
-    model_alias: str | None,
-) -> Any:
-    """Handle on_fail strategy for async execution."""
-    if isinstance(on_fail, RetryStrategy):
+async def _handle_on_fail_async(ctx: OnFailContext) -> Any:
+    """Handle on_fail strategy for async execution.
+
+    Args:
+        ctx: OnFailContext containing all parameters for on_fail handling.
+
+    Returns:
+        The result from the on_fail strategy, or raises ValidationError.
+    """
+    if isinstance(ctx.on_fail, RetryStrategy):
         # Default behavior - just re-raise wrapped, PydanticAI already handled retries
-        raise ValidationError(str(error), original_error=error) from error
+        raise ValidationError(str(ctx.error), original_error=ctx.error) from ctx.error
 
-    if isinstance(on_fail, FallbackStrategy):
+    if isinstance(ctx.on_fail, FallbackStrategy):
         # Return the default value
-        return on_fail.default
+        return ctx.on_fail.default
 
-    if isinstance(on_fail, CustomStrategy):
+    if isinstance(ctx.on_fail, CustomStrategy):
         # Call the custom handler
-        context = {
-            "spell_name": spell_name,
-            "model": model_alias,
-            "input_args": input_args,
+        handler_context = {
+            "spell_name": ctx.spell_name,
+            "model": ctx.model_alias,
+            "input_args": ctx.input_args,
         }
-        result = on_fail.handler(error, 1, context)
+        result = ctx.on_fail.handler(ctx.error, 1, handler_context)
         # Support async handlers
         if asyncio.iscoroutine(result):
             return await result
         return result
 
-    if isinstance(on_fail, EscalateStrategy):
+    if isinstance(ctx.on_fail, EscalateStrategy):
         # Create a new agent with the escalated model
-        escalated_model, escalated_settings = _resolve_escalation_model(on_fail.model)
+        escalated_model, escalated_settings = _resolve_escalation_model(ctx.on_fail.model)
         escalated_agent = Agent(
             model=escalated_model,
-            output_type=output_type,
-            system_prompt=system_prompt,
-            retries=on_fail.retries,
-            tools=tools,
-            end_strategy=end_strategy,
+            output_type=ctx.output_type,
+            system_prompt=ctx.system_prompt,
+            retries=ctx.on_fail.retries,
+            tools=ctx.tools,
+            end_strategy=ctx.end_strategy,
             model_settings=escalated_settings,
         )
-        result = await escalated_agent.run(user_prompt)
+        result = await escalated_agent.run(ctx.user_prompt)
         return result.output
 
     # Unknown strategy type - re-raise wrapped
-    raise ValidationError(str(error), original_error=error) from error
+    raise ValidationError(str(ctx.error), original_error=ctx.error) from ctx.error
 
 
 # Overloads for sync functions - use SpellWrapper Protocol for proper typing
@@ -1039,18 +1066,19 @@ def spell(
                         output = result.output
                     except UnexpectedModelBehavior as e:
                         if on_fail is not None:
-                            output = await _handle_on_fail_async(
-                                e,
-                                on_fail,
-                                user_prompt,
-                                output_type,
-                                effective_system_prompt,
-                                tools or [],
-                                end_strategy,
-                                input_args,
-                                fn.__name__,
-                                model,
+                            on_fail_ctx = OnFailContext(
+                                error=e,
+                                on_fail=on_fail,
+                                user_prompt=user_prompt,
+                                output_type=output_type,
+                                system_prompt=effective_system_prompt,
+                                tools=tools or [],
+                                end_strategy=end_strategy,
+                                input_args=input_args,
+                                spell_name=fn.__name__,
+                                model_alias=model,
                             )
+                            output = await _handle_on_fail_async(on_fail_ctx)
                         else:
                             raise ValidationError(str(e), original_error=e) from e
 
@@ -1084,11 +1112,19 @@ def spell(
                         except UnexpectedModelBehavior as e:
                             if on_fail is not None:
                                 _track_on_fail_strategy(validation_metrics, e, on_fail)
-                                output = await _handle_on_fail_async(
-                                    e, on_fail, user_prompt, output_type,
-                                    effective_system_prompt, tools or [], end_strategy,
-                                    input_args, fn.__name__, model,
+                                on_fail_ctx = OnFailContext(
+                                    error=e,
+                                    on_fail=on_fail,
+                                    user_prompt=user_prompt,
+                                    output_type=output_type,
+                                    system_prompt=effective_system_prompt,
+                                    tools=tools or [],
+                                    end_strategy=end_strategy,
+                                    input_args=input_args,
+                                    spell_name=fn.__name__,
+                                    model_alias=model,
                                 )
+                                output = await _handle_on_fail_async(on_fail_ctx)
                             else:
                                 # Track validation error even when no on_fail strategy
                                 if validation_metrics:
@@ -1165,18 +1201,19 @@ def spell(
                         output = result.output
                     except UnexpectedModelBehavior as e:
                         if on_fail is not None:
-                            output = _handle_on_fail_sync(
-                                e,
-                                on_fail,
-                                user_prompt,
-                                output_type,
-                                effective_system_prompt,
-                                tools or [],
-                                end_strategy,
-                                input_args,
-                                fn.__name__,
-                                model,
+                            on_fail_ctx = OnFailContext(
+                                error=e,
+                                on_fail=on_fail,
+                                user_prompt=user_prompt,
+                                output_type=output_type,
+                                system_prompt=effective_system_prompt,
+                                tools=tools or [],
+                                end_strategy=end_strategy,
+                                input_args=input_args,
+                                spell_name=fn.__name__,
+                                model_alias=model,
                             )
+                            output = _handle_on_fail_sync(on_fail_ctx)
                         else:
                             raise ValidationError(str(e), original_error=e) from e
 
@@ -1210,11 +1247,19 @@ def spell(
                         except UnexpectedModelBehavior as e:
                             if on_fail is not None:
                                 _track_on_fail_strategy(validation_metrics, e, on_fail)
-                                output = _handle_on_fail_sync(
-                                    e, on_fail, user_prompt, output_type,
-                                    effective_system_prompt, tools or [], end_strategy,
-                                    input_args, fn.__name__, model,
+                                on_fail_ctx = OnFailContext(
+                                    error=e,
+                                    on_fail=on_fail,
+                                    user_prompt=user_prompt,
+                                    output_type=output_type,
+                                    system_prompt=effective_system_prompt,
+                                    tools=tools or [],
+                                    end_strategy=end_strategy,
+                                    input_args=input_args,
+                                    spell_name=fn.__name__,
+                                    model_alias=model,
                                 )
+                                output = _handle_on_fail_sync(on_fail_ctx)
                             else:
                                 # Track validation error even when no on_fail strategy
                                 if validation_metrics:

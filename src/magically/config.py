@@ -17,13 +17,26 @@ from __future__ import annotations
 
 import json
 import os
+import sys
 import threading
-import tomllib
 import warnings
 from contextvars import ContextVar
+from dataclasses import dataclass
 from pathlib import Path
 from types import TracebackType
-from typing import Any, NotRequired, Self, TypedDict
+from typing import Any, TypedDict
+
+# Python 3.11+ has tomllib in stdlib; use tomli for 3.10
+if sys.version_info >= (3, 11):
+    import tomllib
+else:
+    import tomli as tomllib
+
+# Self and NotRequired are 3.11+; use typing_extensions for 3.10
+if sys.version_info >= (3, 11):
+    from typing import NotRequired, Self
+else:
+    from typing_extensions import NotRequired, Self
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, ValidationError as PydanticValidationError
 
@@ -37,10 +50,17 @@ ENV_DEFAULT_MODEL = "MAGICALLY_DEFAULT_MODEL"
 ENV_DEFAULT_TIMEOUT = "MAGICALLY_DEFAULT_TIMEOUT"
 ENV_DEFAULT_TEMPERATURE = "MAGICALLY_DEFAULT_TEMPERATURE"
 ENV_DEFAULT_MAX_TOKENS = "MAGICALLY_DEFAULT_MAX_TOKENS"
+ENV_MAX_CONCURRENT_CALLS = "MAGICALLY_MAX_CONCURRENT_CALLS"
+ENV_RATE_LIMIT_PER_MINUTE = "MAGICALLY_RATE_LIMIT_PER_MINUTE"
 
 # Default timeout for LLM calls (in seconds)
 # This prevents indefinite hangs when providers are slow or unresponsive
 DEFAULT_TIMEOUT = 120.0  # 2 minutes
+
+# Default rate limiting and concurrency settings
+# None means no limit (unlimited)
+DEFAULT_MAX_CONCURRENT_CALLS: int | None = None
+DEFAULT_RATE_LIMIT_PER_MINUTE: int | None = None
 
 
 # Thread Safety Notes:
@@ -498,3 +518,130 @@ def clear_config_cache() -> None:
     with _config_cache_lock:
         _file_config_cache = None
         _env_config_cache = None
+
+
+# ---------------------------------------------------------------------------
+# Rate Limiting and Concurrency Controls (issue #97)
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class RateLimitConfig:
+    """Configuration for rate limiting and concurrency controls.
+
+    This configuration helps prevent:
+    - Hitting provider rate limits
+    - Excessive API costs from runaway calls
+    - Resource exhaustion from too many concurrent calls
+
+    Attributes:
+        max_concurrent_calls: Maximum number of concurrent LLM calls.
+            None means unlimited.
+        rate_limit_per_minute: Maximum calls per minute.
+            None means unlimited.
+
+    Example:
+        from magically import configure_rate_limits
+
+        # Limit to 10 concurrent calls and 100 per minute
+        configure_rate_limits(
+            max_concurrent=10,
+            requests_per_minute=100,
+        )
+    """
+
+    max_concurrent_calls: int | None = None
+    """Maximum concurrent LLM calls. None = unlimited."""
+
+    rate_limit_per_minute: int | None = None
+    """Maximum calls per minute. None = unlimited."""
+
+
+# Global rate limit configuration (thread-safe via lock)
+_rate_limit_config: RateLimitConfig = RateLimitConfig()
+_rate_limit_lock = threading.Lock()
+
+
+def configure_rate_limits(
+    *,
+    max_concurrent: int | None = None,
+    requests_per_minute: int | None = None,
+) -> None:
+    """Configure rate limiting and concurrency controls for LLM calls.
+
+    This function sets global limits on LLM API usage to prevent:
+    - Hitting provider rate limits
+    - Excessive API costs
+    - Resource exhaustion
+
+    Args:
+        max_concurrent: Maximum number of concurrent LLM calls.
+            Set to None to allow unlimited concurrent calls.
+        requests_per_minute: Maximum number of LLM calls per minute.
+            Set to None to allow unlimited calls.
+
+    Thread Safety:
+        This function is thread-safe. Should typically be called once
+        during application startup.
+
+    Example:
+        from magically import configure_rate_limits
+
+        # Conservative limits for production
+        configure_rate_limits(
+            max_concurrent=10,
+            requests_per_minute=100,
+        )
+
+        # Remove all limits (not recommended for production)
+        configure_rate_limits(
+            max_concurrent=None,
+            requests_per_minute=None,
+        )
+
+    Note:
+        Rate limiting is implemented using asyncio.Semaphore for concurrency
+        and a sliding window for rate limits. When limits are hit, calls will
+        wait rather than fail immediately.
+    """
+    global _rate_limit_config
+    with _rate_limit_lock:
+        _rate_limit_config = RateLimitConfig(
+            max_concurrent_calls=max_concurrent,
+            rate_limit_per_minute=requests_per_minute,
+        )
+
+
+def get_rate_limit_config() -> RateLimitConfig:
+    """Get the current rate limit configuration.
+
+    Returns:
+        The current RateLimitConfig with concurrency and rate limit settings.
+
+    Thread Safety:
+        This function is thread-safe.
+    """
+    with _rate_limit_lock:
+        return _rate_limit_config
+
+
+def _load_rate_limits_from_env() -> None:
+    """Load rate limit settings from environment variables.
+
+    Called during module initialization to pick up env var configuration.
+    """
+    global _rate_limit_config
+
+    max_concurrent = os.environ.get(ENV_MAX_CONCURRENT_CALLS)
+    rate_limit = os.environ.get(ENV_RATE_LIMIT_PER_MINUTE)
+
+    if max_concurrent or rate_limit:
+        with _rate_limit_lock:
+            _rate_limit_config = RateLimitConfig(
+                max_concurrent_calls=int(max_concurrent) if max_concurrent else None,
+                rate_limit_per_minute=int(rate_limit) if rate_limit else None,
+            )
+
+
+# Load rate limits from environment on module import
+_load_rate_limits_from_env()

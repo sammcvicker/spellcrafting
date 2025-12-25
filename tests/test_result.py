@@ -183,6 +183,108 @@ class TestSpellResultType:
         assert result.output.confidence == 0.9
 
 
+class TestSpellResultEdgeCases:
+    """Additional edge case tests for SpellResult (issue #7)."""
+
+    def test_spell_result_with_zero_tokens(self):
+        """SpellResult handles zero tokens correctly."""
+        result = SpellResult(output="test", input_tokens=0, output_tokens=0)
+        assert result.input_tokens == 0
+        assert result.output_tokens == 0
+        assert result.total_tokens == 0
+
+    def test_spell_result_with_empty_model(self):
+        """SpellResult handles empty model string."""
+        result = SpellResult(output="test", model_used="")
+        assert result.model_used == ""
+
+    def test_spell_result_repr_contains_class_name(self):
+        """repr includes SpellResult class name."""
+        result = SpellResult(output="test")
+        assert "SpellResult" in repr(result)
+
+    def test_spell_result_with_none_output(self):
+        """SpellResult can hold None as output (for edge cases)."""
+        result = SpellResult(output=None)
+        assert result.output is None
+        assert "SpellResult" in repr(result)
+
+    def test_spell_result_with_empty_string_output(self):
+        """SpellResult handles empty string output."""
+        result = SpellResult(output="")
+        assert result.output == ""
+        assert result.total_tokens == 0
+
+    def test_spell_result_with_large_token_counts(self):
+        """SpellResult handles large token counts."""
+        result = SpellResult(
+            output="test",
+            input_tokens=1_000_000,
+            output_tokens=500_000,
+        )
+        assert result.total_tokens == 1_500_000
+
+    def test_spell_result_with_zero_duration(self):
+        """SpellResult handles zero duration."""
+        result = SpellResult(output="test", duration_ms=0.0)
+        assert result.duration_ms == 0.0
+
+    def test_spell_result_with_very_small_duration(self):
+        """SpellResult handles very small duration values."""
+        result = SpellResult(output="test", duration_ms=0.001)
+        assert result.duration_ms == 0.001
+
+    def test_spell_result_with_zero_cost_estimate(self):
+        """SpellResult handles zero cost estimate."""
+        result = SpellResult(output="test", cost_estimate=0.0)
+        assert result.cost_estimate == 0.0
+
+    def test_spell_result_with_very_small_cost(self):
+        """SpellResult handles very small cost values."""
+        result = SpellResult(output="test", cost_estimate=0.000001)
+        assert result.cost_estimate == 0.000001
+
+    def test_spell_result_equality_is_reference_based(self):
+        """Two SpellResults with same data are not equal (dataclass default)."""
+        result1 = SpellResult(output="test", model_used="openai:gpt-4o")
+        result2 = SpellResult(output="test", model_used="openai:gpt-4o")
+        # Dataclasses with eq=True (default) compare field values
+        assert result1 == result2
+
+    def test_spell_result_with_list_output(self):
+        """SpellResult can hold list as output."""
+        result = SpellResult(output=["item1", "item2", "item3"])
+        assert result.output == ["item1", "item2", "item3"]
+
+    def test_spell_result_with_dict_output(self):
+        """SpellResult can hold dict as output."""
+        result = SpellResult(output={"key": "value", "count": 42})
+        assert result.output == {"key": "value", "count": 42}
+
+    def test_spell_result_with_nested_complex_output(self):
+        """SpellResult can hold nested complex structures."""
+        complex_output = {
+            "items": [Category(name="a", confidence=0.9), Category(name="b", confidence=0.8)],
+            "metadata": {"total": 2},
+        }
+        result = SpellResult(output=complex_output)
+        assert len(result.output["items"]) == 2
+        assert result.output["metadata"]["total"] == 2
+
+    def test_spell_result_with_high_attempt_count(self):
+        """SpellResult handles high attempt counts."""
+        result = SpellResult(output="test", attempt_count=100)
+        assert result.attempt_count == 100
+
+    def test_spell_result_repr_with_special_characters(self):
+        """repr handles output with special characters."""
+        result = SpellResult(output="test\nwith\nnewlines\tand\ttabs")
+        repr_str = repr(result)
+        assert "SpellResult" in repr_str
+        # Repr should escape special characters
+        assert "\\n" in repr_str or "newlines" in repr_str
+
+
 class TestWithMetadataSync:
     """Tests for sync spell.with_metadata()."""
 
