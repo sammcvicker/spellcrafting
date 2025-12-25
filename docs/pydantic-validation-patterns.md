@@ -514,7 +514,7 @@ def analyze(text: str) -> Analysis:
 ### Custom Error Handler
 
 ```python
-def handle_failure(error: Exception, context: dict) -> Analysis:
+def handle_failure(error: Exception, attempt: int, context: dict) -> Analysis:
     # Log error, return safe default, etc.
     return Analysis(sentiment="error", confidence=0.0)
 

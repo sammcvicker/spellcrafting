@@ -530,6 +530,9 @@ _logging_config: ContextVar[LoggingConfig | None] = ContextVar("logging_config",
 _process_logging_config: LoggingConfig | None = None
 _file_logging_config_cache: LoggingConfig | None = None
 
+# Context variable for capturing logs instead of emitting them (used by with_metadata)
+_capture_log: ContextVar[list[SpellExecutionLog] | None] = ContextVar("capture_log", default=None)
+
 
 def configure_logging(config: LoggingConfig) -> None:
     """Set the logging configuration for the current process.
@@ -1034,6 +1037,12 @@ def _emit_log(log: SpellExecutionLog) -> None:
         This function is designed to never raise exceptions - handler failures
         are logged at debug level but do not interrupt spell execution.
     """
+    # Check if we're in capture mode (used by with_metadata)
+    capture_list = _capture_log.get()
+    if capture_list is not None:
+        capture_list.append(log)
+        return
+
     config = get_logging_config()
     if not config.enabled:
         return
@@ -1055,3 +1064,57 @@ def _emit_log(log: SpellExecutionLog) -> None:
             # Log at debug level for troubleshooting
             handler_name = type(handler).__name__
             _logger.debug("Log handler %s failed: %s", handler_name, e)
+
+
+@dataclass
+class CapturedLog:
+    """Container for captured execution logs.
+
+    This is returned by capture_execution_log() and provides access to
+    the captured log after spell execution completes.
+    """
+
+    logs: list[SpellExecutionLog] = field(default_factory=list)
+
+    @property
+    def log(self) -> SpellExecutionLog | None:
+        """Get the first (and typically only) captured log."""
+        return self.logs[0] if self.logs else None
+
+
+@contextmanager
+def capture_execution_log() -> Generator[CapturedLog, None, None]:
+    """Context manager to capture execution logs without emitting them.
+
+    This is used by with_metadata() to reuse the core execution path
+    while capturing the metadata for SpellResult construction.
+
+    Yields:
+        CapturedLog container that will hold the captured log(s) after
+        spell execution completes.
+
+    Example:
+        with capture_execution_log() as captured:
+            output = my_spell("input")
+
+        if captured.log:
+            result = SpellResult.from_execution_log(output, captured.log)
+    """
+    captured = CapturedLog()
+    token = _capture_log.set(captured.logs)
+    try:
+        yield captured
+    finally:
+        _capture_log.reset(token)
+
+
+def is_capture_mode() -> bool:
+    """Check if we're in capture mode for execution logs.
+
+    This is used by spell execution to determine if the logging path
+    should be taken even when logging is disabled.
+
+    Returns:
+        True if capture_execution_log() context is active.
+    """
+    return _capture_log.get() is not None
