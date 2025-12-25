@@ -161,7 +161,15 @@ class ValidationMetrics:
 
 @dataclass
 class SpellExecutionLog:
-    """Complete log of a spell execution."""
+    """Complete log of a spell execution.
+
+    This is a mutable dataclass that tracks execution state. The finalize()
+    method should be called exactly once when execution completes.
+
+    Note: While this uses a dataclass for convenience, it is intentionally
+    mutable. The _finalized flag prevents accidental double-finalization
+    which would corrupt timing data.
+    """
 
     # Identity
     spell_name: str
@@ -203,6 +211,9 @@ class SpellExecutionLog:
     # Validation metrics (guards, retries, on_fail)
     validation: ValidationMetrics | None = None
 
+    # Internal state tracking
+    _finalized: bool = field(default=False, init=False, repr=False)
+
     def finalize(
         self,
         *,
@@ -210,7 +221,25 @@ class SpellExecutionLog:
         error: Exception | None = None,
         output: Any = None,
     ) -> None:
-        """Finalize the log with completion status."""
+        """Finalize the log with completion status.
+
+        This method should be called exactly once when spell execution completes.
+        Calling it multiple times raises RuntimeError to prevent corrupted timing data.
+
+        Args:
+            success: Whether the spell execution succeeded
+            error: The exception if execution failed (optional)
+            output: The output value if execution succeeded (optional)
+
+        Raises:
+            RuntimeError: If finalize() has already been called on this log
+        """
+        if self._finalized:
+            raise RuntimeError(
+                f"SpellExecutionLog for '{self.spell_name}' already finalized. "
+                "finalize() should only be called once per execution."
+            )
+        self._finalized = True
         self.end_time = datetime.now(timezone.utc)
         self.duration_ms = (self.end_time - self.start_time).total_seconds() * 1000
         self.success = success
@@ -835,15 +864,59 @@ def setup_logging(
     )
 
 
-# Convenience aliases for setup_logging(otel=True)
-# These are kept for backwards compatibility and discoverability.
-# For Logfire: install logfire and configure it, then call setup_logfire()
-# For Datadog: install ddtrace and configure it, then call setup_datadog()
-setup_logfire = lambda *, redact_content=False: setup_logging(otel=True, redact_content=redact_content)
-setup_logfire.__doc__ = "Alias for setup_logging(otel=True). Requires logfire package."
+def setup_logfire(*, redact_content: bool = False) -> None:
+    """Setup logging for Logfire (OpenTelemetry-based).
 
-setup_datadog = lambda *, redact_content=False: setup_logging(otel=True, redact_content=redact_content)
-setup_datadog.__doc__ = "Alias for setup_logging(otel=True). Requires ddtrace package."
+    This is a convenience alias for setup_logging(otel=True).
+
+    Both setup_logfire() and setup_datadog() have identical implementations
+    because they both use OpenTelemetry for export. The separate functions
+    exist for:
+    1. Discoverability - users searching for their provider find the right function
+    2. Future extensibility - provider-specific options can be added later
+
+    Prerequisites:
+        pip install logfire
+        Configure via LOGFIRE_TOKEN environment variable or logfire.configure()
+
+    Args:
+        redact_content: If True, redact input/output content from logs
+
+    Example:
+        import logfire
+        from magically import setup_logfire
+
+        logfire.configure()  # Uses LOGFIRE_TOKEN env var
+        setup_logfire()
+    """
+    setup_logging(otel=True, redact_content=redact_content)
+
+
+def setup_datadog(*, redact_content: bool = False) -> None:
+    """Setup logging for Datadog (OpenTelemetry-based).
+
+    This is a convenience alias for setup_logging(otel=True).
+
+    Both setup_logfire() and setup_datadog() have identical implementations
+    because they both use OpenTelemetry for export. The separate functions
+    exist for:
+    1. Discoverability - users searching for their provider find the right function
+    2. Future extensibility - provider-specific options can be added later
+
+    Prerequisites:
+        pip install ddtrace
+        Configure via DD_* environment variables
+
+    Args:
+        redact_content: If True, redact input/output content from logs
+
+    Example:
+        from magically import setup_datadog
+
+        # Ensure DD_AGENT_HOST, DD_TRACE_AGENT_PORT are set
+        setup_datadog()
+    """
+    setup_logging(otel=True, redact_content=redact_content)
 
 
 # ---------------------------------------------------------------------------
