@@ -2,13 +2,33 @@ from __future__ import annotations
 
 import functools
 import inspect
+import warnings
 from typing import Any, Callable, ParamSpec, Sequence, TypeVar, overload
 
 from pydantic_ai import Agent
 from pydantic_ai.settings import ModelSettings
 
+from magically.config import Config, MagicallyConfigError, ModelConfig
+
 P = ParamSpec("P")
 T = TypeVar("T")
+
+# Agent cache: (spell_id, config_hash) -> Agent
+_agent_cache: dict[tuple[int, int], Agent[None, Any]] = {}
+
+
+def _is_literal_model(model: str) -> bool:
+    """Check if model is a literal (provider:model) vs an alias."""
+    return ":" in model
+
+
+def _settings_hash(settings: ModelSettings | None) -> int:
+    """Create a hash for ModelSettings."""
+    if settings is None:
+        return 0
+    # Convert to dict and hash the sorted items
+    items = tuple(sorted((k, v) for k, v in settings.items() if v is not None))
+    return hash(items)
 
 
 def _build_user_prompt(func: Callable[..., Any], args: tuple, kwargs: dict) -> str:
@@ -87,26 +107,103 @@ def spell(
         if output_type is type(None):
             output_type = str
 
-        # Create the agent
-        agent: Agent[None, Any] = Agent(
-            model=model,
-            output_type=output_type,
-            system_prompt=system_prompt,
-            retries=retries,
-            tools=list(tools),
-            end_strategy=end_strategy,  # type: ignore[arg-type]
-            model_settings=model_settings,
-        )
+        # Definition-time warning: check if alias exists in file config
+        if model is not None and not _is_literal_model(model):
+            file_config = Config.from_file()
+            if model not in file_config.models:
+                warnings.warn(
+                    f"Model alias '{model}' not found in pyproject.toml. "
+                    f"It must be provided via Config context or set_as_default().",
+                    stacklevel=3,
+                )
+
+        def _resolve_model_and_settings() -> tuple[str | None, ModelSettings | None, int]:
+            """Resolve model alias and merge settings at call time.
+
+            Returns:
+                Tuple of (resolved_model, resolved_settings, config_hash)
+            """
+            if model is None:
+                config_hash = hash((None, _settings_hash(model_settings)))
+                return None, model_settings, config_hash
+
+            # Literal model (contains :) - use as-is
+            if _is_literal_model(model):
+                config_hash = hash((model, _settings_hash(model_settings)))
+                return model, model_settings, config_hash
+
+            # Alias - resolve via current config
+            config = Config.current()
+            try:
+                model_config = config.resolve(model)
+            except MagicallyConfigError:
+                raise MagicallyConfigError(
+                    f"Model alias '{model}' could not be resolved. "
+                    f"Define it in pyproject.toml or provide via Config context."
+                )
+
+            # Build ModelSettings from ModelConfig
+            resolved_settings: dict[str, Any] = {}
+            if model_config.temperature is not None:
+                resolved_settings["temperature"] = model_config.temperature
+            if model_config.max_tokens is not None:
+                resolved_settings["max_tokens"] = model_config.max_tokens
+            if model_config.top_p is not None:
+                resolved_settings["top_p"] = model_config.top_p
+            if model_config.timeout is not None:
+                resolved_settings["timeout"] = model_config.timeout
+
+            # Merge with explicit model_settings (explicit takes precedence)
+            if model_settings:
+                for key, value in model_settings.items():
+                    if value is not None:
+                        resolved_settings[key] = value
+
+            final_settings = ModelSettings(**resolved_settings) if resolved_settings else None
+
+            # Hash based on resolved ModelConfig + explicit overrides
+            config_hash = hash((hash(model_config), _settings_hash(model_settings)))
+            return model_config.model, final_settings, config_hash
+
+        # Unique ID for this spell (using id of the wrapper after creation)
+        spell_id: int = 0  # Will be set after wrapper is created
 
         @functools.wraps(fn)
         def wrapper(*args: P.args, **kwargs: P.kwargs) -> T:
+            resolved_model, resolved_settings, config_hash = _resolve_model_and_settings()
+
+            # Check cache for existing agent
+            cache_key = (spell_id, config_hash)
+            agent = _agent_cache.get(cache_key)
+
+            if agent is None:
+                # Create agent and cache it
+                agent = Agent(
+                    model=resolved_model,
+                    output_type=output_type,
+                    system_prompt=system_prompt,
+                    retries=retries,
+                    tools=list(tools),
+                    end_strategy=end_strategy,  # type: ignore[arg-type]
+                    model_settings=resolved_settings,
+                )
+                _agent_cache[cache_key] = agent
+
             user_prompt = _build_user_prompt(fn, args, kwargs)
             result = agent.run_sync(user_prompt)
             return result.output  # type: ignore[return-value]
 
-        # Store agent for testing/introspection
-        wrapper._agent = agent  # type: ignore[attr-defined]
+        # Assign unique spell ID based on wrapper's id
+        spell_id = id(wrapper)
+
+        # Store for testing/introspection
         wrapper._original_func = fn  # type: ignore[attr-defined]
+        wrapper._model_alias = model  # type: ignore[attr-defined]
+        wrapper._system_prompt = system_prompt  # type: ignore[attr-defined]
+        wrapper._output_type = output_type  # type: ignore[attr-defined]
+        wrapper._retries = retries  # type: ignore[attr-defined]
+        wrapper._spell_id = spell_id  # type: ignore[attr-defined]
+        wrapper._resolve_model_and_settings = _resolve_model_and_settings  # type: ignore[attr-defined]
 
         return wrapper
 

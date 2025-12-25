@@ -7,6 +7,14 @@ import magically.config as config_module
 from magically.config import Config, MagicallyConfigError, ModelConfig, current_config
 
 
+@pytest.fixture(autouse=True)
+def reset_file_config_cache():
+    """Reset file config cache between tests."""
+    config_module._file_config_cache = None
+    yield
+    config_module._file_config_cache = None
+
+
 class TestModelConfig:
     """Tests for ModelConfig."""
 
@@ -223,3 +231,151 @@ class TestCurrentConfig:
         with config:
             assert current_config() is Config.current()
             assert "test" in current_config().models
+
+
+class TestConfigFromFile:
+    """Tests for Config.from_file()."""
+
+    def test_load_from_pyproject(self, tmp_path):
+        pyproject = tmp_path / "pyproject.toml"
+        pyproject.write_text("""
+[tool.magically.models.fast]
+model = "anthropic:claude-haiku"
+
+[tool.magically.models.reasoning]
+model = "anthropic:claude-opus-4"
+temperature = 0.7
+""")
+        config = Config.from_file(pyproject)
+        assert "fast" in config.models
+        assert "reasoning" in config.models
+        assert config.models["fast"].model == "anthropic:claude-haiku"
+        assert config.models["reasoning"].temperature == 0.7
+
+    def test_load_all_model_settings(self, tmp_path):
+        pyproject = tmp_path / "pyproject.toml"
+        pyproject.write_text("""
+[tool.magically.models.full]
+model = "openai:gpt-4o"
+temperature = 0.5
+max_tokens = 4096
+top_p = 0.9
+timeout = 30.0
+retries = 3
+""")
+        config = Config.from_file(pyproject)
+        model = config.models["full"]
+        assert model.model == "openai:gpt-4o"
+        assert model.temperature == 0.5
+        assert model.max_tokens == 4096
+        assert model.top_p == 0.9
+        assert model.timeout == 30.0
+        assert model.retries == 3
+
+    def test_missing_file_returns_empty(self, tmp_path):
+        missing = tmp_path / "nonexistent.toml"
+        config = Config.from_file(missing)
+        assert config.models == {}
+
+    def test_malformed_toml_returns_empty(self, tmp_path):
+        pyproject = tmp_path / "pyproject.toml"
+        pyproject.write_text("this is not valid [ toml")
+        config = Config.from_file(pyproject)
+        assert config.models == {}
+
+    def test_no_magically_section_returns_empty(self, tmp_path):
+        pyproject = tmp_path / "pyproject.toml"
+        pyproject.write_text("""
+[project]
+name = "myproject"
+""")
+        config = Config.from_file(pyproject)
+        assert config.models == {}
+
+    def test_no_models_section_returns_empty(self, tmp_path):
+        pyproject = tmp_path / "pyproject.toml"
+        pyproject.write_text("""
+[tool.magically]
+some_other_setting = true
+""")
+        config = Config.from_file(pyproject)
+        assert config.models == {}
+
+    def test_warns_on_unknown_fields(self, tmp_path):
+        pyproject = tmp_path / "pyproject.toml"
+        pyproject.write_text("""
+[tool.magically.models.test]
+model = "test:model"
+unknown_field = "value"
+another_unknown = 123
+""")
+        with pytest.warns(UserWarning, match="Unknown fields.*test.*unknown_field"):
+            Config.from_file(pyproject)
+
+    def test_skips_non_dict_entries(self, tmp_path):
+        pyproject = tmp_path / "pyproject.toml"
+        pyproject.write_text("""
+[tool.magically.models]
+valid = { model = "test:model" }
+invalid = "not a dict"
+""")
+        config = Config.from_file(pyproject)
+        assert "valid" in config.models
+        assert "invalid" not in config.models
+
+
+class TestConfigCurrentWithFile:
+    """Tests for Config.current() with file config fallback."""
+
+    def test_current_falls_back_to_file(self, tmp_path, monkeypatch):
+        pyproject = tmp_path / "pyproject.toml"
+        pyproject.write_text("""
+[tool.magically.models.file_alias]
+model = "anthropic:claude-sonnet"
+""")
+        monkeypatch.chdir(tmp_path)
+
+        config = Config.current()
+        assert "file_alias" in config.models
+
+    def test_file_config_is_cached(self, tmp_path, monkeypatch):
+        pyproject = tmp_path / "pyproject.toml"
+        pyproject.write_text("""
+[tool.magically.models.cached]
+model = "test:model"
+""")
+        monkeypatch.chdir(tmp_path)
+
+        config1 = Config.current()
+        config2 = Config.current()
+        assert config1 is config2
+
+    def test_context_overrides_file(self, tmp_path, monkeypatch):
+        pyproject = tmp_path / "pyproject.toml"
+        pyproject.write_text("""
+[tool.magically.models.file_alias]
+model = "file:model"
+""")
+        monkeypatch.chdir(tmp_path)
+
+        override = Config(models={"override": ModelConfig(model="override:model")})
+
+        assert "file_alias" in Config.current().models
+
+        with override:
+            assert "override" in Config.current().models
+            assert "file_alias" not in Config.current().models
+
+    def test_process_default_overrides_file(self, tmp_path, monkeypatch):
+        pyproject = tmp_path / "pyproject.toml"
+        pyproject.write_text("""
+[tool.magically.models.file_alias]
+model = "file:model"
+""")
+        monkeypatch.chdir(tmp_path)
+
+        default = Config(models={"default": ModelConfig(model="default:model")})
+        default.set_as_default()
+
+        assert "default" in Config.current().models
+        assert "file_alias" not in Config.current().models

@@ -5,7 +5,10 @@ Separates intent (model aliases) from implementation (provider strings).
 
 from __future__ import annotations
 
+import tomllib
+import warnings
 from contextvars import ContextVar, Token
+from pathlib import Path
 from typing import Any, Self
 
 from pydantic import BaseModel, ConfigDict
@@ -13,6 +16,7 @@ from pydantic import BaseModel, ConfigDict
 
 _config_context: ContextVar[Config | None] = ContextVar("magically_config", default=None)
 _process_default: Config | None = None
+_file_config_cache: Config | None = None
 
 
 class MagicallyConfigError(Exception):
@@ -135,14 +139,83 @@ class Config:
         _process_default = self
 
     @classmethod
+    def from_file(cls, path: Path | str | None = None) -> Config:
+        """Load config from pyproject.toml.
+
+        Parses [tool.magically.models.*] sections into model aliases.
+
+        Args:
+            path: Path to pyproject.toml. If None, searches from cwd upward.
+
+        Returns:
+            Config with model aliases from file, or empty Config if not found.
+
+        Example pyproject.toml:
+            [tool.magically.models.fast]
+            model = "anthropic:claude-haiku"
+
+            [tool.magically.models.reasoning]
+            model = "anthropic:claude-opus-4"
+            temperature = 0.7
+        """
+        if path is not None:
+            pyproject_path = Path(path)
+        else:
+            pyproject_path = cls._find_pyproject()
+
+        if pyproject_path is None or not pyproject_path.exists():
+            return cls()
+
+        try:
+            with open(pyproject_path, "rb") as f:
+                data = tomllib.load(f)
+        except tomllib.TOMLDecodeError:
+            return cls()
+
+        tool_config = data.get("tool", {}).get("magically", {})
+        models_config = tool_config.get("models", {})
+
+        if not models_config:
+            return cls()
+
+        # Validate and warn about unknown fields
+        known_fields = {"model", "temperature", "max_tokens", "top_p", "timeout", "retries", "extra"}
+        models: dict[str, dict[str, Any]] = {}
+
+        for alias, settings in models_config.items():
+            if not isinstance(settings, dict):
+                continue
+            unknown = set(settings.keys()) - known_fields
+            if unknown:
+                warnings.warn(
+                    f"Unknown fields in [tool.magically.models.{alias}]: {unknown}",
+                    stacklevel=2,
+                )
+            models[alias] = settings
+
+        return cls(models=models)
+
+    @classmethod
+    def _find_pyproject(cls) -> Path | None:
+        """Search for pyproject.toml from cwd upward."""
+        cwd = Path.cwd()
+        for parent in [cwd, *cwd.parents]:
+            candidate = parent / "pyproject.toml"
+            if candidate.exists():
+                return candidate
+        return None
+
+    @classmethod
     def current(cls) -> Config:
         """Get the currently active config.
 
         Resolution order:
         1. Active context (from `with config:`)
         2. Process default (from `config.set_as_default()`)
-        3. Empty config (file loading comes in step 3)
+        3. File config (from pyproject.toml, cached)
         """
+        global _file_config_cache
+
         # Check context first
         context_config = _config_context.get()
         if context_config is not None:
@@ -152,8 +225,10 @@ class Config:
         if _process_default is not None:
             return _process_default
 
-        # Fall back to empty config (file loading added in step 3)
-        return cls()
+        # Fall back to file config (loaded once and cached)
+        if _file_config_cache is None:
+            _file_config_cache = cls.from_file()
+        return _file_config_cache
 
 
 def current_config() -> Config:
