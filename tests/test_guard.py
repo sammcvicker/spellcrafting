@@ -13,6 +13,8 @@ from magically.guard import (
     _get_or_create_guard_config,
     _run_input_guards,
     _run_output_guards,
+    _run_input_guards_tracked,
+    _run_output_guards_tracked,
     _build_context,
     _GUARD_MARKER,
 )
@@ -891,3 +893,265 @@ class TestDecoratorOrderWarning:
 
         # Guard inside @spell IS integrated and runs
         assert guard_calls == ["guard_called"]
+
+
+class TestGuardContextDataclass:
+    """Tests for the context dict/dataclass passed to guard functions (#167).
+
+    The context passed to guards contains spell metadata like spell_name,
+    model alias, and attempt number. These tests verify the context structure
+    and behavior when used by guards.
+    """
+
+    def test_context_has_spell_name(self):
+        """Context should include the spell name from the decorated function."""
+        context = _build_context(lambda: None)
+        assert "spell_name" in context
+        assert context["spell_name"] == "<lambda>"
+
+    def test_context_has_model_alias(self):
+        """Context should include model alias when set on function."""
+        def my_func():
+            pass
+        my_func._model_alias = "fast"
+
+        context = _build_context(my_func)
+        assert context["model"] == "fast"
+
+    def test_context_model_none_when_not_set(self):
+        """Context model should be None when no model alias is set."""
+        def my_func():
+            pass
+
+        context = _build_context(my_func)
+        assert context["model"] is None
+
+    def test_context_has_attempt_number(self):
+        """Context should include attempt number."""
+        def my_func():
+            pass
+
+        context = _build_context(my_func)
+        assert context["attempt_number"] == 1
+
+    def test_context_custom_attempt_number(self):
+        """Context should respect custom attempt number."""
+        def my_func():
+            pass
+
+        context = _build_context(my_func, attempt=5)
+        assert context["attempt_number"] == 5
+
+    def test_context_is_mutable(self):
+        """Guards can add custom data to the context dict."""
+        def my_func():
+            pass
+
+        context = _build_context(my_func)
+        # Guards can add their own data
+        context["custom_key"] = "custom_value"
+        assert context["custom_key"] == "custom_value"
+
+    def test_context_passed_to_input_guard_in_spell(self):
+        """Input guards receive proper context during spell execution."""
+        received_contexts = []
+
+        def capture_context_guard(args: dict, ctx: dict) -> dict:
+            received_contexts.append(ctx.copy())
+            return args
+
+        @spell(model="openai:gpt-4o")
+        @guard.input(capture_context_guard)
+        def my_test_spell(text: str) -> str:
+            """Test spell."""
+            ...
+
+        mock_result = MagicMock()
+        mock_result.output = "result"
+        mock_agent = MagicMock()
+        mock_agent.run_sync.return_value = mock_result
+
+        with patch("magically.spell.Agent", return_value=mock_agent):
+            my_test_spell("hello")
+
+        assert len(received_contexts) == 1
+        ctx = received_contexts[0]
+        assert ctx["spell_name"] == "my_test_spell"
+        assert ctx["model"] == "openai:gpt-4o"
+        assert ctx["attempt_number"] == 1
+
+    def test_context_passed_to_output_guard_in_spell(self):
+        """Output guards receive proper context during spell execution."""
+        received_contexts = []
+
+        def capture_context_guard(output: str, ctx: dict) -> str:
+            received_contexts.append(ctx.copy())
+            return output
+
+        @spell(model="openai:gpt-4o")
+        @guard.output(capture_context_guard)
+        def my_output_spell(text: str) -> str:
+            """Test spell."""
+            ...
+
+        mock_result = MagicMock()
+        mock_result.output = "result"
+        mock_agent = MagicMock()
+        mock_agent.run_sync.return_value = mock_result
+
+        with patch("magically.spell.Agent", return_value=mock_agent):
+            my_output_spell("hello")
+
+        assert len(received_contexts) == 1
+        ctx = received_contexts[0]
+        assert ctx["spell_name"] == "my_output_spell"
+        assert ctx["model"] == "openai:gpt-4o"
+
+
+class TestTrackedGuardsEarlyFailure:
+    """Tests for tracked guard functions with early guard failure (#168).
+
+    When guards are run with tracking, the passed/failed lists should correctly
+    reflect which guards succeeded before a failure occurred.
+    """
+
+    def test_tracked_input_guards_all_pass(self):
+        """All guards pass, verify full tracking."""
+        def guard1(args: dict, ctx: dict) -> dict:
+            return args
+
+        def guard2(args: dict, ctx: dict) -> dict:
+            return args
+
+        guards = [
+            (guard1, OnFail.RAISE),
+            (guard2, OnFail.RAISE),
+        ]
+
+        result = _run_input_guards_tracked(guards, {"text": "hello"}, {})
+
+        assert len(result.passed) == 2
+        assert "guard1" in result.passed
+        assert "guard2" in result.passed
+        assert len(result.failed) == 0
+        assert result.result == {"text": "hello"}
+
+    def test_tracked_output_guards_all_pass(self):
+        """All output guards pass, verify full tracking."""
+        def check1(output: str, ctx: dict) -> str:
+            return output
+
+        def check2(output: str, ctx: dict) -> str:
+            return output
+
+        guards = [
+            (check1, OnFail.RAISE),
+            (check2, OnFail.RAISE),
+        ]
+
+        result = _run_output_guards_tracked(guards, "test output", {})
+
+        assert len(result.passed) == 2
+        assert "check1" in result.passed
+        assert "check2" in result.passed
+        assert len(result.failed) == 0
+        assert result.result == "test output"
+
+    def test_tracked_input_guard_early_failure_tracks_passed(self):
+        """When second guard fails, first guard should be in passed list."""
+        def passing_guard(args: dict, ctx: dict) -> dict:
+            return args
+
+        def failing_guard(args: dict, ctx: dict) -> dict:
+            raise ValueError("Guard failed!")
+
+        def never_called(args: dict, ctx: dict) -> dict:
+            raise RuntimeError("Should not be called")
+
+        guards = [
+            (passing_guard, OnFail.RAISE),
+            (failing_guard, OnFail.RAISE),
+            (never_called, OnFail.RAISE),
+        ]
+
+        with pytest.raises(GuardError, match="Guard failed!"):
+            _run_input_guards_tracked(guards, {"text": "hello"}, {})
+
+    def test_tracked_input_guard_first_fails(self):
+        """When first guard fails, passed list should be empty."""
+        def failing_guard(args: dict, ctx: dict) -> dict:
+            raise ValueError("First guard failed!")
+
+        def never_called(args: dict, ctx: dict) -> dict:
+            raise RuntimeError("Should not be called")
+
+        guards = [
+            (failing_guard, OnFail.RAISE),
+            (never_called, OnFail.RAISE),
+        ]
+
+        with pytest.raises(GuardError, match="First guard failed!"):
+            _run_input_guards_tracked(guards, {"text": "hello"}, {})
+
+    def test_tracked_output_guard_early_failure(self):
+        """When output guard fails, tracking should record what passed before."""
+        def passing_guard(output: str, ctx: dict) -> str:
+            return output
+
+        def failing_guard(output: str, ctx: dict) -> str:
+            raise ValueError("Output guard failed!")
+
+        guards = [
+            (passing_guard, OnFail.RAISE),
+            (failing_guard, OnFail.RAISE),
+        ]
+
+        with pytest.raises(GuardError, match="Output guard failed!"):
+            _run_output_guards_tracked(guards, "test", {})
+
+    def test_tracked_guard_transforms_before_failure(self):
+        """Guards can transform input before a later guard fails."""
+        def transform_guard(args: dict, ctx: dict) -> dict:
+            args["text"] = args["text"].upper()
+            return args
+
+        def failing_guard(args: dict, ctx: dict) -> dict:
+            raise ValueError("Failed!")
+
+        guards = [
+            (transform_guard, OnFail.RAISE),
+            (failing_guard, OnFail.RAISE),
+        ]
+
+        with pytest.raises(GuardError):
+            _run_input_guards_tracked(guards, {"text": "hello"}, {})
+
+    def test_tracked_guards_empty_list(self):
+        """Empty guard list should return empty tracking."""
+        result = _run_input_guards_tracked([], {"text": "hello"}, {})
+
+        assert len(result.passed) == 0
+        assert len(result.failed) == 0
+        assert result.result == {"text": "hello"}
+
+    def test_tracked_guards_single_pass(self):
+        """Single passing guard should be tracked."""
+        def single_guard(args: dict, ctx: dict) -> dict:
+            return args
+
+        guards = [(single_guard, OnFail.RAISE)]
+
+        result = _run_input_guards_tracked(guards, {"text": "hello"}, {})
+
+        assert result.passed == ["single_guard"]
+        assert result.failed == []
+
+    def test_tracked_guards_single_fail(self):
+        """Single failing guard should be tracked in failed list."""
+        def single_failing_guard(args: dict, ctx: dict) -> dict:
+            raise ValueError("Failed!")
+
+        guards = [(single_failing_guard, OnFail.RAISE)]
+
+        with pytest.raises(GuardError):
+            _run_input_guards_tracked(guards, {"text": "hello"}, {})

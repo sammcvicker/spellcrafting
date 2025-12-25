@@ -819,3 +819,191 @@ class TestCacheManagement:
 
         # Restore default
         set_cache_max_size(100)
+
+
+class TestConcurrentSpellExecution:
+    """Tests for concurrent spell execution with shared cache (#175).
+
+    The agent cache is shared across all spell invocations. These tests verify
+    thread safety and correct behavior under concurrent access.
+    """
+
+    def test_concurrent_sync_calls_same_spell(self):
+        """Multiple threads calling same spell should share agent."""
+        import threading
+
+        @spell(model="openai:gpt-4o")
+        def fn(text: str) -> str:
+            """Test."""
+            ...
+
+        agents_created = []
+        lock = threading.Lock()
+
+        def create_agent(*args, **kwargs):
+            with lock:
+                agents_created.append(True)
+            agent = MagicMock()
+            agent.run_sync.return_value = MagicMock(output="result")
+            return agent
+
+        results = []
+        errors = []
+
+        def run_spell():
+            try:
+                result = fn("test")
+                with lock:
+                    results.append(result)
+            except Exception as e:
+                with lock:
+                    errors.append(e)
+
+        with patch("magically.spell.Agent", side_effect=create_agent):
+            threads = [
+                threading.Thread(target=run_spell)
+                for _ in range(10)
+            ]
+            for t in threads:
+                t.start()
+            for t in threads:
+                t.join()
+
+        assert len(errors) == 0, f"Errors occurred: {errors}"
+        assert len(results) == 10
+        # Due to race conditions, we might create 1-2 agents
+        # (threads racing to populate empty cache)
+        # The important thing is we don't create 10 agents
+        assert len(agents_created) <= 3
+
+    def test_concurrent_sync_calls_different_spells(self):
+        """Multiple threads calling different spells should create separate agents."""
+        import threading
+
+        @spell(model="openai:gpt-4o")
+        def spell1(text: str) -> str:
+            """Spell 1."""
+            ...
+
+        @spell(model="openai:gpt-4o")
+        def spell2(text: str) -> str:
+            """Spell 2."""
+            ...
+
+        agents_created = []
+        lock = threading.Lock()
+
+        def create_agent(*args, **kwargs):
+            with lock:
+                agents_created.append(True)
+            agent = MagicMock()
+            agent.run_sync.return_value = MagicMock(output="result")
+            return agent
+
+        results = []
+
+        def run_spell1():
+            results.append(("s1", spell1("test")))
+
+        def run_spell2():
+            results.append(("s2", spell2("test")))
+
+        with patch("magically.spell.Agent", side_effect=create_agent):
+            threads = []
+            for _ in range(5):
+                threads.append(threading.Thread(target=run_spell1))
+                threads.append(threading.Thread(target=run_spell2))
+
+            for t in threads:
+                t.start()
+            for t in threads:
+                t.join()
+
+        # Should have created at least 2 agents (one per spell)
+        # Might create a few more due to race conditions
+        assert len(agents_created) >= 2
+        assert len(agents_created) <= 6  # Some reasonable upper bound
+
+    @pytest.mark.asyncio
+    async def test_concurrent_async_calls_same_spell(self):
+        """Multiple async tasks calling same spell should share agent."""
+        import asyncio
+
+        @spell(model="openai:gpt-4o")
+        async def fn(text: str) -> str:
+            """Test."""
+            ...
+
+        agents_created = []
+
+        def create_agent(*args, **kwargs):
+            agents_created.append(True)
+            agent = MagicMock()
+
+            async def mock_run(prompt):
+                return MagicMock(output="result")
+            agent.run = mock_run
+            return agent
+
+        with patch("magically.spell.Agent", side_effect=create_agent):
+            tasks = [fn("test") for _ in range(10)]
+            results = await asyncio.gather(*tasks)
+
+        assert len(results) == 10
+        # In async, first task creates the agent, others might race
+        # but should still be limited
+        assert len(agents_created) <= 3
+
+    def test_cache_thread_safety_during_eviction(self):
+        """Cache should be thread-safe during LRU eviction."""
+        import threading
+        from magically import set_cache_max_size, clear_agent_cache
+
+        clear_agent_cache()
+        set_cache_max_size(2)
+
+        @spell(model="openai:gpt-4o")
+        def spell1(text: str) -> str:
+            """S1."""
+            ...
+
+        @spell(model="openai:gpt-4o")
+        def spell2(text: str) -> str:
+            """S2."""
+            ...
+
+        @spell(model="openai:gpt-4o")
+        def spell3(text: str) -> str:
+            """S3."""
+            ...
+
+        mock_result = MagicMock()
+        mock_result.output = "result"
+
+        def create_agent(*args, **kwargs):
+            agent = MagicMock()
+            agent.run_sync.return_value = mock_result
+            return agent
+
+        errors = []
+
+        def run_spells():
+            try:
+                spell1("a")
+                spell2("b")
+                spell3("c")
+            except Exception as e:
+                errors.append(e)
+
+        with patch("magically.spell.Agent", side_effect=create_agent):
+            threads = [threading.Thread(target=run_spells) for _ in range(5)]
+            for t in threads:
+                t.start()
+            for t in threads:
+                t.join()
+
+        # Should complete without errors
+        assert len(errors) == 0
+
+        # Restore default cache size
+        set_cache_max_size(100)

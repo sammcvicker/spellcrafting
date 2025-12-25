@@ -195,6 +195,83 @@ class TestConfigContextManager:
         with config as ctx:
             assert ctx is config
 
+    def test_context_manager_propagates_exception(self):
+        """Exceptions inside context should propagate correctly (#173)."""
+        config = Config(models={"test": ModelConfig(model="test")})
+
+        with pytest.raises(ValueError, match="test error"):
+            with config:
+                raise ValueError("test error")
+
+        # Config should be properly reset even after exception
+        assert Config.current() is not config
+
+    def test_context_manager_resets_on_exception(self):
+        """Config should be reset even when exception occurs in nested context (#173)."""
+        outer = Config(models={"outer": ModelConfig(model="outer")})
+        inner = Config(models={"inner": ModelConfig(model="inner")})
+
+        with outer:
+            with pytest.raises(RuntimeError):
+                with inner:
+                    assert "inner" in Config.current().models
+                    raise RuntimeError("boom")
+
+            # After inner context exits with exception, outer should be active
+            assert "outer" in Config.current().models
+            assert "inner" not in Config.current().models
+
+    def test_context_manager_exception_does_not_swallow_error(self):
+        """Context manager __exit__ should not suppress exceptions (#173)."""
+        config = Config(models={"test": ModelConfig(model="test")})
+        error_raised = False
+
+        try:
+            with config:
+                raise KeyError("specific error")
+        except KeyError as e:
+            error_raised = True
+            assert str(e) == "'specific error'"
+
+        assert error_raised
+
+    def test_context_manager_resets_token_on_exception(self):
+        """The internal _token should be reset even on exception (#173)."""
+        config = Config(models={"test": ModelConfig(model="test")})
+
+        # Before entering context
+        assert config._token is None
+
+        try:
+            with config:
+                # Inside context, token should be set
+                assert config._token is not None
+                raise ValueError("test")
+        except ValueError:
+            pass
+
+        # After exception, token should be reset
+        assert config._token is None
+
+    def test_deeply_nested_contexts_with_exceptions(self):
+        """Multiple nested contexts should all reset properly on exception (#173)."""
+        c1 = Config(models={"c1": ModelConfig(model="m1")})
+        c2 = Config(models={"c2": ModelConfig(model="m2")})
+        c3 = Config(models={"c3": ModelConfig(model="m3")})
+
+        with c1:
+            assert "c1" in Config.current().models
+            with c2:
+                assert "c2" in Config.current().models
+                with pytest.raises(Exception):
+                    with c3:
+                        assert "c3" in Config.current().models
+                        raise Exception("deep error")
+                # After c3 exits with error, c2 should be active
+                assert "c2" in Config.current().models
+            # After c2 exits, c1 should be active
+            assert "c1" in Config.current().models
+
 
 class TestConfigProcessDefault:
     """Tests for Config.set_as_default()."""
