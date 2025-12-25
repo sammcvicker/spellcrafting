@@ -43,6 +43,10 @@ from magically.logging import (
     CostEstimate,
     ToolCallLog,
     ValidationMetrics,
+    # Pricing
+    ModelPricing,
+    register_model_pricing,
+    get_model_pricing,
 )
 from magically.spell import (
     spell,
@@ -117,4 +121,8 @@ __all__ = [
     "CostEstimate",
     "ToolCallLog",
     "ValidationMetrics",
+    # Pricing
+    "ModelPricing",
+    "register_model_pricing",
+    "get_model_pricing",
 ]
