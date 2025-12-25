@@ -25,11 +25,13 @@ Example:
 
 from __future__ import annotations
 
-from typing import Callable, Literal
+from typing import Any, Callable, Literal, TypeVar
 
 from pydantic import BaseModel
 
 from magically.spell import spell
+
+T = TypeVar("T")
 
 
 class ValidationResult(BaseModel):
@@ -45,12 +47,17 @@ def llm_validator(
     *,
     model: str = "fast",
     on_fail: Literal["raise", "fix"] = "raise",
-) -> Callable[[str], str]:
+) -> Callable[[Any], Any]:
     """Create a Pydantic validator from a natural language rule.
 
     This function creates a validator that uses an LLM to check if values
     satisfy a semantic rule. It's designed to be used with Pydantic's
     BeforeValidator for field validation.
+
+    The validator accepts any input type - non-string values are converted
+    to their string representation for LLM validation. On success, the
+    original value is returned unchanged. With on_fail="fix", the fixed
+    value is returned as a string.
 
     Args:
         rule: Natural language description of the validation rule.
@@ -63,6 +70,8 @@ def llm_validator(
 
     Returns:
         A validator function that can be used with Pydantic's BeforeValidator.
+        The validator accepts any type and returns the original value on
+        success (or the fixed string value with on_fail="fix").
 
     Example:
         from pydantic import BaseModel, BeforeValidator
@@ -75,6 +84,12 @@ def llm_validator(
 
         class Email(BaseModel):
             body: Annotated[str, BeforeValidator(professional)]
+
+        # Also works with non-string types
+        valid_dict = llm_validator("Must have 'name' key")
+
+        class Config(BaseModel):
+            settings: Annotated[dict, BeforeValidator(valid_dict)]
 
     Note:
         LLM validators add latency and cost to validation. Use them for
@@ -111,9 +126,15 @@ If the value is invalid, return valid=False with a brief reason explaining why."
     # Remove any cached agents for this spell
     _agent_cache.remove_by_spell_id(spell_id)
 
-    def validator(value: str) -> str:
-        """Pydantic validator function."""
-        result = validate(value)
+    def validator(value: Any) -> Any:
+        """Pydantic validator function.
+
+        Accepts any type, converts to string for LLM validation,
+        and returns the original value on success.
+        """
+        # Convert to string representation for LLM validation
+        str_value = value if isinstance(value, str) else str(value)
+        result = validate(str_value)
 
         if result.valid:
             return value
