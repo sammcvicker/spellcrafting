@@ -25,6 +25,7 @@ from magically.logging import (
     with_trace_id,
     # Handlers
     LogHandler,
+    AsyncLogHandler,
     PythonLoggingHandler,
     JSONFileHandler,
     OpenTelemetryHandler,
@@ -42,12 +43,14 @@ from magically.spell import (
     set_cache_max_size,
     CacheStats,
 )
-from magically.result import SpellResult
+from magically.result import SpellResult, SyncSpell, AsyncSpell
 
 __all__ = [
     # Core
     "spell",
     "SpellResult",
+    "SyncSpell",
+    "AsyncSpell",
     # Cache management
     "clear_agent_cache",
     "get_cache_stats",
@@ -85,6 +88,7 @@ __all__ = [
     "with_trace_id",
     # Handlers
     "LogHandler",
+    "AsyncLogHandler",
     "PythonLoggingHandler",
     "JSONFileHandler",
     "OpenTelemetryHandler",
