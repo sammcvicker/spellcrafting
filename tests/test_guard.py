@@ -1,13 +1,10 @@
 """Tests for the @guard decorator."""
 
-import sys
 import warnings
-from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
 
-import magically.config as config_module
 from magically import spell, guard, GuardError, OnFail
 from magically.guard import (
     _get_or_create_guard_config,
@@ -18,27 +15,6 @@ from magically.guard import (
     _build_context,
     _GUARD_MARKER,
 )
-
-# Access the actual spell module (not the function)
-spell_module = sys.modules["magically.spell"]
-
-
-@pytest.fixture(autouse=True)
-def reset_config():
-    """Reset config state between tests."""
-    config_module._file_config_cache = None
-    config_module._process_default = None
-    yield
-    config_module._file_config_cache = None
-    config_module._process_default = None
-
-
-@pytest.fixture(autouse=True)
-def reset_agent_cache():
-    """Reset agent cache between tests."""
-    spell_module._agent_cache.clear()
-    yield
-    spell_module._agent_cache.clear()
 
 
 class TestGuardDecoratorsBasic:

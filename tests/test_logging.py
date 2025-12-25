@@ -500,14 +500,6 @@ class TestLogEmission:
 class TestSpellLoggingIntegration:
     """Tests for logging integration with @spell decorator."""
 
-    @pytest.fixture(autouse=True)
-    def reset_spell_state(self):
-        """Reset spell module state."""
-        spell_module = sys.modules["magically.spell"]
-        spell_module._agent_cache.clear()
-        yield
-        spell_module._agent_cache.clear()
-
     def test_no_logging_overhead_when_disabled(self):
         """When logging is disabled, spell should not create logs."""
         configure_logging(LoggingConfig(enabled=False))
@@ -886,14 +878,6 @@ class TestSpellExecutionLogWithValidation:
 class TestValidationMetricsIntegration:
     """Tests for ValidationMetrics integration with @spell decorator."""
 
-    @pytest.fixture(autouse=True)
-    def reset_spell_state(self):
-        """Reset spell module state."""
-        spell_module = sys.modules["magically.spell"]
-        spell_module._agent_cache.clear()
-        yield
-        spell_module._agent_cache.clear()
-
     def test_logging_creates_validation_metrics(self):
         """When logging is enabled, spell should create validation metrics."""
         handler = MagicMock()
@@ -1033,14 +1017,6 @@ class TestValidationMetricsIntegration:
 
 class TestToolCallLogging:
     """Tests for tool call logging integration with @spell decorator."""
-
-    @pytest.fixture(autouse=True)
-    def reset_spell_state(self):
-        """Reset spell module state."""
-        spell_module = sys.modules["magically.spell"]
-        spell_module._agent_cache.clear()
-        yield
-        spell_module._agent_cache.clear()
 
     def test_tool_calls_logged_when_enabled(self):
         """Tool calls should be captured in the log when logging is enabled."""

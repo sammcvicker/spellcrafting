@@ -44,6 +44,14 @@ from magically.result import SpellResult
 P = ParamSpec("P")
 T = TypeVar("T")
 
+# Type aliases for improved readability
+# The cache maps (spell_id, config_hash) -> Agent instance
+# This enables reusing agents when the same spell is called with the same config
+SpellId = int
+ConfigHash = int
+AgentCacheKey = tuple[SpellId, ConfigHash]
+CachedAgent = Agent[None, Any]
+
 # Default maximum cache size (can be configured via set_cache_max_size)
 _DEFAULT_CACHE_MAX_SIZE = 100
 
@@ -72,14 +80,14 @@ class _LRUAgentCache:
     """
 
     def __init__(self, max_size: int = _DEFAULT_CACHE_MAX_SIZE):
-        self._cache: OrderedDict[tuple[int, int], Agent[None, Any]] = OrderedDict()
+        self._cache: OrderedDict[AgentCacheKey, CachedAgent] = OrderedDict()
         self._max_size = max_size
         self._lock = threading.RLock()
         self._hits = 0
         self._misses = 0
         self._evictions = 0
 
-    def get(self, key: tuple[int, int]) -> Agent[None, Any] | None:
+    def get(self, key: AgentCacheKey) -> CachedAgent | None:
         """Get an agent from the cache, moving it to most-recently-used."""
         with self._lock:
             if key in self._cache:
@@ -90,7 +98,7 @@ class _LRUAgentCache:
             self._misses += 1
             return None
 
-    def set(self, key: tuple[int, int], agent: Agent[None, Any]) -> None:
+    def set(self, key: AgentCacheKey, agent: CachedAgent) -> None:
         """Add an agent to the cache, evicting LRU if necessary."""
         with self._lock:
             # If max_size is 0, caching is disabled
@@ -269,7 +277,8 @@ def _extract_token_usage(result: Any) -> TokenUsage:
             cache_read_tokens=0,  # PydanticAI doesn't expose cache tokens yet
             cache_write_tokens=0,
         )
-    except Exception:
+    except (AttributeError, TypeError):
+        # Result may not have usage() method, or usage may have unexpected format
         return TokenUsage()
 
 
@@ -1132,7 +1141,8 @@ def spell(
                         usage = result.usage()
                         input_tokens = usage.request_tokens or 0
                         output_tokens = usage.response_tokens or 0
-                    except Exception:
+                    except (AttributeError, TypeError):
+                        # Result may not have usage() method or unexpected format
                         pass
 
                 duration_ms = (time.perf_counter() - start_time) * 1000
@@ -1229,7 +1239,8 @@ def spell(
                         usage = result.usage()
                         input_tokens = usage.request_tokens or 0
                         output_tokens = usage.response_tokens or 0
-                    except Exception:
+                    except (AttributeError, TypeError):
+                        # Result may not have usage() method or unexpected format
                         pass
 
                 duration_ms = (time.perf_counter() - start_time) * 1000

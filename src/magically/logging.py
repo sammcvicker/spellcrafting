@@ -455,7 +455,8 @@ class OpenTelemetryHandler:
                 for key, value in log.tags.items():
                     span.set_attribute(f"spell.tag.{key}", value)
         except Exception:
-            pass  # Never let logging break execution
+            # Intentionally broad: OTEL failures should never break spell execution
+            pass
 
     def flush(self) -> None:
         pass
@@ -500,7 +501,8 @@ def _load_logging_config_from_file() -> LoggingConfig | None:
     try:
         with open(pyproject_path, "rb") as f:
             data = tomllib.load(f)
-    except Exception:
+    except (OSError, tomllib.TOMLDecodeError):
+        # File read or parse errors - gracefully return no config
         return None
 
     logging_config = data.get("tool", {}).get("magically", {}).get("logging", {})
@@ -727,4 +729,5 @@ def _emit_log(log: SpellExecutionLog) -> None:
         try:
             handler.handle(log)
         except Exception:
-            pass  # Never let logging break execution
+            # Intentionally broad: handler failures should never break spell execution
+            pass
