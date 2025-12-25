@@ -447,3 +447,89 @@ class TestOnFailNoStrategyProvided:
             result = analyze("test input")
 
             assert result == expected
+
+
+class TestOnFailStrategyImmutability:
+    """Tests for OnFail strategy immutability (#159)."""
+
+    def test_retry_strategy_frozen(self):
+        """RetryStrategy should be immutable (frozen dataclass)."""
+        from dataclasses import FrozenInstanceError
+
+        strategy = RetryStrategy()
+        with pytest.raises(FrozenInstanceError):
+            strategy.some_attr = "new_value"
+
+    def test_escalate_strategy_frozen(self):
+        """EscalateStrategy should be immutable (frozen dataclass)."""
+        from dataclasses import FrozenInstanceError
+
+        strategy = EscalateStrategy(model="test")
+        with pytest.raises(FrozenInstanceError):
+            strategy.model = "other"
+        with pytest.raises(FrozenInstanceError):
+            strategy.retries = 5
+
+    def test_fallback_strategy_frozen(self):
+        """FallbackStrategy should be immutable (frozen dataclass)."""
+        from dataclasses import FrozenInstanceError
+
+        strategy = FallbackStrategy(default="value")
+        with pytest.raises(FrozenInstanceError):
+            strategy.default = "other"
+
+    def test_custom_strategy_frozen(self):
+        """CustomStrategy should be immutable (frozen dataclass)."""
+        from dataclasses import FrozenInstanceError
+
+        strategy = CustomStrategy(handler=lambda e, a, c: None)
+        with pytest.raises(FrozenInstanceError):
+            strategy.handler = lambda e, a, c: "other"
+
+    def test_raise_strategy_frozen(self):
+        """RaiseStrategy should be immutable (frozen dataclass)."""
+        from dataclasses import FrozenInstanceError
+
+        strategy = RaiseStrategy()
+        with pytest.raises(FrozenInstanceError):
+            strategy.some_attr = "new_value"
+
+    def test_strategies_can_be_used_as_dict_keys(self):
+        """Frozen strategies should be hashable and usable as dict keys."""
+        retry = OnFail.retry()
+        escalate = OnFail.escalate("model1")
+        fallback = OnFail.fallback("default")
+
+        strategy_map = {
+            retry: "retry",
+            escalate: "escalate",
+            fallback: "fallback",
+        }
+
+        assert strategy_map[retry] == "retry"
+        assert strategy_map[escalate] == "escalate"
+        assert strategy_map[fallback] == "fallback"
+
+    def test_same_strategies_are_equal(self):
+        """Identical frozen strategies should be equal."""
+        retry1 = OnFail.retry()
+        retry2 = OnFail.retry()
+        assert retry1 == retry2
+
+        escalate1 = OnFail.escalate("model1", retries=2)
+        escalate2 = OnFail.escalate("model1", retries=2)
+        assert escalate1 == escalate2
+
+        fallback1 = OnFail.fallback("default")
+        fallback2 = OnFail.fallback("default")
+        assert fallback1 == fallback2
+
+    def test_different_strategies_are_not_equal(self):
+        """Different frozen strategies should not be equal."""
+        escalate1 = OnFail.escalate("model1")
+        escalate2 = OnFail.escalate("model2")
+        assert escalate1 != escalate2
+
+        fallback1 = OnFail.fallback("default1")
+        fallback2 = OnFail.fallback("default2")
+        assert fallback1 != fallback2

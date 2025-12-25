@@ -1269,3 +1269,177 @@ class TestToolCallLogging:
         assert d["success"] is True
         assert d["error"] is None
         assert d["redacted"] is False
+
+
+class TestSetupHelpers:
+    """Tests for setup_logfire and setup_datadog helpers (#164)."""
+
+    def test_setup_logfire_enables_logging(self):
+        """setup_logfire should enable logging with OTel handler."""
+        from magically import setup_logfire
+
+        setup_logfire()
+        config = get_logging_config()
+
+        assert config.enabled is True
+        # Should have OTel handler
+        handler_types = [type(h).__name__ for h in config.handlers]
+        assert "OpenTelemetryHandler" in handler_types
+
+    def test_setup_logfire_with_redaction(self):
+        """setup_logfire should support redact_content parameter."""
+        from magically import setup_logfire
+
+        setup_logfire(redact_content=True)
+        config = get_logging_config()
+
+        assert config.enabled is True
+        assert config.redact_content is True
+
+    def test_setup_datadog_enables_logging(self):
+        """setup_datadog should enable logging with OTel handler."""
+        from magically import setup_datadog
+
+        setup_datadog()
+        config = get_logging_config()
+
+        assert config.enabled is True
+        # Should have OTel handler
+        handler_types = [type(h).__name__ for h in config.handlers]
+        assert "OpenTelemetryHandler" in handler_types
+
+    def test_setup_datadog_with_redaction(self):
+        """setup_datadog should support redact_content parameter."""
+        from magically import setup_datadog
+
+        setup_datadog(redact_content=True)
+        config = get_logging_config()
+
+        assert config.enabled is True
+        assert config.redact_content is True
+
+    def test_setup_helpers_have_docstrings(self):
+        """Both setup helpers should have documentation."""
+        from magically import setup_logfire, setup_datadog
+
+        assert setup_logfire.__doc__ is not None
+        assert setup_datadog.__doc__ is not None
+        assert "logfire" in setup_logfire.__doc__.lower()
+        assert "ddtrace" in setup_datadog.__doc__.lower()
+
+
+class TestLogLevelEnum:
+    """Tests for LogLevel enum usage (#155)."""
+
+    def test_log_level_values(self):
+        """All LogLevel values should be valid."""
+        assert LogLevel.DEBUG.value == "debug"
+        assert LogLevel.INFO.value == "info"
+        assert LogLevel.WARNING.value == "warning"
+        assert LogLevel.ERROR.value == "error"
+
+    def test_log_level_is_string_enum(self):
+        """LogLevel should be a string enum for easy serialization."""
+        assert isinstance(LogLevel.DEBUG, str)
+        assert isinstance(LogLevel.INFO, str)
+        assert isinstance(LogLevel.WARNING, str)
+        assert isinstance(LogLevel.ERROR, str)
+
+    def test_log_level_comparison(self):
+        """LogLevel values should be comparable as strings."""
+        assert LogLevel.DEBUG == "debug"
+        assert LogLevel.INFO == "info"
+        assert LogLevel.WARNING == "warning"
+        assert LogLevel.ERROR == "error"
+
+    def test_logging_config_uses_log_level(self):
+        """LoggingConfig should use LogLevel for level field."""
+        config = LoggingConfig(level=LogLevel.DEBUG)
+        assert config.level == LogLevel.DEBUG
+
+        config = LoggingConfig(level=LogLevel.ERROR)
+        assert config.level == LogLevel.ERROR
+
+    def test_log_level_from_pyproject_string(self, tmp_path, monkeypatch):
+        """LogLevel should be parsed correctly from pyproject.toml string values."""
+        for level_str, expected_level in [
+            ("debug", LogLevel.DEBUG),
+            ("info", LogLevel.INFO),
+            ("warning", LogLevel.WARNING),
+            ("error", LogLevel.ERROR),
+        ]:
+            pyproject = tmp_path / "pyproject.toml"
+            pyproject.write_text(f"""
+[tool.magically.logging]
+enabled = true
+level = "{level_str}"
+""")
+            monkeypatch.chdir(tmp_path)
+            logging_module._file_logging_config_cache = None
+
+            config = get_logging_config()
+            assert config.level == expected_level, f"Failed for level {level_str}"
+
+
+class TestPricingDictCoverage:
+    """Tests for PRICING dict coverage in cost estimation (#153)."""
+
+    def test_all_pricing_models_have_required_keys(self):
+        """All models in PRICING should have input and output keys."""
+        from magically.logging import PRICING
+
+        for model_name, prices in PRICING.items():
+            assert "input" in prices, f"{model_name} missing input price"
+            assert "output" in prices, f"{model_name} missing output price"
+            assert isinstance(prices["input"], (int, float)), f"{model_name} input is not numeric"
+            assert isinstance(prices["output"], (int, float)), f"{model_name} output is not numeric"
+            assert prices["input"] > 0, f"{model_name} has non-positive input price"
+            assert prices["output"] > 0, f"{model_name} has non-positive output price"
+
+    def test_cost_estimation_for_all_pricing_models(self):
+        """Every model in PRICING should return valid cost estimate."""
+        from magically.logging import PRICING, estimate_cost
+
+        usage = TokenUsage(input_tokens=1000, output_tokens=500)
+
+        for model_name in PRICING.keys():
+            cost = estimate_cost(model_name, usage)
+
+            assert cost is not None, f"{model_name} returned None cost"
+            assert cost.total_cost > 0, f"{model_name} has non-positive total cost"
+            assert cost.input_cost > 0, f"{model_name} has non-positive input cost"
+            assert cost.output_cost > 0, f"{model_name} has non-positive output cost"
+            assert cost.total_cost == cost.input_cost + cost.output_cost, f"{model_name} total != input + output"
+
+    def test_anthropic_models_in_pricing(self):
+        """Anthropic models should be in PRICING dict."""
+        from magically.logging import PRICING
+
+        anthropic_models = [m for m in PRICING.keys() if "claude" in m]
+        assert len(anthropic_models) >= 4, "Expected at least 4 Claude models"
+
+    def test_openai_models_in_pricing(self):
+        """OpenAI models should be in PRICING dict."""
+        from magically.logging import PRICING
+
+        openai_models = [m for m in PRICING.keys() if "gpt" in m]
+        assert len(openai_models) >= 4, "Expected at least 4 GPT models"
+
+    def test_google_models_in_pricing(self):
+        """Google models should be in PRICING dict."""
+        from magically.logging import PRICING
+
+        google_models = [m for m in PRICING.keys() if "gemini" in m]
+        assert len(google_models) >= 2, "Expected at least 2 Gemini models"
+
+    def test_pricing_values_are_reasonable(self):
+        """Pricing values should be in reasonable ranges (per 1M tokens)."""
+        from magically.logging import PRICING
+
+        for model_name, prices in PRICING.items():
+            # Input price should be between $0.01 and $100 per 1M tokens
+            assert 0.01 <= prices["input"] <= 100, f"{model_name} input price out of range"
+            # Output price should be between $0.01 and $150 per 1M tokens
+            assert 0.01 <= prices["output"] <= 150, f"{model_name} output price out of range"
+            # Output typically costs more than input (or equal)
+            assert prices["output"] >= prices["input"], f"{model_name} output < input price"
