@@ -116,13 +116,47 @@ async def test_async_spell_with_tools():
     """Test that async spells can use tools."""
 
     def calculate(expression: str) -> str:
-        """Evaluate a mathematical expression."""
+        """Safely evaluate a mathematical expression using AST."""
+        import ast
+        import operator
+
+        # Supported operators for safe evaluation
+        operators = {
+            ast.Add: operator.add,
+            ast.Sub: operator.sub,
+            ast.Mult: operator.mul,
+            ast.Div: operator.truediv,
+            ast.USub: operator.neg,
+            ast.UAdd: operator.pos,
+        }
+
+        def safe_eval(node):
+            if isinstance(node, ast.Expression):
+                return safe_eval(node.body)
+            elif isinstance(node, ast.Constant):
+                if isinstance(node.value, (int, float)):
+                    return node.value
+                raise ValueError("Only numeric constants allowed")
+            elif isinstance(node, ast.BinOp):
+                left = safe_eval(node.left)
+                right = safe_eval(node.right)
+                op_func = operators.get(type(node.op))
+                if op_func is None:
+                    raise ValueError(f"Unsupported operator: {type(node.op).__name__}")
+                return op_func(left, right)
+            elif isinstance(node, ast.UnaryOp):
+                operand = safe_eval(node.operand)
+                op_func = operators.get(type(node.op))
+                if op_func is None:
+                    raise ValueError(f"Unsupported operator: {type(node.op).__name__}")
+                return op_func(operand)
+            else:
+                raise ValueError(f"Unsupported node type: {type(node).__name__}")
+
         try:
-            # Safe eval for simple math
-            allowed = set("0123456789+-*/.(). ")
-            if all(c in allowed for c in expression):
-                return str(eval(expression))
-            return "Invalid expression"
+            tree = ast.parse(expression, mode="eval")
+            result = safe_eval(tree)
+            return str(result)
         except Exception:
             return "Error evaluating expression"
 
