@@ -7,7 +7,7 @@
 > For the actual magically implementation, see:
 > - **Guards:** `@guard.input()` and `@guard.output()` decorators in `guard.py`
 > - **Failure Strategies:** `OnFail.escalate()`, `OnFail.fallback()`, etc. in `on_fail.py`
-> - **Design Decisions:** `guardrails.md` for what we chose to build vs. defer
+> - **Design Decisions:** `guards.md` for what we chose to build vs. defer
 
 ## Overview
 
@@ -34,7 +34,7 @@ This document covers patterns for:
 | PII detection | - | Presidio, AWS Comprehend |
 | Content moderation | - | OpenAI Moderation API |
 
-See `guardrails.md` for the rationale behind these decisions.
+See `guards.md` for the rationale behind these decisions.
 
 ---
 
@@ -167,7 +167,7 @@ class Response(BaseModel):
 
 > **Status**: The patterns in this section are NOT implemented in magically.
 > They describe external library patterns and techniques that can be used alongside
-> magically's `@guard.output()` decorator. See `guardrails.md` for design rationale.
+> magically's `@guard.output()` decorator. See `guards.md` for design rationale.
 
 ### 2.1 Hallucination Detection
 
@@ -326,7 +326,7 @@ def answer_with_sources(question: str, documents: list[Document]) -> CitedRespon
 
 > **Status**: The patterns in this section are NOT implemented in magically.
 > They describe external library patterns (Detoxify, LLM Guard, Guardrails AI)
-> that can be used alongside magically's guards. See `guardrails.md` for design rationale.
+> that can be used alongside magically's guards. See `guards.md` for design rationale.
 
 ### 3.1 Toxicity Detection
 
@@ -529,7 +529,7 @@ CompetitorFreeText = Annotated[str, AfterValidator(filter_competitors)]
 
 > **Status**: The patterns in this section are NOT implemented in magically.
 > They describe external library patterns (embedding models, LLM-as-judge)
-> that can be used alongside magically's guards. See `guardrails.md` for design rationale.
+> that can be used alongside magically's guards. See `guards.md` for design rationale.
 
 ### 4.1 Relevance Scoring
 
@@ -822,7 +822,7 @@ class ExtendedValidationMetrics(ValidationMetrics):
     confidence_score: float | None = None
 ```
 
-See `guardrails.md` for why magically defers semantic/safety scoring to external libraries.
+See `guards.md` for why magically defers semantic/safety scoring to external libraries.
 
 ---
 
@@ -883,7 +883,7 @@ def with_custom_handling(text: str) -> Result:
 
 ## 7. Implementation Roadmap
 
-> **Status:** This roadmap reflects the original design vision. See `guardrails.md`
+> **Status:** This roadmap reflects the original design vision. See `guards.md`
 > for what was actually built vs. deferred.
 
 ### Implemented
@@ -952,7 +952,7 @@ class MinimalValidator:
 ## 9. Original Research Roadmap (Historical)
 
 > **Note:** This was the original research roadmap. See section 7 for what was actually
-> implemented. Most items here were intentionally deferred - see `guardrails.md` for rationale.
+> implemented. Most items here were intentionally deferred - see `guards.md` for rationale.
 
 ### Phase 1: Structural Foundation - COMPLETED
 1. Document Pydantic validation patterns for spells

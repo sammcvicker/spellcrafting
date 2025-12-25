@@ -1,7 +1,15 @@
-# Guardrails Design for magically
+# Guards Design for magically
 
 > Synthesis of research into an opinionated design for the magically library.
 > This document recommends what to build, what NOT to build, and why.
+
+## Terminology
+
+This library uses consistent terminology:
+
+- **guard**: The `@guard.input()` and `@guard.output()` decorators implemented in magically
+- **validator**: Pydantic validators (`@field_validator`, `@model_validator`) and the `llm_validator()` helper
+- **guardrail**: General industry term for LLM safety/validation systems; used in research docs when referencing external frameworks (Guardrails AI, NeMo Guardrails, etc.)
 
 ## Executive Summary
 
@@ -22,7 +30,7 @@ After analyzing four research documents covering framework comparisons, input va
 - Complex DSLs or configuration systems (NeMo-style)
 - Rate limiting, budgeting, circuit breakers (use LiteLLM Proxy, Portkey)
 
-**Philosophy:** magically is about making LLM calls feel like native Python. Guardrails should feel the same way - Pydantic validators, not YAML configs.
+**Philosophy:** magically is about making LLM calls feel like native Python. Guards should feel the same way - Pydantic validators, not YAML configs.
 
 ---
 
