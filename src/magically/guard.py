@@ -505,21 +505,21 @@ class _GuardNamespace:
     @staticmethod
     def max_length(
         *,
-        input: int | None = None,
-        output: int | None = None,
+        input_max: int | None = None,
+        output_max: int | None = None,
     ) -> Callable[[Callable[P, T]], Callable[P, T]]:
         """Add character length limits for inputs and/or outputs.
 
         Args:
-            input: Maximum character length for input text (checks first str arg)
-            output: Maximum character length for output text
+            input_max: Maximum character length for input text (checks all str args)
+            output_max: Maximum character length for output text
 
         Returns:
             Decorator that adds length guards.
 
         Example:
             @spell(model="fast")
-            @guard.max_length(input=10000, output=5000)
+            @guard.max_length(input_max=10000, output_max=5000)
             def summarize(text: str) -> str:
                 '''Summarize.'''
                 ...
@@ -542,26 +542,30 @@ class _GuardNamespace:
                 )
             config = _get_or_create_guard_config(func)
 
-            if input is not None:
+            if input_max is not None:
+                # Capture in local variable to avoid late-binding issues
+                max_input_chars = input_max
 
                 def check_input_length(input_args: dict[str, Any], context: dict[str, Any]) -> dict[str, Any]:
                     # Check all string arguments
                     for key, value in input_args.items():
-                        if isinstance(value, str) and len(value) > input:
+                        if isinstance(value, str) and len(value) > max_input_chars:
                             raise GuardError(
-                                f"Input '{key}' exceeds maximum length of {input} characters "
+                                f"Input '{key}' exceeds maximum length of {max_input_chars} characters "
                                 f"(got {len(value)})"
                             )
                     return input_args
 
                 config.input_guards.insert(0, (check_input_length, OnFail.RAISE))
 
-            if output is not None:
+            if output_max is not None:
+                # Capture in local variable to avoid late-binding issues
+                max_output_chars = output_max
 
                 def check_output_length(out: Any, context: dict[str, Any]) -> Any:
-                    if isinstance(out, str) and len(out) > output:
+                    if isinstance(out, str) and len(out) > max_output_chars:
                         raise GuardError(
-                            f"Output exceeds maximum length of {output} characters "
+                            f"Output exceeds maximum length of {max_output_chars} characters "
                             f"(got {len(out)})"
                         )
                     return out
