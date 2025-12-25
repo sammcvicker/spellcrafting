@@ -34,24 +34,6 @@ from magically import (
 from magically.config import Config, ModelConfig
 
 
-@pytest.fixture(autouse=True)
-def reset_logging_config():
-    """Reset logging config state between tests."""
-    logging_module._process_logging_config = None
-    logging_module._file_logging_config_cache = None
-    logging_module._logging_config = logging_module.ContextVar("logging_config", default=None)
-    yield
-    logging_module._process_logging_config = None
-    logging_module._file_logging_config_cache = None
-
-
-@pytest.fixture(autouse=True)
-def reset_trace_context():
-    """Reset trace context between tests."""
-    logging_module._trace_context = logging_module.ContextVar("trace", default=None)
-    yield
-
-
 class TestTokenUsage:
     """Tests for TokenUsage dataclass."""
 

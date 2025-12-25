@@ -7,14 +7,6 @@ import magically.config as config_module
 from magically.config import Config, MagicallyConfigError, ModelConfig, current_config
 
 
-@pytest.fixture(autouse=True)
-def reset_file_config_cache():
-    """Reset file config cache between tests."""
-    config_module._file_config_cache = None
-    yield
-    config_module._file_config_cache = None
-
-
 class TestModelConfig:
     """Tests for ModelConfig."""
 
@@ -96,13 +88,6 @@ class TestMagicallyConfigError:
         )
         assert "typo" in str(error)
         assert "fast" in str(error)
-
-
-@pytest.fixture(autouse=True)
-def reset_process_default():
-    """Reset process default between tests."""
-    yield
-    config_module._process_default = None
 
 
 class TestConfig:
