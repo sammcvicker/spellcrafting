@@ -107,16 +107,14 @@ def _run_input_guards(
 ) -> dict[str, Any]:
     """Run input guards in order, transforming input_args."""
     current_args = input_args
-    for guard_fn, on_fail in guards:
+    for guard_fn, _on_fail in guards:
         try:
             current_args = guard_fn(current_args, context)
         except Exception as e:
-            if isinstance(on_fail, RaiseStrategy):
-                if isinstance(e, GuardError):
-                    raise
-                raise GuardError(str(e)) from e
-            # Future: handle other strategies
-            raise
+            # Guards only support RaiseStrategy - wrap non-GuardError exceptions
+            if isinstance(e, GuardError):
+                raise
+            raise GuardError(str(e)) from e
     return current_args
 
 
@@ -127,16 +125,14 @@ def _run_output_guards(
 ) -> T:
     """Run output guards in order (outermost first), transforming output."""
     current_output = output
-    for guard_fn, on_fail in guards:
+    for guard_fn, _on_fail in guards:
         try:
             current_output = guard_fn(current_output, context)
         except Exception as e:
-            if isinstance(on_fail, RaiseStrategy):
-                if isinstance(e, GuardError):
-                    raise
-                raise GuardError(str(e)) from e
-            # Future: handle other strategies
-            raise
+            # Guards only support RaiseStrategy - wrap non-GuardError exceptions
+            if isinstance(e, GuardError):
+                raise
+            raise GuardError(str(e)) from e
     return current_output
 
 
@@ -147,7 +143,7 @@ async def _run_input_guards_async(
 ) -> dict[str, Any]:
     """Run input guards in order, supporting async guard functions."""
     current_args = input_args
-    for guard_fn, on_fail in guards:
+    for guard_fn, _on_fail in guards:
         try:
             result = guard_fn(current_args, context)
             if asyncio.iscoroutine(result):
@@ -155,11 +151,10 @@ async def _run_input_guards_async(
             else:
                 current_args = result
         except Exception as e:
-            if isinstance(on_fail, RaiseStrategy):
-                if isinstance(e, GuardError):
-                    raise
-                raise GuardError(str(e)) from e
-            raise
+            # Guards only support RaiseStrategy - wrap non-GuardError exceptions
+            if isinstance(e, GuardError):
+                raise
+            raise GuardError(str(e)) from e
     return current_args
 
 
@@ -170,7 +165,7 @@ async def _run_output_guards_async(
 ) -> T:
     """Run output guards in order, supporting async guard functions."""
     current_output = output
-    for guard_fn, on_fail in guards:
+    for guard_fn, _on_fail in guards:
         try:
             result = guard_fn(current_output, context)
             if asyncio.iscoroutine(result):
@@ -178,11 +173,10 @@ async def _run_output_guards_async(
             else:
                 current_output = result
         except Exception as e:
-            if isinstance(on_fail, RaiseStrategy):
-                if isinstance(e, GuardError):
-                    raise
-                raise GuardError(str(e)) from e
-            raise
+            # Guards only support RaiseStrategy - wrap non-GuardError exceptions
+            if isinstance(e, GuardError):
+                raise
+            raise GuardError(str(e)) from e
     return current_output
 
 
@@ -215,18 +209,17 @@ def _run_input_guards_tracked(
     passed: list[str] = []
     failed: list[str] = []
 
-    for guard_fn, on_fail in guards:
+    for guard_fn, _on_fail in guards:
         guard_name = _get_guard_name(guard_fn)
         try:
             current_args = guard_fn(current_args, context)
             passed.append(guard_name)
         except Exception as e:
             failed.append(guard_name)
-            if isinstance(on_fail, RaiseStrategy):
-                if isinstance(e, GuardError):
-                    raise
-                raise GuardError(str(e)) from e
-            raise
+            # Guards only support RaiseStrategy - wrap non-GuardError exceptions
+            if isinstance(e, GuardError):
+                raise
+            raise GuardError(str(e)) from e
 
     return GuardRunResult(result=current_args, passed=passed, failed=failed)
 
@@ -241,18 +234,17 @@ def _run_output_guards_tracked(
     passed: list[str] = []
     failed: list[str] = []
 
-    for guard_fn, on_fail in guards:
+    for guard_fn, _on_fail in guards:
         guard_name = _get_guard_name(guard_fn)
         try:
             current_output = guard_fn(current_output, context)
             passed.append(guard_name)
         except Exception as e:
             failed.append(guard_name)
-            if isinstance(on_fail, RaiseStrategy):
-                if isinstance(e, GuardError):
-                    raise
-                raise GuardError(str(e)) from e
-            raise
+            # Guards only support RaiseStrategy - wrap non-GuardError exceptions
+            if isinstance(e, GuardError):
+                raise
+            raise GuardError(str(e)) from e
 
     return GuardRunResult(result=current_output, passed=passed, failed=failed)
 
@@ -267,7 +259,7 @@ async def _run_input_guards_tracked_async(
     passed: list[str] = []
     failed: list[str] = []
 
-    for guard_fn, on_fail in guards:
+    for guard_fn, _on_fail in guards:
         guard_name = _get_guard_name(guard_fn)
         try:
             result = guard_fn(current_args, context)
@@ -278,11 +270,10 @@ async def _run_input_guards_tracked_async(
             passed.append(guard_name)
         except Exception as e:
             failed.append(guard_name)
-            if isinstance(on_fail, RaiseStrategy):
-                if isinstance(e, GuardError):
-                    raise
-                raise GuardError(str(e)) from e
-            raise
+            # Guards only support RaiseStrategy - wrap non-GuardError exceptions
+            if isinstance(e, GuardError):
+                raise
+            raise GuardError(str(e)) from e
 
     return GuardRunResult(result=current_args, passed=passed, failed=failed)
 
@@ -297,7 +288,7 @@ async def _run_output_guards_tracked_async(
     passed: list[str] = []
     failed: list[str] = []
 
-    for guard_fn, on_fail in guards:
+    for guard_fn, _on_fail in guards:
         guard_name = _get_guard_name(guard_fn)
         try:
             result = guard_fn(current_output, context)
@@ -308,11 +299,10 @@ async def _run_output_guards_tracked_async(
             passed.append(guard_name)
         except Exception as e:
             failed.append(guard_name)
-            if isinstance(on_fail, RaiseStrategy):
-                if isinstance(e, GuardError):
-                    raise
-                raise GuardError(str(e)) from e
-            raise
+            # Guards only support RaiseStrategy - wrap non-GuardError exceptions
+            if isinstance(e, GuardError):
+                raise
+            raise GuardError(str(e)) from e
 
     return GuardRunResult(result=current_output, passed=passed, failed=failed)
 
