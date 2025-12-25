@@ -8,6 +8,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- `@guard` decorator for composable input/output validation on spells
+  - `guard.input(fn)` - validate/transform inputs before LLM call
+  - `guard.output(fn)` - validate/transform outputs after LLM call
+  - `guard.max_length(input=N, output=M)` - built-in character length limits
+- `GuardError` exception raised when guards reject input/output
+- `OnFail` enum for guard failure behavior (RAISE for now, RETRY planned)
+- `InputGuard`, `OutputGuard` protocols for type-safe guard functions
+- `GuardContext` dataclass with spell metadata for guards
 - Guardrails design document (`docs/design/guardrails.md`)
 - Research documents for guardrails patterns:
   - `docs/research/guardrails-frameworks.md`

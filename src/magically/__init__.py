@@ -1,4 +1,12 @@
 from magically.config import Config, MagicallyConfigError, ModelConfig, current_config
+from magically.guard import (
+    guard,
+    GuardError,
+    OnFail,
+    InputGuard,
+    OutputGuard,
+    GuardContext,
+)
 from magically.logging import (
     # Configuration
     LoggingConfig,
@@ -34,6 +42,13 @@ __all__ = [
     "ModelConfig",
     "MagicallyConfigError",
     "current_config",
+    # Guards
+    "guard",
+    "GuardError",
+    "OnFail",
+    "InputGuard",
+    "OutputGuard",
+    "GuardContext",
     # Logging Configuration
     "LoggingConfig",
     "LogLevel",

@@ -11,6 +11,16 @@ from pydantic_ai import Agent
 from pydantic_ai.settings import ModelSettings
 
 from magically.config import Config, MagicallyConfigError, ModelConfig
+from magically.guard import (
+    GuardError,
+    _build_context,
+    _get_or_create_guard_config,
+    _run_input_guards,
+    _run_input_guards_async,
+    _run_output_guards,
+    _run_output_guards_async,
+    _GUARD_MARKER,
+)
 from magically.logging import (
     SpellExecutionLog,
     TokenUsage,
@@ -244,13 +254,37 @@ def spell(
             async def async_wrapper(*args: P.args, **kwargs: P.kwargs) -> T:
                 resolved_model, resolved_settings, config_hash = _resolve_model_and_settings()
                 agent = _get_or_create_agent(config_hash, resolved_model, resolved_settings)
-                user_prompt = _build_user_prompt(fn, args, kwargs)
+
+                # Check for guards and run input guards if present
+                guard_config = getattr(fn, _GUARD_MARKER, None)
+                input_args = _extract_input_args(fn, args, kwargs)
+
+                if guard_config and guard_config.input_guards:
+                    guard_context = _build_context(fn)
+                    guard_context["model"] = model  # Use alias, not resolved
+                    input_args = await _run_input_guards_async(
+                        guard_config.input_guards, input_args, guard_context
+                    )
+                    # Rebuild user prompt with potentially transformed args
+                    user_prompt = "\n".join(f"{k}: {v!r}" for k, v in input_args.items())
+                else:
+                    user_prompt = _build_user_prompt(fn, args, kwargs)
 
                 # Fast path: no logging overhead
                 logging_config = get_logging_config()
                 if not logging_config.enabled:
                     result = await agent.run(user_prompt)
-                    return result.output  # type: ignore[return-value]
+                    output = result.output
+
+                    # Run output guards if present
+                    if guard_config and guard_config.output_guards:
+                        guard_context = _build_context(fn)
+                        guard_context["model"] = model
+                        output = await _run_output_guards_async(
+                            guard_config.output_guards, output, guard_context
+                        )
+
+                    return output  # type: ignore[return-value]
 
                 # Logging enabled
                 with trace_context() as ctx:
@@ -262,15 +296,25 @@ def spell(
                         parent_span_id=ctx.parent_span_id,
                         model=resolved_model or "",
                         model_alias=model,
-                        input_args=_extract_input_args(fn, args, kwargs),
+                        input_args=input_args,
                     )
 
                     try:
                         result = await agent.run(user_prompt)
+                        output = result.output
+
+                        # Run output guards if present
+                        if guard_config and guard_config.output_guards:
+                            guard_context = _build_context(fn)
+                            guard_context["model"] = model
+                            output = await _run_output_guards_async(
+                                guard_config.output_guards, output, guard_context
+                            )
+
                         log.token_usage = _extract_token_usage(result)
                         log.cost_estimate = estimate_cost(resolved_model or "", log.token_usage)
-                        log.finalize(success=True, output=result.output)
-                        return result.output  # type: ignore[return-value]
+                        log.finalize(success=True, output=output)
+                        return output  # type: ignore[return-value]
                     except Exception as e:
                         log.finalize(success=False, error=e)
                         raise
@@ -283,13 +327,37 @@ def spell(
             def sync_wrapper(*args: P.args, **kwargs: P.kwargs) -> T:
                 resolved_model, resolved_settings, config_hash = _resolve_model_and_settings()
                 agent = _get_or_create_agent(config_hash, resolved_model, resolved_settings)
-                user_prompt = _build_user_prompt(fn, args, kwargs)
+
+                # Check for guards and run input guards if present
+                guard_config = getattr(fn, _GUARD_MARKER, None)
+                input_args = _extract_input_args(fn, args, kwargs)
+
+                if guard_config and guard_config.input_guards:
+                    guard_context = _build_context(fn)
+                    guard_context["model"] = model  # Use alias, not resolved
+                    input_args = _run_input_guards(
+                        guard_config.input_guards, input_args, guard_context
+                    )
+                    # Rebuild user prompt with potentially transformed args
+                    user_prompt = "\n".join(f"{k}: {v!r}" for k, v in input_args.items())
+                else:
+                    user_prompt = _build_user_prompt(fn, args, kwargs)
 
                 # Fast path: no logging overhead
                 logging_config = get_logging_config()
                 if not logging_config.enabled:
                     result = agent.run_sync(user_prompt)
-                    return result.output  # type: ignore[return-value]
+                    output = result.output
+
+                    # Run output guards if present
+                    if guard_config and guard_config.output_guards:
+                        guard_context = _build_context(fn)
+                        guard_context["model"] = model
+                        output = _run_output_guards(
+                            guard_config.output_guards, output, guard_context
+                        )
+
+                    return output  # type: ignore[return-value]
 
                 # Logging enabled
                 with trace_context() as ctx:
@@ -301,15 +369,25 @@ def spell(
                         parent_span_id=ctx.parent_span_id,
                         model=resolved_model or "",
                         model_alias=model,
-                        input_args=_extract_input_args(fn, args, kwargs),
+                        input_args=input_args,
                     )
 
                     try:
                         result = agent.run_sync(user_prompt)
+                        output = result.output
+
+                        # Run output guards if present
+                        if guard_config and guard_config.output_guards:
+                            guard_context = _build_context(fn)
+                            guard_context["model"] = model
+                            output = _run_output_guards(
+                                guard_config.output_guards, output, guard_context
+                            )
+
                         log.token_usage = _extract_token_usage(result)
                         log.cost_estimate = estimate_cost(resolved_model or "", log.token_usage)
-                        log.finalize(success=True, output=result.output)
-                        return result.output  # type: ignore[return-value]
+                        log.finalize(success=True, output=output)
+                        return output  # type: ignore[return-value]
                     except Exception as e:
                         log.finalize(success=False, error=e)
                         raise
