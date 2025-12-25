@@ -1,6 +1,17 @@
 """Structured logging, distributed tracing, and cost tracking for magically.
 
 This module provides enterprise-grade observability with zero overhead when disabled.
+
+Design Note: Pydantic vs Dataclass Usage
+----------------------------------------
+This module uses dataclasses (not Pydantic) for all types because:
+- These are internal telemetry types, not user-provided configuration
+- No external parsing or validation is needed - we create them directly
+- Dataclasses have lower overhead (no validation on every instantiation)
+- Simple to_dict() methods are sufficient for serialization
+
+See config.py for contrast - it uses Pydantic for parsing pyproject.toml
+where validation and error messages for user config are important.
 """
 
 from __future__ import annotations

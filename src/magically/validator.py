@@ -3,6 +3,13 @@
 The llm_validator function creates Pydantic validators powered by LLM calls,
 allowing semantic validation rules expressed in natural language.
 
+Design Note: Pydantic vs Dataclass Usage
+----------------------------------------
+ValidationResult uses Pydantic BaseModel because:
+- It is the return type from an LLM call, parsed from structured output
+- Pydantic handles the JSON parsing and validation from LLM responses
+- This is consistent with how @spell uses Pydantic for return type parsing
+
 Example:
     from magically import spell, llm_validator
     from pydantic import BaseModel, BeforeValidator
