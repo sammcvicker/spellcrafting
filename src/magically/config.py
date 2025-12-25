@@ -11,16 +11,14 @@ from contextvars import ContextVar, Token
 from pathlib import Path
 from typing import Any, Self
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, ValidationError as PydanticValidationError
+
+from magically.exceptions import MagicallyConfigError
 
 
 _config_context: ContextVar[Config | None] = ContextVar("magically_config", default=None)
 _process_default: Config | None = None
 _file_config_cache: Config | None = None
-
-
-class MagicallyConfigError(Exception):
-    """Raised when configuration is invalid or missing."""
 
 
 class ModelConfig(BaseModel):
@@ -176,22 +174,42 @@ class Config:
         if not models_config:
             return cls()
 
-        # Validate and warn about unknown fields
-        known_fields = {"model", "temperature", "max_tokens", "top_p", "timeout", "retries", "extra"}
-        models: dict[str, dict[str, Any]] = {}
+        # Validate each model config eagerly with helpful error messages
+        validated_models: dict[str, ModelConfig] = {}
 
         for alias, settings in models_config.items():
             if not isinstance(settings, dict):
-                continue
+                raise MagicallyConfigError(
+                    f"Invalid config for [tool.magically.models.{alias}] in {pyproject_path}: "
+                    f"expected a table/dict, got {type(settings).__name__}"
+                )
+
+            # Warn about unknown fields (extra fields are ignored by Pydantic)
+            known_fields = {"model", "temperature", "max_tokens", "top_p", "timeout", "retries", "extra"}
             unknown = set(settings.keys()) - known_fields
             if unknown:
                 warnings.warn(
                     f"Unknown fields in [tool.magically.models.{alias}]: {unknown}",
                     stacklevel=2,
                 )
-            models[alias] = settings
 
-        return cls(models=models)
+            # Validate with Pydantic and provide helpful error on failure
+            try:
+                validated_models[alias] = ModelConfig.model_validate(settings)
+            except PydanticValidationError as e:
+                # Format the Pydantic errors into a readable message
+                error_details = []
+                for error in e.errors():
+                    loc = ".".join(str(x) for x in error["loc"]) if error["loc"] else "root"
+                    msg = error["msg"]
+                    error_details.append(f"  - {loc}: {msg}")
+
+                raise MagicallyConfigError(
+                    f"Invalid config for [tool.magically.models.{alias}] in {pyproject_path}:\n"
+                    + "\n".join(error_details)
+                ) from e
+
+        return cls(models=validated_models)
 
     @classmethod
     def _find_pyproject(cls) -> Path | None:

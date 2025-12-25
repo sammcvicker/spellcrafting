@@ -1,12 +1,16 @@
-from magically.config import Config, MagicallyConfigError, ModelConfig, current_config
+from magically.config import Config, ModelConfig, current_config
+from magically.exceptions import (
+    MagicallyError,
+    MagicallyConfigError,
+    GuardError,
+    ValidationError,
+)
 from magically.guard import (
     guard,
-    GuardError,
     InputGuard,
     OutputGuard,
 )
 from magically.on_fail import OnFail
-from magically._pydantic_ai import ValidationError
 from magically.validator import llm_validator, ValidationResult
 from magically.logging import (
     # Configuration
@@ -59,16 +63,17 @@ __all__ = [
     # Config
     "Config",
     "ModelConfig",
-    "MagicallyConfigError",
     "current_config",
+    # Exceptions (all inherit from MagicallyError)
+    "MagicallyError",
+    "MagicallyConfigError",
+    "GuardError",
+    "ValidationError",
     # Guards
     "guard",
-    "GuardError",
     "OnFail",
     "InputGuard",
     "OutputGuard",
-    # Exceptions
-    "ValidationError",
     # Validators
     "llm_validator",
     "ValidationResult",

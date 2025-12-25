@@ -13,39 +13,8 @@ from __future__ import annotations
 # Import Agent - this is stable public API
 from pydantic_ai import Agent
 
-
-class ValidationError(Exception):
-    """Raised when LLM output fails Pydantic validation after retries.
-
-    This is the user-facing exception that wraps pydantic_ai's internal
-    UnexpectedModelBehavior exception. Users should catch this instead of
-    importing from pydantic_ai directly.
-
-    Example:
-        from magically import spell, ValidationError
-
-        @spell
-        def my_spell(text: str) -> MyModel:
-            '''Process text.'''
-            ...
-
-        try:
-            result = my_spell("input")
-        except ValidationError as e:
-            print(f"LLM output failed validation: {e}")
-
-    Attributes:
-        message: Human-readable error message
-        original_error: The underlying pydantic_ai exception (if available)
-    """
-
-    def __init__(self, message: str, original_error: Exception | None = None):
-        super().__init__(message)
-        self.message = message
-        self.original_error = original_error
-
-    def __str__(self) -> str:
-        return self.message
+# Import ValidationError from our exception hierarchy
+from magically.exceptions import ValidationError
 
 # Import internal modules with fallback handling
 try:
