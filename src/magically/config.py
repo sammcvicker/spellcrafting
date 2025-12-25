@@ -23,6 +23,7 @@ from typing import Any, Self
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError as PydanticValidationError
 
+from magically._pydantic_ai import ModelSettings
 from magically._pyproject import find_pyproject
 from magically.exceptions import MagicallyConfigError
 
@@ -72,6 +73,26 @@ class ModelConfig(BaseModel):
                 tuple(sorted(self.extra.items())),
             )
         )
+
+    def to_model_settings(self) -> ModelSettings | None:
+        """Convert to PydanticAI ModelSettings.
+
+        Builds a ModelSettings dict from the configured values,
+        only including non-None values.
+
+        Returns:
+            ModelSettings dict if any settings are configured, None otherwise.
+        """
+        settings: dict[str, Any] = {}
+        if self.temperature is not None:
+            settings["temperature"] = self.temperature
+        if self.max_tokens is not None:
+            settings["max_tokens"] = self.max_tokens
+        if self.top_p is not None:
+            settings["top_p"] = self.top_p
+        if self.timeout is not None:
+            settings["timeout"] = self.timeout
+        return ModelSettings(**settings) if settings else None
 
 
 class Config:
