@@ -56,6 +56,12 @@ T = TypeVar("T")
 SpellId = int
 ConfigHash = int
 AgentCacheKey = tuple[SpellId, ConfigHash]
+# Note: CachedAgent uses Any for the output type because the cache holds agents
+# with heterogeneous output types (each spell can have a different return type).
+# Using a TypeVar would require the cache to be generic over output type, which
+# is not possible since a single cache instance stores agents for all spells.
+# The type safety for individual spell outputs is maintained at the spell wrapper
+# level through the T TypeVar in SpellWrapper/AsyncSpellWrapper protocols.
 CachedAgent = Agent[None, Any]
 
 
@@ -351,7 +357,11 @@ def _settings_hash(settings: ModelSettings | None) -> int:
     return hash(items)
 
 
-def _build_user_prompt(func: Callable[..., Any], args: tuple, kwargs: dict) -> str:
+def _build_user_prompt(
+    func: Callable[..., Any],
+    args: tuple[Any, ...],
+    kwargs: dict[str, Any],
+) -> str:
     """Build user prompt from function arguments."""
     sig = inspect.signature(func)
     bound = sig.bind(*args, **kwargs)
@@ -364,7 +374,11 @@ def _build_user_prompt(func: Callable[..., Any], args: tuple, kwargs: dict) -> s
     return "\n".join(parts)
 
 
-def _extract_input_args(func: Callable[..., Any], args: tuple, kwargs: dict) -> dict[str, Any]:
+def _extract_input_args(
+    func: Callable[..., Any],
+    args: tuple[Any, ...],
+    kwargs: dict[str, Any],
+) -> dict[str, Any]:
     """Extract function arguments as a dictionary for logging."""
     sig = inspect.signature(func)
     bound = sig.bind(*args, **kwargs)
@@ -634,9 +648,9 @@ def _handle_on_fail_sync(
     error: Exception,
     on_fail: OnFailStrategy,
     user_prompt: str,
-    output_type: type,
+    output_type: type[Any],
     system_prompt: str,
-    tools: list,
+    tools: list[Callable[..., Any]],
     end_strategy: EndStrategy,
     input_args: dict[str, Any],
     spell_name: str,
@@ -683,9 +697,9 @@ async def _handle_on_fail_async(
     error: Exception,
     on_fail: OnFailStrategy,
     user_prompt: str,
-    output_type: type,
+    output_type: type[Any],
     system_prompt: str,
-    tools: list,
+    tools: list[Callable[..., Any]],
     end_strategy: EndStrategy,
     input_args: dict[str, Any],
     spell_name: str,
