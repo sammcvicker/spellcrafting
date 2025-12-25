@@ -11,6 +11,7 @@ from dataclasses import dataclass, field
 from typing import Any, Callable, ParamSpec, Sequence, TypeVar, overload
 
 from pydantic_ai import Agent
+from pydantic_ai.agent import EndStrategy
 from pydantic_ai.exceptions import UnexpectedModelBehavior
 from pydantic_ai.settings import ModelSettings
 
@@ -319,7 +320,7 @@ def _handle_on_fail_sync(
     output_type: type,
     system_prompt: str,
     tools: list,
-    end_strategy: str,
+    end_strategy: EndStrategy,
     input_args: dict[str, Any],
     spell_name: str,
     model_alias: str | None,
@@ -351,7 +352,7 @@ def _handle_on_fail_sync(
             system_prompt=system_prompt,
             retries=on_fail.retries,
             tools=tools,
-            end_strategy=end_strategy,  # type: ignore[arg-type]
+            end_strategy=end_strategy,
             model_settings=escalated_settings,
         )
         result = escalated_agent.run_sync(user_prompt)
@@ -368,7 +369,7 @@ async def _handle_on_fail_async(
     output_type: type,
     system_prompt: str,
     tools: list,
-    end_strategy: str,
+    end_strategy: EndStrategy,
     input_args: dict[str, Any],
     spell_name: str,
     model_alias: str | None,
@@ -404,7 +405,7 @@ async def _handle_on_fail_async(
             system_prompt=system_prompt,
             retries=on_fail.retries,
             tools=tools,
-            end_strategy=end_strategy,  # type: ignore[arg-type]
+            end_strategy=end_strategy,
             model_settings=escalated_settings,
         )
         result = await escalated_agent.run(user_prompt)
@@ -426,7 +427,7 @@ def spell(
     model_settings: ModelSettings | None = None,
     retries: int = 1,
     tools: Sequence[Callable[..., Any]] = (),
-    end_strategy: str = "early",
+    end_strategy: EndStrategy = "early",
     on_fail: OnFailStrategy | None = None,
 ) -> Callable[[Callable[P, T]], Callable[P, T]]: ...
 
@@ -443,7 +444,7 @@ def spell(
     model_settings: ModelSettings | None = None,
     retries: int = 1,
     tools: Sequence[Callable[..., Any]] = (),
-    end_strategy: str = "early",
+    end_strategy: EndStrategy = "early",
     on_fail: OnFailStrategy | None = None,
 ) -> Callable[[Callable[P, Awaitable[T]]], Callable[P, Awaitable[T]]]: ...
 
@@ -455,7 +456,7 @@ def spell(
     model_settings: ModelSettings | None = None,
     retries: int = 1,
     tools: Sequence[Callable[..., Any]] = (),
-    end_strategy: str = "early",
+    end_strategy: EndStrategy = "early",
     on_fail: OnFailStrategy | None = None,
 ) -> Callable[P, T] | Callable[[Callable[P, T]], Callable[P, T]]:
     """
@@ -589,7 +590,7 @@ def spell(
                     system_prompt=system_prompt,
                     retries=retries,
                     tools=list(tools),
-                    end_strategy=end_strategy,  # type: ignore[arg-type]
+                    end_strategy=end_strategy,
                     model_settings=resolved_settings,
                 )
                 _agent_cache.set(cache_key, agent)
