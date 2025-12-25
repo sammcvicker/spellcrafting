@@ -43,6 +43,7 @@ from magically.guard import (
 )
 from magically.logging import (
     SpellExecutionLog,
+    ToolCallLog,
     TokenUsage,
     ValidationMetrics,
     _emit_log,
@@ -283,6 +284,127 @@ def _extract_token_usage(result: Any) -> TokenUsage:
         )
     except Exception:
         return TokenUsage()
+
+
+def _wrap_tool(tool: Callable[..., Any], log: SpellExecutionLog) -> Callable[..., Any]:
+    """Wrap a tool function to capture call logs.
+
+    Args:
+        tool: The tool function to wrap
+        log: The SpellExecutionLog to append tool calls to
+
+    Returns:
+        Wrapped function that logs tool calls
+    """
+    @functools.wraps(tool)
+    def wrapped(*args: Any, **kwargs: Any) -> Any:
+        start = time.perf_counter()
+        tool_name = getattr(tool, "__name__", repr(tool))
+
+        # Build arguments dict for logging
+        try:
+            sig = inspect.signature(tool)
+            bound = sig.bind(*args, **kwargs)
+            bound.apply_defaults()
+            arguments = dict(bound.arguments)
+        except (ValueError, TypeError):
+            # Fallback if signature inspection fails
+            arguments = {"args": args, "kwargs": kwargs} if args or kwargs else {}
+
+        try:
+            result = tool(*args, **kwargs)
+            duration_ms = (time.perf_counter() - start) * 1000
+            log.tool_calls.append(ToolCallLog(
+                tool_name=tool_name,
+                arguments=arguments,
+                result=result,
+                duration_ms=duration_ms,
+                success=True,
+            ))
+            return result
+        except Exception as e:
+            duration_ms = (time.perf_counter() - start) * 1000
+            log.tool_calls.append(ToolCallLog(
+                tool_name=tool_name,
+                arguments=arguments,
+                duration_ms=duration_ms,
+                success=False,
+                error=str(e),
+            ))
+            raise
+
+    return wrapped
+
+
+def _wrap_tool_async(tool: Callable[..., Any], log: SpellExecutionLog) -> Callable[..., Any]:
+    """Wrap an async tool function to capture call logs.
+
+    Args:
+        tool: The async tool function to wrap
+        log: The SpellExecutionLog to append tool calls to
+
+    Returns:
+        Wrapped async function that logs tool calls
+    """
+    @functools.wraps(tool)
+    async def wrapped(*args: Any, **kwargs: Any) -> Any:
+        start = time.perf_counter()
+        tool_name = getattr(tool, "__name__", repr(tool))
+
+        # Build arguments dict for logging
+        try:
+            sig = inspect.signature(tool)
+            bound = sig.bind(*args, **kwargs)
+            bound.apply_defaults()
+            arguments = dict(bound.arguments)
+        except (ValueError, TypeError):
+            # Fallback if signature inspection fails
+            arguments = {"args": args, "kwargs": kwargs} if args or kwargs else {}
+
+        try:
+            result = await tool(*args, **kwargs)
+            duration_ms = (time.perf_counter() - start) * 1000
+            log.tool_calls.append(ToolCallLog(
+                tool_name=tool_name,
+                arguments=arguments,
+                result=result,
+                duration_ms=duration_ms,
+                success=True,
+            ))
+            return result
+        except Exception as e:
+            duration_ms = (time.perf_counter() - start) * 1000
+            log.tool_calls.append(ToolCallLog(
+                tool_name=tool_name,
+                arguments=arguments,
+                duration_ms=duration_ms,
+                success=False,
+                error=str(e),
+            ))
+            raise
+
+    return wrapped
+
+
+def _wrap_tools_for_logging(
+    tools: Sequence[Callable[..., Any]], log: SpellExecutionLog
+) -> list[Callable[..., Any]]:
+    """Wrap tools to capture call logs.
+
+    Args:
+        tools: Sequence of tool functions to wrap
+        log: The SpellExecutionLog to append tool calls to
+
+    Returns:
+        List of wrapped tool functions
+    """
+    wrapped_tools = []
+    for tool in tools:
+        if asyncio.iscoroutinefunction(tool):
+            wrapped_tools.append(_wrap_tool_async(tool, log))
+        else:
+            wrapped_tools.append(_wrap_tool(tool, log))
+    return wrapped_tools
 
 
 def _resolve_escalation_model(
@@ -689,10 +811,26 @@ def spell(
                         validation=validation_metrics,
                     )
 
+                    # When logging is enabled and we have tools, create a temporary
+                    # agent with wrapped tools to capture tool call logs
+                    if tools:
+                        wrapped_tools = _wrap_tools_for_logging(tools, log)
+                        logging_agent = Agent(
+                            model=resolved_model,
+                            output_type=output_type,
+                            system_prompt=system_prompt,
+                            retries=retries,
+                            tools=wrapped_tools,
+                            end_strategy=end_strategy,
+                            model_settings=resolved_settings,
+                        )
+                    else:
+                        logging_agent = agent
+
                     result = None
                     try:
                         try:
-                            result = await agent.run(user_prompt)
+                            result = await logging_agent.run(user_prompt)
                             output = result.output
                         except UnexpectedModelBehavior as e:
                             if on_fail is not None:
@@ -840,10 +978,26 @@ def spell(
                         validation=validation_metrics,
                     )
 
+                    # When logging is enabled and we have tools, create a temporary
+                    # agent with wrapped tools to capture tool call logs
+                    if tools:
+                        wrapped_tools = _wrap_tools_for_logging(tools, log)
+                        logging_agent = Agent(
+                            model=resolved_model,
+                            output_type=output_type,
+                            system_prompt=system_prompt,
+                            retries=retries,
+                            tools=wrapped_tools,
+                            end_strategy=end_strategy,
+                            model_settings=resolved_settings,
+                        )
+                    else:
+                        logging_agent = agent
+
                     result = None
                     try:
                         try:
-                            result = agent.run_sync(user_prompt)
+                            result = logging_agent.run_sync(user_prompt)
                             output = result.output
                         except UnexpectedModelBehavior as e:
                             if on_fail is not None:

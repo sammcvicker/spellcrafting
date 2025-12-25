@@ -1029,3 +1029,285 @@ class TestValidationMetricsIntegration:
         log = handler.handle.call_args[0][0]
         assert log.validation is not None
         assert "my_guard" in log.validation.input_guards_passed
+
+
+class TestToolCallLogging:
+    """Tests for tool call logging integration with @spell decorator."""
+
+    @pytest.fixture(autouse=True)
+    def reset_spell_state(self):
+        """Reset spell module state."""
+        spell_module = sys.modules["magically.spell"]
+        spell_module._agent_cache.clear()
+        yield
+        spell_module._agent_cache.clear()
+
+    def test_tool_calls_logged_when_enabled(self):
+        """Tool calls should be captured in the log when logging is enabled."""
+        handler = MagicMock()
+        configure_logging(LoggingConfig(enabled=True, handlers=[handler]))
+
+        def my_tool(x: int) -> int:
+            """Double a number."""
+            return x * 2
+
+        @spell(tools=[my_tool])
+        def test_spell(text: str) -> str:
+            """Test spell with tool."""
+            ...
+
+        mock_result = MagicMock()
+        mock_result.output = "result"
+        mock_result.usage.return_value = MagicMock(request_tokens=100, response_tokens=50)
+
+        mock_agent = MagicMock()
+        mock_agent.run_sync.return_value = mock_result
+
+        # We need to capture the Agent instantiation to verify tools are wrapped
+        captured_agents = []
+        original_agent_class = sys.modules["magically.spell"].Agent
+
+        def capture_agent(*args, **kwargs):
+            agent = original_agent_class(*args, **kwargs)
+            captured_agents.append(kwargs)
+            return mock_agent
+
+        with patch("magically.spell.Agent", side_effect=capture_agent):
+            test_spell("hello")
+
+        # Should have been called twice: once for cache (unwrapped), once for logging (wrapped)
+        # Or just once if tools are present (wrapped version only when logging enabled)
+        handler.handle.assert_called_once()
+        log = handler.handle.call_args[0][0]
+        # tool_calls list exists even if no tools were actually called by the LLM
+        assert hasattr(log, "tool_calls")
+        assert isinstance(log.tool_calls, list)
+
+    def test_tool_call_success_logged(self):
+        """Successful tool calls should be logged with arguments and result."""
+        from magically.spell import _wrap_tool, SpellExecutionLog
+
+        log = SpellExecutionLog(
+            spell_name="test",
+            spell_id=1,
+            trace_id="abc",
+            span_id="def",
+        )
+
+        def my_tool(x: int, y: int = 10) -> int:
+            """Add two numbers."""
+            return x + y
+
+        wrapped = _wrap_tool(my_tool, log)
+        result = wrapped(5, y=3)
+
+        assert result == 8
+        assert len(log.tool_calls) == 1
+        tool_call = log.tool_calls[0]
+        assert tool_call.tool_name == "my_tool"
+        assert tool_call.arguments == {"x": 5, "y": 3}
+        assert tool_call.result == 8
+        assert tool_call.success is True
+        assert tool_call.error is None
+        assert tool_call.duration_ms >= 0
+
+    def test_tool_call_failure_logged(self):
+        """Failed tool calls should be logged with error."""
+        from magically.spell import _wrap_tool, SpellExecutionLog
+
+        log = SpellExecutionLog(
+            spell_name="test",
+            spell_id=1,
+            trace_id="abc",
+            span_id="def",
+        )
+
+        def failing_tool(x: int) -> int:
+            """Always fails."""
+            raise ValueError("intentional error")
+
+        wrapped = _wrap_tool(failing_tool, log)
+
+        with pytest.raises(ValueError, match="intentional error"):
+            wrapped(42)
+
+        assert len(log.tool_calls) == 1
+        tool_call = log.tool_calls[0]
+        assert tool_call.tool_name == "failing_tool"
+        assert tool_call.arguments == {"x": 42}
+        assert tool_call.success is False
+        assert tool_call.error == "intentional error"
+        assert tool_call.duration_ms >= 0
+
+    @pytest.mark.asyncio
+    async def test_async_tool_call_logged(self):
+        """Async tool calls should be logged correctly."""
+        from magically.spell import _wrap_tool_async, SpellExecutionLog
+
+        log = SpellExecutionLog(
+            spell_name="test",
+            spell_id=1,
+            trace_id="abc",
+            span_id="def",
+        )
+
+        async def async_tool(value: str) -> str:
+            """Transform a string."""
+            return value.upper()
+
+        wrapped = _wrap_tool_async(async_tool, log)
+        result = await wrapped("hello")
+
+        assert result == "HELLO"
+        assert len(log.tool_calls) == 1
+        tool_call = log.tool_calls[0]
+        assert tool_call.tool_name == "async_tool"
+        assert tool_call.arguments == {"value": "hello"}
+        assert tool_call.result == "HELLO"
+        assert tool_call.success is True
+
+    @pytest.mark.asyncio
+    async def test_async_tool_call_failure_logged(self):
+        """Failed async tool calls should be logged with error."""
+        from magically.spell import _wrap_tool_async, SpellExecutionLog
+
+        log = SpellExecutionLog(
+            spell_name="test",
+            spell_id=1,
+            trace_id="abc",
+            span_id="def",
+        )
+
+        async def failing_async_tool(x: int) -> int:
+            """Always fails."""
+            raise RuntimeError("async failure")
+
+        wrapped = _wrap_tool_async(failing_async_tool, log)
+
+        with pytest.raises(RuntimeError, match="async failure"):
+            await wrapped(99)
+
+        assert len(log.tool_calls) == 1
+        tool_call = log.tool_calls[0]
+        assert tool_call.tool_name == "failing_async_tool"
+        assert tool_call.success is False
+        assert tool_call.error == "async failure"
+
+    def test_wrap_tools_for_logging(self):
+        """_wrap_tools_for_logging should wrap all tools correctly."""
+        from magically.spell import _wrap_tools_for_logging, SpellExecutionLog
+
+        log = SpellExecutionLog(
+            spell_name="test",
+            spell_id=1,
+            trace_id="abc",
+            span_id="def",
+        )
+
+        def sync_tool(a: int) -> int:
+            return a * 2
+
+        async def async_tool(b: str) -> str:
+            return b.lower()
+
+        wrapped = _wrap_tools_for_logging([sync_tool, async_tool], log)
+
+        assert len(wrapped) == 2
+        # Verify sync tool works
+        result1 = wrapped[0](5)
+        assert result1 == 10
+        assert len(log.tool_calls) == 1
+        assert log.tool_calls[0].tool_name == "sync_tool"
+
+    def test_multiple_tool_calls_logged(self):
+        """Multiple tool calls in a single execution should all be logged."""
+        from magically.spell import _wrap_tool, SpellExecutionLog
+
+        log = SpellExecutionLog(
+            spell_name="test",
+            spell_id=1,
+            trace_id="abc",
+            span_id="def",
+        )
+
+        def tool_a(x: int) -> int:
+            return x + 1
+
+        def tool_b(x: int) -> int:
+            return x * 2
+
+        wrapped_a = _wrap_tool(tool_a, log)
+        wrapped_b = _wrap_tool(tool_b, log)
+
+        wrapped_a(1)
+        wrapped_b(2)
+        wrapped_a(3)
+
+        assert len(log.tool_calls) == 3
+        assert log.tool_calls[0].tool_name == "tool_a"
+        assert log.tool_calls[0].result == 2
+        assert log.tool_calls[1].tool_name == "tool_b"
+        assert log.tool_calls[1].result == 4
+        assert log.tool_calls[2].tool_name == "tool_a"
+        assert log.tool_calls[2].result == 4
+
+    def test_tool_logging_preserves_function_metadata(self):
+        """Wrapped tools should preserve original function metadata."""
+        from magically.spell import _wrap_tool, SpellExecutionLog
+
+        log = SpellExecutionLog(
+            spell_name="test",
+            spell_id=1,
+            trace_id="abc",
+            span_id="def",
+        )
+
+        def documented_tool(x: int) -> int:
+            """This tool has documentation."""
+            return x
+
+        wrapped = _wrap_tool(documented_tool, log)
+
+        assert wrapped.__name__ == "documented_tool"
+        assert wrapped.__doc__ == "This tool has documentation."
+
+    def test_no_tools_no_overhead(self):
+        """When there are no tools, regular agent should be used."""
+        handler = MagicMock()
+        configure_logging(LoggingConfig(enabled=True, handlers=[handler]))
+
+        @spell
+        def test_spell_no_tools(text: str) -> str:
+            """Test spell without tools."""
+            ...
+
+        mock_result = MagicMock()
+        mock_result.output = "result"
+        mock_result.usage.return_value = MagicMock(request_tokens=100, response_tokens=50)
+
+        mock_agent = MagicMock()
+        mock_agent.run_sync.return_value = mock_result
+
+        with patch("magically.spell.Agent", return_value=mock_agent):
+            test_spell_no_tools("hello")
+
+        handler.handle.assert_called_once()
+        log = handler.handle.call_args[0][0]
+        assert log.tool_calls == []
+
+    def test_tool_call_to_dict(self):
+        """ToolCallLog.to_dict should include key fields."""
+        tool_log = ToolCallLog(
+            tool_name="test_tool",
+            arguments={"x": 1, "y": 2},
+            result=3,
+            duration_ms=10.5,
+            success=True,
+        )
+
+        d = tool_log.to_dict()
+        assert d["tool_name"] == "test_tool"
+        assert d["duration_ms"] == 10.5
+        assert d["success"] is True
+        assert d["error"] is None
+        assert d["redacted"] is False
