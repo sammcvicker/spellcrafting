@@ -73,13 +73,21 @@ class CustomStrategy(Generic[T]):
 
 @dataclass(frozen=True)
 class RaiseStrategy:
-    """Raise an error on failure (used for guards)."""
+    """Raise an error on failure (used for guards and validators)."""
 
 
-# Type alias for all strategy types (includes RaiseStrategy for guards)
+@dataclass(frozen=True)
+class FixStrategy:
+    """Attempt to fix the value to satisfy validation (used for llm_validator)."""
+
+
+# Type alias for all strategy types
 OnFailStrategy = (
-    RetryStrategy | EscalateStrategy | FallbackStrategy | CustomStrategy | RaiseStrategy
+    RetryStrategy | EscalateStrategy | FallbackStrategy | CustomStrategy | RaiseStrategy | FixStrategy
 )
+
+# Type alias for validator-specific strategies
+ValidatorOnFailStrategy = RaiseStrategy | FixStrategy
 
 
 class OnFail:
@@ -94,10 +102,15 @@ class OnFail:
 
         @spell(on_fail=OnFail.fallback(default=DefaultValue()))
         def my_spell(...): ...
+
+    For validators:
+        llm_validator("rule", on_fail=OnFail.RAISE)  # default
+        llm_validator("rule", on_fail=OnFail.FIX)    # attempt to fix
     """
 
-    # Guard constants (backwards compatible with OnFail.RAISE enum value)
+    # Strategy constants
     RAISE = RaiseStrategy()
+    FIX = FixStrategy()
 
     @staticmethod
     def retry() -> RetryStrategy:
@@ -186,7 +199,9 @@ class OnFail:
 __all__ = [
     "OnFail",
     "OnFailStrategy",
+    "ValidatorOnFailStrategy",
     "RaiseStrategy",
+    "FixStrategy",
     "RetryStrategy",
     "EscalateStrategy",
     "FallbackStrategy",

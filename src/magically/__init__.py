@@ -1,3 +1,20 @@
+"""Magically - LLMs as a Python language feature.
+
+This module provides @spell and @guard decorators to turn functions into
+LLM-powered operations with input/output validation.
+
+Import Guidelines:
+    All public API is exported at the top level:
+        from magically import spell, guard, Config, OnFail, ...
+
+    For type hints, import directly from the module:
+        from magically import SpellResult, ValidationResult
+
+    Individual modules are NOT exported at package level.
+    Use explicit imports if needed:
+        from magically.logging import SpellExecutionLog
+"""
+
 from importlib.metadata import version, PackageNotFoundError
 
 from magically.config import Config, ModelConfig, current_config
@@ -63,20 +80,23 @@ try:
 except PackageNotFoundError:
     __version__ = "0.1.0"  # Fallback for development/editable installs
 
+# Explicit public API - all items importable via `from magically import X`
+# NOTE: Individual modules (logging, spell, config, etc.) are NOT exported.
+# Use direct imports: `from magically.logging import SpellExecutionLog`
 __all__ = [
     # Package metadata
     "__version__",
-    # Core
+    # Core decorator and result type
     "spell",
     "SpellResult",
     "SyncSpell",
     "AsyncSpell",
-    # Cache management
+    # Cache management (for testing/memory management)
     "clear_agent_cache",
     "get_cache_stats",
     "set_cache_max_size",
     "CacheStats",
-    # Config
+    # Configuration
     "Config",
     "ModelConfig",
     "current_config",
@@ -85,43 +105,44 @@ __all__ = [
     "MagicallyConfigError",
     "GuardError",
     "ValidationError",
-    # Guards
+    # Guards - validation decorators
     "guard",
     "GuardConfig",
     "get_guard_config",
-    "OnFail",
     "InputGuard",
     "OutputGuard",
-    # Validators
+    # Failure strategies
+    "OnFail",
+    # LLM-powered validators
     "llm_validator",
     "ValidationResult",
-    # Logging Configuration
+    # Logging configuration
     "LoggingConfig",
     "LogLevel",
     "configure_logging",
     "get_logging_config",
-    # Quick setup
+    # Quick setup helpers (aliases for setup_logging)
     "setup_logging",
     "setup_logfire",
     "setup_datadog",
-    # Tracing
+    # Distributed tracing
     "TraceContext",
     "trace_context",
     "current_trace",
     "with_trace_id",
-    # Handlers
+    # Log handlers (for custom integrations)
     "LogHandler",
     "AsyncLogHandler",
     "PythonLoggingHandler",
     "JSONFileHandler",
     "OpenTelemetryHandler",
-    # Types
+    # Telemetry types (for custom handlers)
     "SpellExecutionLog",
     "TokenUsage",
     "CostEstimate",
     "ToolCallLog",
     "ValidationMetrics",
-    # Pricing
+    # Cost tracking
     "ModelPricing",
     "register_model_pricing",
     "get_model_pricing",

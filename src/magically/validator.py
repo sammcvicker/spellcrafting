@@ -11,7 +11,7 @@ ValidationResult uses Pydantic BaseModel because:
 - This is consistent with how @spell uses Pydantic for return type parsing
 
 Example:
-    from magically import spell, llm_validator
+    from magically import spell, llm_validator, OnFail
     from pydantic import BaseModel, BeforeValidator
     from typing import Annotated
 
@@ -28,14 +28,22 @@ Example:
     def generate_story(topic: str) -> Response:
         '''Write a short story about the topic.'''
         ...
+
+    # Use FIX strategy to auto-correct values
+    professional = llm_validator(
+        "Must be professional business communication",
+        model="fast",
+        on_fail=OnFail.FIX  # Attempt to fix invalid values
+    )
 """
 
 from __future__ import annotations
 
-from typing import Any, Callable, Literal, TypeVar
+from typing import Any, Callable, TypeVar
 
 from pydantic import BaseModel
 
+from magically.on_fail import OnFail, RaiseStrategy, FixStrategy, ValidatorOnFailStrategy
 from magically.spell import spell
 
 T = TypeVar("T")
@@ -53,7 +61,7 @@ def llm_validator(
     rule: str,
     *,
     model: str = "fast",
-    on_fail: Literal["raise", "fix"] = "raise",
+    on_fail: ValidatorOnFailStrategy = OnFail.RAISE,
 ) -> Callable[[Any], Any]:
     """Create a Pydantic validator from a natural language rule.
 
@@ -63,7 +71,7 @@ def llm_validator(
 
     The validator accepts any input type - non-string values are converted
     to their string representation for LLM validation. On success, the
-    original value is returned unchanged. With on_fail="fix", the fixed
+    original value is returned unchanged. With on_fail=OnFail.FIX, the fixed
     value is returned as a string.
 
     Args:
@@ -71,18 +79,19 @@ def llm_validator(
               Example: "Content must be appropriate for all ages"
         model: Model alias to use for validation (default: "fast").
                Use cheap/fast models to minimize latency and cost.
-        on_fail: Action when validation fails:
-                 - "raise": Raise ValueError with the reason (default)
-                 - "fix": Attempt to fix the value to satisfy the rule
+        on_fail: Strategy when validation fails:
+                 - OnFail.RAISE: Raise ValueError with the reason (default)
+                 - OnFail.FIX: Attempt to fix the value to satisfy the rule
 
     Returns:
         A validator function that can be used with Pydantic's BeforeValidator.
         The validator accepts any type and returns the original value on
-        success (or the fixed string value with on_fail="fix").
+        success (or the fixed string value with on_fail=OnFail.FIX).
 
     Example:
         from pydantic import BaseModel, BeforeValidator
         from typing import Annotated
+        from magically import llm_validator, OnFail
 
         professional = llm_validator(
             "Must be professional and appropriate for business communication",
@@ -92,46 +101,42 @@ def llm_validator(
         class Email(BaseModel):
             body: Annotated[str, BeforeValidator(professional)]
 
-        # Also works with non-string types
-        valid_dict = llm_validator("Must have 'name' key")
+        # Use FIX strategy to auto-correct values
+        family_friendly = llm_validator(
+            "Content must be appropriate for all ages",
+            on_fail=OnFail.FIX
+        )
 
-        class Config(BaseModel):
-            settings: Annotated[dict, BeforeValidator(valid_dict)]
+        class Content(BaseModel):
+            text: Annotated[str, BeforeValidator(family_friendly)]
 
     Note:
         LLM validators add latency and cost to validation. Use them for
         semantic rules that are hard to express in code, and prefer
         fast/cheap models for validation.
     """
+    # Determine if we should use fix mode
+    fix_mode = isinstance(on_fail, FixStrategy)
+
     # Build the system prompt based on on_fail strategy
-    if on_fail == "fix":
-        system_prompt = f"""Check if the given value satisfies this rule: {rule}
+    if fix_mode:
+        validation_system_prompt = f"""Check if the given value satisfies this rule: {rule}
 
 If the value is valid, return valid=True.
 If the value is invalid:
 - Return valid=False with a brief reason
 - Provide a fixed_value that satisfies the rule while preserving the original intent"""
     else:
-        system_prompt = f"""Check if the given value satisfies this rule: {rule}
+        validation_system_prompt = f"""Check if the given value satisfies this rule: {rule}
 
 If the value is valid, return valid=True.
 If the value is invalid, return valid=False with a brief reason explaining why."""
 
-    @spell(model=model)
+    # Use the system_prompt parameter instead of mutating internals
+    @spell(model=model, system_prompt=validation_system_prompt)
     def validate(value: str) -> ValidationResult:
-        """Validate value against the rule (prompt set dynamically below)."""
+        """Validate value against the rule."""
         ...
-
-    # Override the system prompt
-    validate._system_prompt = system_prompt
-
-    # We need to recreate the agent with the new system prompt
-    # Clear cached agent to force recreation with new prompt
-    from magically.spell import _agent_cache
-
-    spell_id = validate._spell_id
-    # Remove any cached agents for this spell
-    _agent_cache.remove_by_spell_id(spell_id)
 
     def validator(value: Any) -> Any:
         """Pydantic validator function.
@@ -146,7 +151,7 @@ If the value is invalid, return valid=False with a brief reason explaining why."
         if result.valid:
             return value
 
-        if on_fail == "fix" and result.fixed_value is not None:
+        if fix_mode and result.fixed_value is not None:
             return result.fixed_value
 
         raise ValueError(f"Validation failed: {result.reason}")

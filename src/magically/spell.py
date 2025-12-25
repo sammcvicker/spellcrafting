@@ -535,6 +535,7 @@ def spell(
     *,
     model: str | None = None,
     model_settings: ModelSettings | None = None,
+    system_prompt: str | None = None,
     retries: int = 1,
     tools: Sequence[Callable[..., Any]] = (),
     end_strategy: EndStrategy = "early",
@@ -552,6 +553,7 @@ def spell(
     *,
     model: str | None = None,
     model_settings: ModelSettings | None = None,
+    system_prompt: str | None = None,
     retries: int = 1,
     tools: Sequence[Callable[..., Any]] = (),
     end_strategy: EndStrategy = "early",
@@ -564,6 +566,7 @@ def spell(
     *,
     model: str | None = None,
     model_settings: ModelSettings | None = None,
+    system_prompt: str | None = None,
     retries: int = 1,
     tools: Sequence[Callable[..., Any]] = (),
     end_strategy: EndStrategy = "early",
@@ -572,7 +575,8 @@ def spell(
     """
     Decorator that turns a function into an LLM-powered spell.
 
-    The function's docstring becomes the system prompt.
+    The function's docstring becomes the system prompt (unless overridden
+    via the system_prompt parameter).
     The function's return type annotation becomes the output schema.
     Function arguments are passed to the LLM as the user message.
 
@@ -589,6 +593,9 @@ def spell(
         func: The function to decorate (when used without parentheses)
         model: LLM model to use (e.g., 'openai:gpt-4o', 'anthropic:claude-sonnet')
         model_settings: Model settings like temperature, max_tokens
+        system_prompt: Override the system prompt (default: use docstring).
+            Useful for dynamically generated prompts or when docstring is
+            used for documentation purposes.
         retries: Number of retries for output validation failures
         tools: Additional tool functions the agent can use
         end_strategy: 'early' (default) or 'exhaustive' for tool call handling
@@ -613,11 +620,17 @@ def spell(
         def complex_task(query: str) -> Analysis:
             '''Complex analysis that may need a better model.'''
             ...
+
+        # Dynamic system prompt (for programmatic use cases like llm_validator)
+        @spell(model="fast", system_prompt="Check if value satisfies: must be positive")
+        def validate(value: str) -> ValidationResult:
+            '''Docstring used for documentation, not as prompt.'''
+            ...
     """
 
     def decorator(fn: Callable[P, T]) -> Callable[P, T]:
-        # Extract system prompt from docstring
-        system_prompt = inspect.getdoc(fn) or ""
+        # Use explicit system_prompt if provided, otherwise extract from docstring
+        effective_system_prompt = system_prompt if system_prompt is not None else (inspect.getdoc(fn) or "")
 
         # Extract return type for output validation
         hints = fn.__annotations__
@@ -691,7 +704,7 @@ def spell(
                 agent = Agent(
                     model=resolved_model,
                     output_type=output_type,
-                    system_prompt=system_prompt,
+                    system_prompt=effective_system_prompt,
                     retries=retries,
                     tools=list(tools),
                     end_strategy=end_strategy,
@@ -755,7 +768,7 @@ def spell(
                                 on_fail,
                                 user_prompt,
                                 output_type,
-                                system_prompt,
+                                effective_system_prompt,
                                 list(tools),
                                 end_strategy,
                                 input_args,
@@ -796,7 +809,7 @@ def spell(
                         logging_agent = Agent(
                             model=resolved_model,
                             output_type=output_type,
-                            system_prompt=system_prompt,
+                            system_prompt=effective_system_prompt,
                             retries=retries,
                             tools=wrapped_tools,
                             end_strategy=end_strategy,
@@ -830,7 +843,7 @@ def spell(
                                     on_fail,
                                     user_prompt,
                                     output_type,
-                                    system_prompt,
+                                    effective_system_prompt,
                                     list(tools),
                                     end_strategy,
                                     input_args,
@@ -922,7 +935,7 @@ def spell(
                                 on_fail,
                                 user_prompt,
                                 output_type,
-                                system_prompt,
+                                effective_system_prompt,
                                 list(tools),
                                 end_strategy,
                                 input_args,
@@ -963,7 +976,7 @@ def spell(
                         logging_agent = Agent(
                             model=resolved_model,
                             output_type=output_type,
-                            system_prompt=system_prompt,
+                            system_prompt=effective_system_prompt,
                             retries=retries,
                             tools=wrapped_tools,
                             end_strategy=end_strategy,
@@ -997,7 +1010,7 @@ def spell(
                                     on_fail,
                                     user_prompt,
                                     output_type,
-                                    system_prompt,
+                                    effective_system_prompt,
                                     list(tools),
                                     end_strategy,
                                     input_args,
@@ -1048,7 +1061,7 @@ def spell(
         # Store marker to detect if guards are applied outside @spell
         wrapper._is_spell_wrapper = True  # type: ignore[attr-defined]
         wrapper._model_alias = model  # type: ignore[attr-defined]
-        wrapper._system_prompt = system_prompt  # type: ignore[attr-defined]
+        wrapper._system_prompt = effective_system_prompt  # type: ignore[attr-defined]
         wrapper._output_type = output_type  # type: ignore[attr-defined]
         wrapper._retries = retries  # type: ignore[attr-defined]
         wrapper._spell_id = spell_id  # type: ignore[attr-defined]
@@ -1096,7 +1109,7 @@ def spell(
                             on_fail,
                             user_prompt,
                             output_type,
-                            system_prompt,
+                            effective_system_prompt,
                             list(tools),
                             end_strategy,
                             input_args,
@@ -1194,7 +1207,7 @@ def spell(
                             on_fail,
                             user_prompt,
                             output_type,
-                            system_prompt,
+                            effective_system_prompt,
                             list(tools),
                             end_strategy,
                             input_args,
