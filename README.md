@@ -30,6 +30,25 @@ pip install magically
 
 Requires Python 3.13+.
 
+### Optional Dependencies
+
+```bash
+# For .env file support (loading API keys from .env)
+pip install magically[dotenv]
+
+# For OpenTelemetry tracing
+pip install magically[otel]
+
+# For Logfire integration
+pip install magically[logfire]
+
+# For Datadog integration
+pip install magically[datadog]
+
+# Install all optional dependencies
+pip install magically[all]
+```
+
 ## Quick Start
 
 ### Basic Usage
@@ -144,7 +163,7 @@ Define reusable model configurations:
 ```toml
 # pyproject.toml
 [tool.magically.models.fast]
-model = "anthropic:claude-haiku"
+model = "anthropic:claude-3-5-haiku-latest"
 temperature = 0.2
 max_tokens = 1024
 
@@ -153,6 +172,8 @@ model = "anthropic:claude-sonnet-4-20250514"
 temperature = 0.7
 max_tokens = 8192
 ```
+
+> **Note**: Model names follow the provider's format (e.g., `anthropic:claude-sonnet-4-20250514`). Use versioned model names for reproducibility, or `-latest` suffixes for automatic updates.
 
 Then use the alias:
 
@@ -172,7 +193,7 @@ from magically import Config, ModelConfig
 
 config = Config(models={
     "fast": ModelConfig(
-        model="anthropic:claude-haiku",
+        model="anthropic:claude-3-5-haiku-latest",
         temperature=0.3
     )
 })
