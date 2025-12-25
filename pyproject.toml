@@ -4,10 +4,27 @@ version = "0.1.0"
 description = "LLMs as a Python language feature"
 readme = "README.md"
 requires-python = ">=3.13"
+license = {text = "MIT"}
+authors = [
+    {name = "Sam McVicker"}
+]
+keywords = ["llm", "ai", "pydantic", "structured-output", "anthropic", "openai"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
 dependencies = [
     "pydantic>=2.0.0,<3.0.0",
     "pydantic-ai>=1.38.0,<2.0.0",
 ]
+
+[project.urls]
+Homepage = "https://github.com/sammcvicker/magically"
+Documentation = "https://github.com/sammcvicker/magically"
+Repository = "https://github.com/sammcvicker/magically"
 
 [project.optional-dependencies]
 otel = [
