@@ -11,6 +11,14 @@ from pydantic_ai import Agent
 from pydantic_ai.settings import ModelSettings
 
 from magically.config import Config, MagicallyConfigError, ModelConfig
+from magically.logging import (
+    SpellExecutionLog,
+    TokenUsage,
+    _emit_log,
+    estimate_cost,
+    get_logging_config,
+    trace_context,
+)
 
 P = ParamSpec("P")
 T = TypeVar("T")
@@ -44,6 +52,28 @@ def _build_user_prompt(func: Callable[..., Any], args: tuple, kwargs: dict) -> s
         parts.append(f"{name}: {value!r}")
 
     return "\n".join(parts)
+
+
+def _extract_input_args(func: Callable[..., Any], args: tuple, kwargs: dict) -> dict[str, Any]:
+    """Extract function arguments as a dictionary for logging."""
+    sig = inspect.signature(func)
+    bound = sig.bind(*args, **kwargs)
+    bound.apply_defaults()
+    return dict(bound.arguments)
+
+
+def _extract_token_usage(result: Any) -> TokenUsage:
+    """Extract token usage from PydanticAI result."""
+    try:
+        usage = result.usage()
+        return TokenUsage(
+            input_tokens=usage.request_tokens or 0,
+            output_tokens=usage.response_tokens or 0,
+            cache_read_tokens=0,  # PydanticAI doesn't expose cache tokens yet
+            cache_write_tokens=0,
+        )
+    except Exception:
+        return TokenUsage()
 
 
 # Overloads for sync functions
@@ -215,8 +245,37 @@ def spell(
                 resolved_model, resolved_settings, config_hash = _resolve_model_and_settings()
                 agent = _get_or_create_agent(config_hash, resolved_model, resolved_settings)
                 user_prompt = _build_user_prompt(fn, args, kwargs)
-                result = await agent.run(user_prompt)
-                return result.output  # type: ignore[return-value]
+
+                # Fast path: no logging overhead
+                logging_config = get_logging_config()
+                if not logging_config.enabled:
+                    result = await agent.run(user_prompt)
+                    return result.output  # type: ignore[return-value]
+
+                # Logging enabled
+                with trace_context() as ctx:
+                    log = SpellExecutionLog(
+                        spell_name=fn.__name__,
+                        spell_id=spell_id,
+                        trace_id=ctx.trace_id,
+                        span_id=ctx.span_id,
+                        parent_span_id=ctx.parent_span_id,
+                        model=resolved_model or "",
+                        model_alias=model,
+                        input_args=_extract_input_args(fn, args, kwargs),
+                    )
+
+                    try:
+                        result = await agent.run(user_prompt)
+                        log.token_usage = _extract_token_usage(result)
+                        log.cost_estimate = estimate_cost(resolved_model or "", log.token_usage)
+                        log.finalize(success=True, output=result.output)
+                        return result.output  # type: ignore[return-value]
+                    except Exception as e:
+                        log.finalize(success=False, error=e)
+                        raise
+                    finally:
+                        _emit_log(log)
 
             wrapper = async_wrapper  # type: ignore[assignment]
         else:
@@ -225,8 +284,37 @@ def spell(
                 resolved_model, resolved_settings, config_hash = _resolve_model_and_settings()
                 agent = _get_or_create_agent(config_hash, resolved_model, resolved_settings)
                 user_prompt = _build_user_prompt(fn, args, kwargs)
-                result = agent.run_sync(user_prompt)
-                return result.output  # type: ignore[return-value]
+
+                # Fast path: no logging overhead
+                logging_config = get_logging_config()
+                if not logging_config.enabled:
+                    result = agent.run_sync(user_prompt)
+                    return result.output  # type: ignore[return-value]
+
+                # Logging enabled
+                with trace_context() as ctx:
+                    log = SpellExecutionLog(
+                        spell_name=fn.__name__,
+                        spell_id=spell_id,
+                        trace_id=ctx.trace_id,
+                        span_id=ctx.span_id,
+                        parent_span_id=ctx.parent_span_id,
+                        model=resolved_model or "",
+                        model_alias=model,
+                        input_args=_extract_input_args(fn, args, kwargs),
+                    )
+
+                    try:
+                        result = agent.run_sync(user_prompt)
+                        log.token_usage = _extract_token_usage(result)
+                        log.cost_estimate = estimate_cost(resolved_model or "", log.token_usage)
+                        log.finalize(success=True, output=result.output)
+                        return result.output  # type: ignore[return-value]
+                    except Exception as e:
+                        log.finalize(success=False, error=e)
+                        raise
+                    finally:
+                        _emit_log(log)
 
             wrapper = sync_wrapper
 
