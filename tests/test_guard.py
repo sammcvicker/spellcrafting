@@ -18,9 +18,286 @@ from magically.guard import (
 )
 
 
-class TestGuardDecoratorsBasic:
-    """Tests for guard decorator structure and metadata."""
+# ---------------------------------------------------------------------------
+# Behavior-based tests (#108)
+# These tests verify guard behavior without checking internal structure.
+# Guards only run when integrated with @spell, so we test via the _run_*
+# functions directly or via @spell with mocked Agent.
+# ---------------------------------------------------------------------------
 
+
+class TestGuardBehavior:
+    """Behavior-based tests for guards that don't depend on internal structure (#108).
+
+    These tests verify what guards DO, not how they're stored internally.
+    They use the guard runner functions directly to test guard behavior.
+    """
+
+    def test_input_guard_is_called_via_runner(self):
+        """Input guard function should be called when run through runner."""
+        called = []
+
+        def tracking_guard(args, ctx):
+            called.append(args.copy())
+            return args
+
+        guards = [(tracking_guard, OnFail.RAISE)]
+        input_args = {"text": "test"}
+
+        result = _run_input_guards(guards, input_args, {})
+
+        # Guard should have been called with correct args
+        assert len(called) == 1
+        assert called[0] == {"text": "test"}
+        assert result == {"text": "test"}
+
+    def test_output_guard_is_called_via_runner(self):
+        """Output guard function should be called when run through runner."""
+        called = []
+
+        def tracking_guard(output, ctx):
+            called.append(output)
+            return output
+
+        guards = [(tracking_guard, OnFail.RAISE)]
+
+        result = _run_output_guards(guards, "test output", {})
+
+        assert len(called) == 1
+        assert called[0] == "test output"
+        assert result == "test output"
+
+    def test_input_guard_can_transform_via_runner(self):
+        """Input guard should be able to transform arguments."""
+        def uppercase_guard(args, ctx):
+            return {k: v.upper() if isinstance(v, str) else v for k, v in args.items()}
+
+        guards = [(uppercase_guard, OnFail.RAISE)]
+        result = _run_input_guards(guards, {"text": "hello"}, {})
+
+        assert result == {"text": "HELLO"}
+
+    def test_output_guard_can_transform_via_runner(self):
+        """Output guard should be able to transform return value."""
+        def uppercase_guard(output, ctx):
+            return output.upper()
+
+        guards = [(uppercase_guard, OnFail.RAISE)]
+        result = _run_output_guards(guards, "hello", {})
+
+        assert result == "HELLO"
+
+    def test_input_guard_can_reject_via_runner(self):
+        """Input guard raising should prevent further execution."""
+        def rejecting_guard(args, ctx):
+            if len(args.get("text", "")) < 5:
+                raise ValueError("Input too short")
+            return args
+
+        guards = [(rejecting_guard, OnFail.RAISE)]
+
+        # Short input should be rejected
+        with pytest.raises(GuardError, match="Input too short"):
+            _run_input_guards(guards, {"text": "hi"}, {})
+
+        # Valid input should work
+        result = _run_input_guards(guards, {"text": "hello world"}, {})
+        assert result == {"text": "hello world"}
+
+    def test_output_guard_can_reject_via_runner(self):
+        """Output guard raising should cause error."""
+        def rejecting_guard(output, ctx):
+            if "bad" in output:
+                raise ValueError("Bad output detected")
+            return output
+
+        guards = [(rejecting_guard, OnFail.RAISE)]
+
+        # Bad output should be rejected
+        with pytest.raises(GuardError, match="Bad output detected"):
+            _run_output_guards(guards, "this is bad content", {})
+
+        # Good output should work
+        result = _run_output_guards(guards, "this is good content", {})
+        assert result == "this is good content"
+
+    def test_multiple_input_guards_all_called_via_runner(self):
+        """All input guards should be called in order."""
+        call_order = []
+
+        def guard1(args, ctx):
+            call_order.append("guard1")
+            return args
+
+        def guard2(args, ctx):
+            call_order.append("guard2")
+            return args
+
+        guards = [(guard1, OnFail.RAISE), (guard2, OnFail.RAISE)]
+        _run_input_guards(guards, {"text": "test"}, {})
+
+        assert call_order == ["guard1", "guard2"]
+
+    def test_multiple_output_guards_all_called_via_runner(self):
+        """All output guards should be called in order."""
+        call_order = []
+
+        def guard1(output, ctx):
+            call_order.append("guard1")
+            return output
+
+        def guard2(output, ctx):
+            call_order.append("guard2")
+            return output
+
+        guards = [(guard1, OnFail.RAISE), (guard2, OnFail.RAISE)]
+        _run_output_guards(guards, "test", {})
+
+        assert call_order == ["guard1", "guard2"]
+
+    def test_guard_receives_context_via_runner(self):
+        """Guard should receive context passed to runner."""
+        received_ctx = {}
+
+        def context_guard(args, ctx):
+            received_ctx.update(ctx)
+            return args
+
+        guards = [(context_guard, OnFail.RAISE)]
+        context = {"spell_name": "my_function", "model": "fast"}
+
+        _run_input_guards(guards, {"text": "test"}, context)
+
+        assert received_ctx["spell_name"] == "my_function"
+        assert received_ctx["model"] == "fast"
+
+    def test_guard_chain_transforms_accumulate_via_runner(self):
+        """Multiple guards should accumulate their transforms."""
+        def add_prefix(args, ctx):
+            args["text"] = f"PREFIX_{args['text']}"
+            return args
+
+        def add_suffix(args, ctx):
+            args["text"] = f"{args['text']}_SUFFIX"
+            return args
+
+        guards = [(add_prefix, OnFail.RAISE), (add_suffix, OnFail.RAISE)]
+        result = _run_input_guards(guards, {"text": "hello"}, {})
+
+        assert result["text"] == "PREFIX_hello_SUFFIX"
+
+    def test_input_guard_called_with_spell(self):
+        """Input guard should be called when integrated with @spell."""
+        called = []
+
+        def tracking_guard(args, ctx):
+            called.append(args.copy())
+            return args
+
+        @spell
+        @guard.input(tracking_guard)
+        def test_spell(text: str) -> str:
+            """Test."""
+            ...
+
+        mock_result = MagicMock()
+        mock_result.output = "result"
+        mock_agent = MagicMock()
+        mock_agent.run_sync.return_value = mock_result
+
+        with patch("magically.spell.Agent", return_value=mock_agent):
+            test_spell("hello")
+
+        assert len(called) == 1
+        assert called[0] == {"text": "hello"}
+
+    def test_output_guard_called_with_spell(self):
+        """Output guard should be called when integrated with @spell."""
+        called = []
+
+        def tracking_guard(output, ctx):
+            called.append(output)
+            return output
+
+        @spell
+        @guard.output(tracking_guard)
+        def test_spell(text: str) -> str:
+            """Test."""
+            ...
+
+        mock_result = MagicMock()
+        mock_result.output = "test output"
+        mock_agent = MagicMock()
+        mock_agent.run_sync.return_value = mock_result
+
+        with patch("magically.spell.Agent", return_value=mock_agent):
+            result = test_spell("hello")
+
+        assert len(called) == 1
+        assert called[0] == "test output"
+        assert result == "test output"
+
+    def test_input_guard_transforms_with_spell(self):
+        """Input guard should transform args when integrated with @spell."""
+        def uppercase_guard(args, ctx):
+            return {k: v.upper() if isinstance(v, str) else v for k, v in args.items()}
+
+        @spell
+        @guard.input(uppercase_guard)
+        def test_spell(text: str) -> str:
+            """Test."""
+            ...
+
+        mock_result = MagicMock()
+        mock_result.output = "result"
+        mock_agent = MagicMock()
+        mock_agent.run_sync.return_value = mock_result
+
+        with patch("magically.spell.Agent", return_value=mock_agent):
+            test_spell("hello")
+
+        # Verify the prompt sent to agent contains transformed input
+        call_args = mock_agent.run_sync.call_args[0][0]
+        assert "HELLO" in call_args
+
+    def test_output_guard_transforms_with_spell(self):
+        """Output guard should transform output when integrated with @spell."""
+        def uppercase_guard(output, ctx):
+            return output.upper()
+
+        @spell
+        @guard.output(uppercase_guard)
+        def test_spell(text: str) -> str:
+            """Test."""
+            ...
+
+        mock_result = MagicMock()
+        mock_result.output = "hello"
+        mock_agent = MagicMock()
+        mock_agent.run_sync.return_value = mock_result
+
+        with patch("magically.spell.Agent", return_value=mock_agent):
+            result = test_spell("test")
+
+        assert result == "HELLO"
+
+
+# ---------------------------------------------------------------------------
+# Internal structure tests
+# These tests verify internal implementation details and may break if
+# implementation changes. They're marked for documentation purposes.
+# ---------------------------------------------------------------------------
+
+
+class TestGuardDecoratorsBasic:
+    """Tests for guard decorator structure and metadata.
+
+    NOTE: These tests check internal structure (GuardConfig). While useful for
+    verifying implementation details, the behavior tests in TestGuardBehavior
+    are more stable and should be preferred when possible.
+    """
+
+    @pytest.mark.internal
     def test_guard_input_adds_to_config(self):
         def my_guard(input_args: dict, context: dict) -> dict:
             return input_args
@@ -35,6 +312,7 @@ class TestGuardDecoratorsBasic:
         assert config.input_guards[0][0] is my_guard
         assert config.input_guards[0][1] == OnFail.RAISE
 
+    @pytest.mark.internal
     def test_guard_output_adds_to_config(self):
         def my_guard(output: str, context: dict) -> str:
             return output
@@ -49,6 +327,7 @@ class TestGuardDecoratorsBasic:
         assert config.output_guards[0][0] is my_guard
         assert config.output_guards[0][1] == OnFail.RAISE
 
+    @pytest.mark.internal
     def test_multiple_input_guards(self):
         def guard1(args: dict, ctx: dict) -> dict:
             return args
@@ -69,6 +348,7 @@ class TestGuardDecoratorsBasic:
         assert config.input_guards[0][0] is guard1
         assert config.input_guards[1][0] is guard2
 
+    @pytest.mark.internal
     def test_multiple_output_guards(self):
         def guard1(out: str, ctx: dict) -> str:
             return out
@@ -89,6 +369,7 @@ class TestGuardDecoratorsBasic:
         assert config.output_guards[0][0] is guard2
         assert config.output_guards[1][0] is guard1
 
+    @pytest.mark.internal
     def test_combined_input_and_output_guards(self):
         def in_guard(args: dict, ctx: dict) -> dict:
             return args
@@ -106,6 +387,7 @@ class TestGuardDecoratorsBasic:
         assert len(config.input_guards) == 1
         assert len(config.output_guards) == 1
 
+    @pytest.mark.internal
     def test_get_guard_config_returns_none_for_unguarded_function(self):
         def fn(text: str) -> str:
             return text
