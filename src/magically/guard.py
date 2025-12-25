@@ -34,7 +34,7 @@ from __future__ import annotations
 import asyncio
 import warnings
 from dataclasses import dataclass, field
-from typing import Any, Callable, ParamSpec, Protocol, TypeVar
+from typing import Any, Callable, Generic, ParamSpec, Protocol, TypeVar
 
 from magically.exceptions import GuardError
 from magically.on_fail import OnFail, RaiseStrategy
@@ -186,10 +186,15 @@ async def _run_output_guards_async(
 
 
 @dataclass
-class GuardRunResult:
-    """Result of running guards with tracking information."""
+class GuardRunResult(Generic[T]):
+    """Result of running guards with tracking information.
 
-    result: Any  # The transformed input_args or output
+    Type parameter T represents the result type:
+    - dict[str, Any] for input guards (transformed input_args)
+    - The output type for output guards (transformed output)
+    """
+
+    result: T  # The transformed input_args or output
     passed: list[str]  # Names of guards that passed
     failed: list[str]  # Names of guards that failed (if exception caught)
 
@@ -203,7 +208,7 @@ def _run_input_guards_tracked(
     guards: list[tuple[InputGuard, RaiseStrategy]],
     input_args: dict[str, Any],
     context: dict[str, Any],
-) -> GuardRunResult:
+) -> GuardRunResult[dict[str, Any]]:
     """Run input guards with tracking. Returns result and guard names that passed/failed."""
     current_args = input_args
     passed: list[str] = []
@@ -228,7 +233,7 @@ def _run_output_guards_tracked(
     guards: list[tuple[OutputGuard, RaiseStrategy]],
     output: T,
     context: dict[str, Any],
-) -> GuardRunResult:
+) -> GuardRunResult[T]:
     """Run output guards with tracking. Returns result and guard names that passed/failed."""
     current_output = output
     passed: list[str] = []
@@ -253,7 +258,7 @@ async def _run_input_guards_tracked_async(
     guards: list[tuple[InputGuard, RaiseStrategy]],
     input_args: dict[str, Any],
     context: dict[str, Any],
-) -> GuardRunResult:
+) -> GuardRunResult[dict[str, Any]]:
     """Run input guards with tracking, supporting async guard functions."""
     current_args = input_args
     passed: list[str] = []
@@ -282,7 +287,7 @@ async def _run_output_guards_tracked_async(
     guards: list[tuple[OutputGuard, RaiseStrategy]],
     output: T,
     context: dict[str, Any],
-) -> GuardRunResult:
+) -> GuardRunResult[T]:
     """Run output guards with tracking, supporting async guard functions."""
     current_output = output
     passed: list[str] = []
@@ -556,7 +561,7 @@ class GuardExecutor:
         guard_config: _GuardConfig,
         input_args: dict[str, Any],
         context: dict[str, Any],
-    ) -> GuardRunResult:
+    ) -> GuardRunResult[dict[str, Any]]:
         """Run input guards with tracking for metrics."""
         return _run_input_guards_tracked(guard_config.input_guards, input_args, context)
 
@@ -565,7 +570,7 @@ class GuardExecutor:
         guard_config: _GuardConfig,
         input_args: dict[str, Any],
         context: dict[str, Any],
-    ) -> GuardRunResult:
+    ) -> GuardRunResult[dict[str, Any]]:
         """Run input guards asynchronously with tracking."""
         return await _run_input_guards_tracked_async(guard_config.input_guards, input_args, context)
 
@@ -592,7 +597,7 @@ class GuardExecutor:
         guard_config: _GuardConfig,
         output: T,
         context: dict[str, Any],
-    ) -> GuardRunResult:
+    ) -> GuardRunResult[T]:
         """Run output guards with tracking for metrics."""
         return _run_output_guards_tracked(guard_config.output_guards, output, context)
 
@@ -601,7 +606,7 @@ class GuardExecutor:
         guard_config: _GuardConfig,
         output: T,
         context: dict[str, Any],
-    ) -> GuardRunResult:
+    ) -> GuardRunResult[T]:
         """Run output guards asynchronously with tracking."""
         return await _run_output_guards_tracked_async(guard_config.output_guards, output, context)
 
@@ -611,6 +616,7 @@ __all__ = [
     "guard",
     "GuardError",
     "GuardExecutor",
+    "GuardRunResult",
     "OnFail",
     "InputGuard",
     "OutputGuard",
