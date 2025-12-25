@@ -97,7 +97,7 @@ If the value is invalid, return valid=False with a brief reason explaining why."
 
     @spell(model=model)
     def validate(value: str) -> ValidationResult:
-        # Docstring becomes system prompt - we set it dynamically
+        """Validate value against the rule (prompt set dynamically below)."""
         ...
 
     # Override the system prompt

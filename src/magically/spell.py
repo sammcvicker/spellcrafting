@@ -4,6 +4,7 @@ import asyncio
 import functools
 import inspect
 import threading
+import time
 import warnings
 from collections import OrderedDict
 from collections.abc import Awaitable
@@ -924,8 +925,7 @@ def spell(
         if is_async:
             async def with_metadata_async(*args: P.args, **kwargs: P.kwargs) -> SpellResult[T]:
                 """Run the spell and return output with execution metadata."""
-                import time as time_module
-                start_time = time_module.perf_counter()
+                start_time = time.perf_counter()
 
                 resolved_model, resolved_settings, config_hash = _resolve_model_and_settings()
                 agent = _get_or_create_agent(config_hash, resolved_model, resolved_settings)
@@ -991,7 +991,7 @@ def spell(
                     except Exception:
                         pass
 
-                duration_ms = (time_module.perf_counter() - start_time) * 1000
+                duration_ms = (time.perf_counter() - start_time) * 1000
 
                 # Estimate cost if we have token data
                 cost = None
@@ -1022,8 +1022,7 @@ def spell(
         else:
             def with_metadata_sync(*args: P.args, **kwargs: P.kwargs) -> SpellResult[T]:
                 """Run the spell and return output with execution metadata."""
-                import time as time_module
-                start_time = time_module.perf_counter()
+                start_time = time.perf_counter()
 
                 resolved_model, resolved_settings, config_hash = _resolve_model_and_settings()
                 agent = _get_or_create_agent(config_hash, resolved_model, resolved_settings)
@@ -1089,7 +1088,7 @@ def spell(
                     except Exception:
                         pass
 
-                duration_ms = (time_module.perf_counter() - start_time) * 1000
+                duration_ms = (time.perf_counter() - start_time) * 1000
 
                 # Estimate cost if we have token data
                 cost = None
