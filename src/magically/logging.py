@@ -532,7 +532,27 @@ _file_logging_config_cache: LoggingConfig | None = None
 
 
 def configure_logging(config: LoggingConfig) -> None:
-    """Set the logging configuration for the current process."""
+    """Set the logging configuration for the current process.
+
+    This sets the process-level default configuration. Use logging_context()
+    for scoped configuration that applies only within a context manager.
+
+    Args:
+        config: LoggingConfig instance with desired settings.
+
+    Note:
+        Process-level config has lower priority than context config set via
+        logging_context(). It has higher priority than file config from
+        pyproject.toml.
+
+    Example:
+        config = LoggingConfig(
+            enabled=True,
+            level=LogLevel.INFO,
+            handlers=[PythonLoggingHandler()],
+        )
+        configure_logging(config)
+    """
     global _process_logging_config
     _process_logging_config = config
 
@@ -683,7 +703,30 @@ def get_logging_config() -> LoggingConfig:
 
 @contextmanager
 def logging_context(config: LoggingConfig) -> Generator[None, None, None]:
-    """Context manager for temporary logging configuration."""
+    """Context manager for scoped logging configuration.
+
+    Temporarily overrides the logging configuration for the duration of the
+    context. This has the highest priority in config resolution, overriding
+    both process-level config and file config.
+
+    Args:
+        config: LoggingConfig instance to use within this context.
+
+    Yields:
+        None
+
+    Example:
+        # Temporarily enable verbose logging for debugging
+        debug_config = LoggingConfig(
+            enabled=True,
+            level=LogLevel.DEBUG,
+            handlers=[PythonLoggingHandler()],
+        )
+
+        with logging_context(debug_config):
+            result = my_spell("test input")  # Uses debug logging
+        # After context, reverts to previous config
+    """
     token = _logging_config.set(config)
     try:
         yield
@@ -979,7 +1022,18 @@ def setup_datadog(*, redact_content: bool = False) -> None:
 
 
 def _emit_log(log: SpellExecutionLog) -> None:
-    """Emit a log to all configured handlers."""
+    """Emit a log to all configured handlers.
+
+    This is an internal function called by spell execution to emit logs.
+    It applies redaction if configured and adds default tags.
+
+    Args:
+        log: The SpellExecutionLog to emit.
+
+    Note:
+        This function is designed to never raise exceptions - handler failures
+        are logged at debug level but do not interrupt spell execution.
+    """
     config = get_logging_config()
     if not config.enabled:
         return
