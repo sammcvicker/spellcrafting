@@ -42,6 +42,7 @@ from magically.logging import (
     get_logging_config,
     trace_context,
 )
+from magically.result import SpellResult
 
 P = ParamSpec("P")
 T = TypeVar("T")
@@ -725,6 +726,172 @@ def spell(
         wrapper._is_async = is_async  # type: ignore[attr-defined]
         wrapper._on_fail = on_fail  # type: ignore[attr-defined]
         wrapper._resolve_model_and_settings = _resolve_model_and_settings  # type: ignore[attr-defined]
+
+        # Add with_metadata method for accessing execution metadata
+        if is_async:
+            async def with_metadata_async(*args: P.args, **kwargs: P.kwargs) -> SpellResult[T]:
+                """Run the spell and return output with execution metadata."""
+                import time as time_module
+                start_time = time_module.perf_counter()
+
+                resolved_model, resolved_settings, config_hash = _resolve_model_and_settings()
+                agent = _get_or_create_agent(config_hash, resolved_model, resolved_settings)
+
+                # Check for guards
+                guard_config = getattr(fn, _GUARD_MARKER, None)
+                input_args = _extract_input_args(fn, args, kwargs)
+
+                # Run input guards if present
+                if guard_config and guard_config.input_guards:
+                    guard_context = _build_context(fn)
+                    guard_context["model"] = model
+                    input_args = await _run_input_guards_async(
+                        guard_config.input_guards, input_args, guard_context
+                    )
+                    user_prompt = "\n".join(f"{k}: {v!r}" for k, v in input_args.items())
+                else:
+                    user_prompt = _build_user_prompt(fn, args, kwargs)
+
+                attempt_count = 1
+                actual_model = resolved_model or ""
+
+                try:
+                    result = await agent.run(user_prompt)
+                    output = result.output
+                except UnexpectedModelBehavior as e:
+                    if on_fail is not None:
+                        if isinstance(on_fail, EscalateStrategy):
+                            actual_model = on_fail.model
+                            attempt_count += 1
+                        output = await _handle_on_fail_async(
+                            e,
+                            on_fail,
+                            user_prompt,
+                            output_type,
+                            system_prompt,
+                            list(tools),
+                            end_strategy,
+                            input_args,
+                            fn.__name__,
+                            model,
+                        )
+                        result = None  # No result object when on_fail handles it
+                    else:
+                        raise
+
+                # Run output guards if present
+                if guard_config and guard_config.output_guards:
+                    guard_context = _build_context(fn)
+                    guard_context["model"] = model
+                    output = await _run_output_guards_async(
+                        guard_config.output_guards, output, guard_context
+                    )
+
+                # Extract token usage from result
+                input_tokens = 0
+                output_tokens = 0
+                if result is not None:
+                    try:
+                        usage = result.usage()
+                        input_tokens = usage.request_tokens or 0
+                        output_tokens = usage.response_tokens or 0
+                    except Exception:
+                        pass
+
+                duration_ms = (time_module.perf_counter() - start_time) * 1000
+
+                return SpellResult(
+                    output=output,
+                    input_tokens=input_tokens,
+                    output_tokens=output_tokens,
+                    model_used=actual_model,
+                    attempt_count=attempt_count,
+                    duration_ms=duration_ms,
+                )
+
+            wrapper.with_metadata = with_metadata_async  # type: ignore[attr-defined]
+        else:
+            def with_metadata_sync(*args: P.args, **kwargs: P.kwargs) -> SpellResult[T]:
+                """Run the spell and return output with execution metadata."""
+                import time as time_module
+                start_time = time_module.perf_counter()
+
+                resolved_model, resolved_settings, config_hash = _resolve_model_and_settings()
+                agent = _get_or_create_agent(config_hash, resolved_model, resolved_settings)
+
+                # Check for guards
+                guard_config = getattr(fn, _GUARD_MARKER, None)
+                input_args = _extract_input_args(fn, args, kwargs)
+
+                # Run input guards if present
+                if guard_config and guard_config.input_guards:
+                    guard_context = _build_context(fn)
+                    guard_context["model"] = model
+                    input_args = _run_input_guards(
+                        guard_config.input_guards, input_args, guard_context
+                    )
+                    user_prompt = "\n".join(f"{k}: {v!r}" for k, v in input_args.items())
+                else:
+                    user_prompt = _build_user_prompt(fn, args, kwargs)
+
+                attempt_count = 1
+                actual_model = resolved_model or ""
+
+                try:
+                    result = agent.run_sync(user_prompt)
+                    output = result.output
+                except UnexpectedModelBehavior as e:
+                    if on_fail is not None:
+                        if isinstance(on_fail, EscalateStrategy):
+                            actual_model = on_fail.model
+                            attempt_count += 1
+                        output = _handle_on_fail_sync(
+                            e,
+                            on_fail,
+                            user_prompt,
+                            output_type,
+                            system_prompt,
+                            list(tools),
+                            end_strategy,
+                            input_args,
+                            fn.__name__,
+                            model,
+                        )
+                        result = None  # No result object when on_fail handles it
+                    else:
+                        raise
+
+                # Run output guards if present
+                if guard_config and guard_config.output_guards:
+                    guard_context = _build_context(fn)
+                    guard_context["model"] = model
+                    output = _run_output_guards(
+                        guard_config.output_guards, output, guard_context
+                    )
+
+                # Extract token usage from result
+                input_tokens = 0
+                output_tokens = 0
+                if result is not None:
+                    try:
+                        usage = result.usage()
+                        input_tokens = usage.request_tokens or 0
+                        output_tokens = usage.response_tokens or 0
+                    except Exception:
+                        pass
+
+                duration_ms = (time_module.perf_counter() - start_time) * 1000
+
+                return SpellResult(
+                    output=output,
+                    input_tokens=input_tokens,
+                    output_tokens=output_tokens,
+                    model_used=actual_model,
+                    attempt_count=attempt_count,
+                    duration_ms=duration_ms,
+                )
+
+            wrapper.with_metadata = with_metadata_sync  # type: ignore[attr-defined]
 
         return wrapper
 

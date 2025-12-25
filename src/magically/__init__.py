@@ -36,10 +36,12 @@ from magically.logging import (
     ValidationMetrics,
 )
 from magically.spell import spell
+from magically.result import SpellResult
 
 __all__ = [
     # Core
     "spell",
+    "SpellResult",
     "Config",
     "ModelConfig",
     "MagicallyConfigError",

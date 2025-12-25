@@ -8,6 +8,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- `SpellResult[T]` generic wrapper for accessing execution metadata alongside spell output
+  - `output` - The actual spell output (same type as normal call)
+  - `input_tokens` - Number of input tokens used
+  - `output_tokens` - Number of output tokens used
+  - `model_used` - Actual model used (may differ from alias if escalation occurred)
+  - `attempt_count` - Number of execution attempts (1 = no retries)
+  - `duration_ms` - Execution duration in milliseconds
+- `.with_metadata()` method on spell-decorated functions to get `SpellResult` instead of raw output
+  ```python
+  @spell(model="fast")
+  def classify(text: str) -> Category:
+      '''Classify the text.'''
+      ...
+
+  # Normal call - just returns Category
+  result = classify("some text")
+
+  # With metadata - returns SpellResult[Category]
+  result = classify.with_metadata("some text")
+  print(result.output)  # Category
+  print(result.input_tokens)  # 50
+  print(result.model_used)  # "openai:gpt-4o-mini"
+  ```
 - `docs/pydantic-validation-patterns.md` - Comprehensive guide to Pydantic validation patterns for spell outputs
   - Constrained values with `Literal` and `Enum`
   - Numeric bounds and confidence scores
