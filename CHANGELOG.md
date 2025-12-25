@@ -8,6 +8,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- `docs/pydantic-validation-patterns.md` - Comprehensive guide to Pydantic validation patterns for spell outputs
+  - Constrained values with `Literal` and `Enum`
+  - Numeric bounds and confidence scores
+  - List constraints and field validators
+  - Model validators for cross-field rules
+  - Nested models and common patterns
+  - Retry behavior guidance
+  - Integration with `on_fail` strategies and `llm_validator`
 - `ValidationMetrics` dataclass for tracking validation-related metrics during spell execution
   - `attempt_count` - Total execution attempts (1 = no retries)
   - `retry_reasons` - List of reasons for retries
