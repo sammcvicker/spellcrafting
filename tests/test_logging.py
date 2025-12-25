@@ -1751,3 +1751,220 @@ class TestPricingDictCoverage:
             assert 0 <= prices["output"] <= 150, f"{model_name} output price out of range"
             # Output typically costs more than input (or equal)
             assert prices["output"] >= prices["input"], f"{model_name} output < input price"
+
+
+class TestExtensiblePricing:
+    """Tests for extensible pricing API (#149)."""
+
+    def test_model_pricing_type(self):
+        """ModelPricing TypedDict should have correct structure."""
+        from magically import ModelPricing
+
+        # Create a valid ModelPricing
+        pricing: ModelPricing = {"input": 1.0, "output": 2.0}
+        assert pricing["input"] == 1.0
+        assert pricing["output"] == 2.0
+
+    def test_register_model_pricing_new_model(self):
+        """register_model_pricing should add new model pricing."""
+        from magically import register_model_pricing, get_model_pricing
+        from magically.logging import _custom_pricing
+
+        # Register a new model
+        register_model_pricing("my-custom-model-149", 5.0, 15.0)
+
+        pricing = get_model_pricing("my-custom-model-149")
+        assert pricing is not None
+        assert pricing["input"] == 5.0
+        assert pricing["output"] == 15.0
+
+        # Clean up
+        _custom_pricing.pop("my-custom-model-149", None)
+
+    def test_register_model_pricing_override_default(self):
+        """register_model_pricing should allow overriding default pricing."""
+        from magically import register_model_pricing, get_model_pricing
+        from magically.logging import _custom_pricing, _DEFAULT_PRICING
+
+        # Get original pricing
+        original = _DEFAULT_PRICING.get("gpt-4o")
+        assert original is not None
+
+        # Register override
+        register_model_pricing("gpt-4o", 999.0, 1999.0)
+
+        # Custom should take precedence
+        pricing = get_model_pricing("gpt-4o")
+        assert pricing is not None
+        assert pricing["input"] == 999.0
+        assert pricing["output"] == 1999.0
+
+        # Clean up
+        _custom_pricing.pop("gpt-4o", None)
+
+        # Original should be restored
+        pricing = get_model_pricing("gpt-4o")
+        assert pricing is not None
+        assert pricing["input"] == original["input"]
+        assert pricing["output"] == original["output"]
+
+    def test_get_model_pricing_with_provider_prefix(self):
+        """get_model_pricing should strip provider prefix."""
+        from magically import get_model_pricing
+
+        pricing = get_model_pricing("anthropic:claude-sonnet-4-20250514")
+        assert pricing is not None
+        assert pricing["input"] == 3.0
+        assert pricing["output"] == 15.0
+
+    def test_get_model_pricing_unknown_model(self):
+        """get_model_pricing should return None for unknown models."""
+        from magically import get_model_pricing
+
+        pricing = get_model_pricing("totally-unknown-model-xyz")
+        assert pricing is None
+
+    def test_get_model_pricing_default_models(self):
+        """get_model_pricing should work for all default models."""
+        from magically import get_model_pricing
+        from magically.logging import PRICING
+
+        for model_name in PRICING.keys():
+            pricing = get_model_pricing(model_name)
+            assert pricing is not None, f"{model_name} should have pricing"
+            assert "input" in pricing
+            assert "output" in pricing
+
+    def test_estimate_cost_uses_custom_pricing(self):
+        """estimate_cost should use custom pricing when registered."""
+        from magically import register_model_pricing
+        from magically.logging import estimate_cost, _custom_pricing
+
+        # Register custom pricing for a new model
+        register_model_pricing("my-test-model-149", 10.0, 20.0)
+
+        usage = TokenUsage(input_tokens=1_000_000, output_tokens=500_000)
+        cost = estimate_cost("my-test-model-149", usage)
+
+        assert cost is not None
+        assert cost.input_cost == 10.0  # 1M tokens * $10/1M
+        assert cost.output_cost == 10.0  # 0.5M tokens * $20/1M
+        assert cost.total_cost == 20.0
+
+        # Clean up
+        _custom_pricing.pop("my-test-model-149", None)
+
+    def test_pricing_from_pyproject(self, tmp_path, monkeypatch):
+        """Pricing should be loadable from pyproject.toml."""
+        pyproject = tmp_path / "pyproject.toml"
+        pyproject.write_text('''
+[tool.magically.pricing."my-pyproject-model"]
+input = 7.5
+output = 22.5
+''')
+        monkeypatch.chdir(tmp_path)
+
+        # Reset cache to force reload
+        logging_module._file_pricing_cache = None
+
+        from magically import get_model_pricing
+
+        pricing = get_model_pricing("my-pyproject-model")
+        assert pricing is not None
+        assert pricing["input"] == 7.5
+        assert pricing["output"] == 22.5
+
+        # Reset cache after test
+        logging_module._file_pricing_cache = None
+
+    def test_pricing_priority_custom_over_file(self, tmp_path, monkeypatch):
+        """Custom pricing should take precedence over file pricing."""
+        from magically import register_model_pricing, get_model_pricing
+        from magically.logging import _custom_pricing
+
+        pyproject = tmp_path / "pyproject.toml"
+        pyproject.write_text('''
+[tool.magically.pricing."priority-test-model"]
+input = 1.0
+output = 2.0
+''')
+        monkeypatch.chdir(tmp_path)
+        logging_module._file_pricing_cache = None
+
+        # Register custom pricing
+        register_model_pricing("priority-test-model", 100.0, 200.0)
+
+        pricing = get_model_pricing("priority-test-model")
+        assert pricing is not None
+        assert pricing["input"] == 100.0  # Custom takes precedence
+        assert pricing["output"] == 200.0
+
+        # Clean up
+        _custom_pricing.pop("priority-test-model", None)
+        logging_module._file_pricing_cache = None
+
+    def test_pricing_priority_file_over_default(self, tmp_path, monkeypatch):
+        """File pricing should take precedence over default pricing."""
+        from magically import get_model_pricing
+
+        pyproject = tmp_path / "pyproject.toml"
+        pyproject.write_text('''
+[tool.magically.pricing."gpt-4o"]
+input = 999.0
+output = 1999.0
+''')
+        monkeypatch.chdir(tmp_path)
+        logging_module._file_pricing_cache = None
+
+        pricing = get_model_pricing("gpt-4o")
+        assert pricing is not None
+        assert pricing["input"] == 999.0  # File takes precedence over default
+        assert pricing["output"] == 1999.0
+
+        # Reset cache after test
+        logging_module._file_pricing_cache = None
+
+    def test_pricing_invalid_pyproject_values_skipped(self, tmp_path, monkeypatch):
+        """Invalid pricing values in pyproject.toml should be skipped."""
+        pyproject = tmp_path / "pyproject.toml"
+        pyproject.write_text('''
+[tool.magically.pricing."invalid-model"]
+input = "not a number"
+output = 2.0
+
+[tool.magically.pricing."valid-model"]
+input = 1.0
+output = 2.0
+''')
+        monkeypatch.chdir(tmp_path)
+        logging_module._file_pricing_cache = None
+
+        from magically import get_model_pricing
+
+        # Invalid model should be skipped
+        pricing = get_model_pricing("invalid-model")
+        assert pricing is None
+
+        # Valid model should work
+        pricing = get_model_pricing("valid-model")
+        assert pricing is not None
+        assert pricing["input"] == 1.0
+        assert pricing["output"] == 2.0
+
+        logging_module._file_pricing_cache = None
+
+    def test_pricing_exported_from_package(self):
+        """ModelPricing, register_model_pricing, get_model_pricing should be exported."""
+        from magically import ModelPricing, register_model_pricing, get_model_pricing
+
+        assert ModelPricing is not None
+        assert callable(register_model_pricing)
+        assert callable(get_model_pricing)
+
+    def test_backwards_compatibility_pricing_dict(self):
+        """PRICING dict should still be accessible for backwards compatibility."""
+        from magically.logging import PRICING
+
+        assert isinstance(PRICING, dict)
+        assert "gpt-4o" in PRICING
+        assert "claude-sonnet-4-20250514" in PRICING

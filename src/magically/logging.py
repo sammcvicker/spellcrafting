@@ -26,7 +26,7 @@ from datetime import datetime, timezone
 from enum import Enum
 from pathlib import Path
 from collections.abc import Awaitable, Generator
-from typing import Any, Literal, Protocol
+from typing import Any, Literal, Protocol, TypedDict
 from uuid import uuid4
 
 from magically._pyproject import find_pyproject
@@ -612,9 +612,22 @@ def logging_context(config: LoggingConfig) -> Generator[None, None, None]:
 # Cost Estimation
 # ---------------------------------------------------------------------------
 
-# Pricing per 1M tokens (as of 2025-01)
+
+class ModelPricing(TypedDict):
+    """Pricing for a model per 1M tokens.
+
+    Attributes:
+        input: Cost per 1M input tokens in USD
+        output: Cost per 1M output tokens in USD
+    """
+
+    input: float
+    output: float
+
+
+# Default pricing per 1M tokens (as of 2025-01)
 # NOTE: Prices are estimates and may change. Check provider pricing pages for current rates.
-PRICING: dict[str, dict[str, float]] = {
+_DEFAULT_PRICING: dict[str, ModelPricing] = {
     # Anthropic
     "claude-opus-4-20250514": {"input": 15.00, "output": 75.00},
     "claude-sonnet-4-20250514": {"input": 3.00, "output": 15.00},
@@ -639,6 +652,118 @@ PRICING: dict[str, dict[str, float]] = {
     "gemini-2.0-flash-exp": {"input": 0.0, "output": 0.0},  # Free during experimental period
 }
 
+# User-registered custom pricing (merged with defaults)
+_custom_pricing: dict[str, ModelPricing] = {}
+
+# Cache for pricing loaded from pyproject.toml
+_file_pricing_cache: dict[str, ModelPricing] | None = None
+
+
+def _load_pricing_from_file() -> dict[str, ModelPricing]:
+    """Load custom pricing configuration from pyproject.toml.
+
+    Example pyproject.toml configuration:
+        [tool.magically.pricing."my-custom-model"]
+        input = 1.0
+        output = 2.0
+    """
+    global _file_pricing_cache
+
+    if _file_pricing_cache is not None:
+        return _file_pricing_cache
+
+    _file_pricing_cache = {}
+    pyproject_path = find_pyproject()
+    if pyproject_path is None:
+        return _file_pricing_cache
+
+    try:
+        with open(pyproject_path, "rb") as f:
+            data = tomllib.load(f)
+    except (OSError, tomllib.TOMLDecodeError):
+        return _file_pricing_cache
+
+    pricing_config = data.get("tool", {}).get("magically", {}).get("pricing", {})
+    if not pricing_config or not isinstance(pricing_config, dict):
+        return _file_pricing_cache
+
+    for model_name, prices in pricing_config.items():
+        if not isinstance(prices, dict):
+            continue
+        input_cost = prices.get("input")
+        output_cost = prices.get("output")
+        if isinstance(input_cost, (int, float)) and isinstance(output_cost, (int, float)):
+            _file_pricing_cache[model_name] = {
+                "input": float(input_cost),
+                "output": float(output_cost),
+            }
+
+    return _file_pricing_cache
+
+
+def register_model_pricing(
+    model: str,
+    input_cost: float,
+    output_cost: float,
+) -> None:
+    """Register pricing for a custom or new model.
+
+    This allows users to add pricing for custom models (e.g., fine-tuned models)
+    or update pricing for existing models without modifying the source code.
+
+    Args:
+        model: The model identifier (e.g., "my-custom-model" or "gpt-4o")
+        input_cost: Cost per 1M input tokens in USD
+        output_cost: Cost per 1M output tokens in USD
+
+    Example:
+        >>> register_model_pricing("my-fine-tuned-gpt", 5.0, 15.0)
+        >>> register_model_pricing("gpt-4o", 3.0, 12.0)  # Override default pricing
+    """
+    _custom_pricing[model] = {"input": input_cost, "output": output_cost}
+
+
+def get_model_pricing(model: str) -> ModelPricing | None:
+    """Get pricing for a model.
+
+    Resolution order:
+    1. User-registered custom pricing (via register_model_pricing)
+    2. File-based pricing (from pyproject.toml)
+    3. Default built-in pricing
+
+    Args:
+        model: The model identifier (with or without provider prefix).
+               Provider prefixes like "anthropic:" are stripped.
+
+    Returns:
+        ModelPricing dict with input and output costs per 1M tokens,
+        or None if no pricing is available for the model.
+
+    Example:
+        >>> pricing = get_model_pricing("gpt-4o")
+        >>> if pricing:
+        ...     print(f"Input: ${pricing['input']}/1M tokens")
+    """
+    # Strip provider prefix if present
+    model_name = model.split(":")[-1] if ":" in model else model
+
+    # Check custom pricing first (user-registered)
+    if model_name in _custom_pricing:
+        return _custom_pricing[model_name]
+
+    # Check file-based pricing (pyproject.toml)
+    file_pricing = _load_pricing_from_file()
+    if model_name in file_pricing:
+        return file_pricing[model_name]
+
+    # Fall back to default pricing
+    return _DEFAULT_PRICING.get(model_name)
+
+
+# Backwards compatibility: PRICING dict now delegates to get_model_pricing
+# This is kept for users who import PRICING directly
+PRICING = _DEFAULT_PRICING
+
 
 def estimate_cost(model: str, usage: TokenUsage) -> CostEstimate | None:
     """Estimate the cost of a spell execution based on token usage.
@@ -653,7 +778,7 @@ def estimate_cost(model: str, usage: TokenUsage) -> CostEstimate | None:
     # Strip provider prefix if present
     model_name = model.split(":")[-1] if ":" in model else model
 
-    pricing = PRICING.get(model_name)
+    pricing = get_model_pricing(model_name)
     if pricing is None:
         return None
 
