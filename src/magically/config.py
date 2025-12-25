@@ -134,6 +134,21 @@ class Config:
         global _process_default
         _process_default = self
 
+    def merge(self, other: Config) -> Config:
+        """Merge another config on top of this one.
+
+        Creates a new Config with aliases from both configs.
+        Aliases from `other` take precedence over aliases from `self`.
+
+        Args:
+            other: Config to merge on top of this one.
+
+        Returns:
+            A new Config with merged aliases.
+        """
+        merged_models = {**self._models, **other._models}
+        return Config(models=merged_models)
+
     @classmethod
     def from_file(cls, path: Path | str | None = None) -> Config:
         """Load config from pyproject.toml.
@@ -225,26 +240,31 @@ class Config:
     def current(cls) -> Config:
         """Get the currently active config.
 
-        Resolution order:
+        Configs are merged with higher-priority sources taking precedence per-alias.
+        If context defines `fast` and file defines `reasoning`, both are available.
+
+        Resolution order (highest priority first):
         1. Active context (from `with config:`)
         2. Process default (from `config.set_as_default()`)
         3. File config (from pyproject.toml, cached)
         """
         global _file_config_cache
 
-        # Check context first
-        context_config = _config_context.get()
-        if context_config is not None:
-            return context_config
-
-        # Then process default
-        if _process_default is not None:
-            return _process_default
-
-        # Fall back to file config (loaded once and cached)
+        # Start with file config as base (loaded once and cached)
         if _file_config_cache is None:
             _file_config_cache = cls.from_file()
-        return _file_config_cache
+        base = _file_config_cache
+
+        # Merge process default on top
+        if _process_default is not None:
+            base = base.merge(_process_default)
+
+        # Merge context on top
+        context_config = _config_context.get()
+        if context_config is not None:
+            base = base.merge(context_config)
+
+        return base
 
 
 def current_config() -> Config:

@@ -172,12 +172,14 @@ class TestConfigContextManager:
         assert "fast" not in Config.current().models
 
         with config:
-            assert Config.current() is config
+            # Config.current() returns merged config, not the exact context object
             assert "fast" in Config.current().models
+            assert Config.current().resolve("fast").model == "test"
 
         assert "fast" not in Config.current().models
 
     def test_nested_contexts(self):
+        """Nested contexts replace each other (inner takes precedence)."""
         outer = Config(models={"outer": ModelConfig(model="outer-model")})
         inner = Config(models={"inner": ModelConfig(model="inner-model")})
 
@@ -185,6 +187,7 @@ class TestConfigContextManager:
             assert "outer" in Config.current().models
 
             with inner:
+                # Inner context replaces outer (only one context active at a time)
                 assert "inner" in Config.current().models
                 assert "outer" not in Config.current().models
 
@@ -204,7 +207,7 @@ class TestConfigContextManager:
                 raise ValueError("test error")
 
         # Config should be properly reset even after exception
-        assert Config.current() is not config
+        assert "test" not in Config.current().models
 
     def test_context_manager_resets_on_exception(self):
         """Config should be reset even when exception occurs in nested context (#173)."""
@@ -214,7 +217,9 @@ class TestConfigContextManager:
         with outer:
             with pytest.raises(RuntimeError):
                 with inner:
+                    # Inner context replaces outer
                     assert "inner" in Config.current().models
+                    assert "outer" not in Config.current().models
                     raise RuntimeError("boom")
 
             # After inner context exits with exception, outer should be active
@@ -262,15 +267,21 @@ class TestConfigContextManager:
         with c1:
             assert "c1" in Config.current().models
             with c2:
+                # Inner context replaces outer
                 assert "c2" in Config.current().models
+                assert "c1" not in Config.current().models
                 with pytest.raises(Exception):
                     with c3:
+                        # Innermost context is active
                         assert "c3" in Config.current().models
+                        assert "c2" not in Config.current().models
                         raise Exception("deep error")
                 # After c3 exits with error, c2 should be active
                 assert "c2" in Config.current().models
+                assert "c3" not in Config.current().models
             # After c2 exits, c1 should be active
             assert "c1" in Config.current().models
+            assert "c2" not in Config.current().models
 
 
 class TestConfigProcessDefault:
@@ -284,7 +295,8 @@ class TestConfigProcessDefault:
 
         assert "default-alias" in Config.current().models
 
-    def test_context_overrides_default(self):
+    def test_context_merges_with_default(self):
+        """Context config merges with process default, not replaces."""
         default = Config(models={"default": ModelConfig(model="default-model")})
         default.set_as_default()
 
@@ -293,8 +305,9 @@ class TestConfigProcessDefault:
         assert "default" in Config.current().models
 
         with override:
+            # Both should be available due to merging
             assert "override" in Config.current().models
-            assert "default" not in Config.current().models
+            assert "default" in Config.current().models
 
         assert "default" in Config.current().models
 
@@ -306,7 +319,9 @@ class TestCurrentConfig:
         config = Config(models={"test": ModelConfig(model="test")})
 
         with config:
-            assert current_config() is Config.current()
+            # current_config() and Config.current() both return merged configs
+            # with the same models (though different object instances)
+            assert current_config().models == Config.current().models
             assert "test" in current_config().models
 
 
@@ -457,7 +472,8 @@ model = "test:model"
         config2 = Config.current()
         assert config1 is config2
 
-    def test_context_overrides_file(self, tmp_path, monkeypatch):
+    def test_context_merges_with_file(self, tmp_path, monkeypatch):
+        """Context config merges with file config, not replaces."""
         pyproject = tmp_path / "pyproject.toml"
         pyproject.write_text("""
 [tool.magically.models.file_alias]
@@ -470,10 +486,12 @@ model = "file:model"
         assert "file_alias" in Config.current().models
 
         with override:
+            # Both should be available due to merging
             assert "override" in Config.current().models
-            assert "file_alias" not in Config.current().models
+            assert "file_alias" in Config.current().models
 
-    def test_process_default_overrides_file(self, tmp_path, monkeypatch):
+    def test_process_default_merges_with_file(self, tmp_path, monkeypatch):
+        """Process default merges with file config, not replaces."""
         pyproject = tmp_path / "pyproject.toml"
         pyproject.write_text("""
 [tool.magically.models.file_alias]
@@ -484,5 +502,152 @@ model = "file:model"
         default = Config(models={"default": ModelConfig(model="default:model")})
         default.set_as_default()
 
+        # Both should be available due to merging
         assert "default" in Config.current().models
-        assert "file_alias" not in Config.current().models
+        assert "file_alias" in Config.current().models
+
+
+class TestConfigMerge:
+    """Tests for Config.merge() method and config merging behavior."""
+
+    def test_merge_combines_aliases(self):
+        """Merge should combine aliases from both configs."""
+        base = Config(models={"a": ModelConfig(model="model-a")})
+        other = Config(models={"b": ModelConfig(model="model-b")})
+
+        merged = base.merge(other)
+
+        assert "a" in merged.models
+        assert "b" in merged.models
+        assert merged.resolve("a").model == "model-a"
+        assert merged.resolve("b").model == "model-b"
+
+    def test_merge_other_takes_precedence(self):
+        """Aliases in 'other' should override those in 'self'."""
+        base = Config(models={"fast": ModelConfig(model="base-fast")})
+        other = Config(models={"fast": ModelConfig(model="other-fast")})
+
+        merged = base.merge(other)
+
+        assert merged.resolve("fast").model == "other-fast"
+
+    def test_merge_preserves_originals(self):
+        """Merge should not modify the original configs."""
+        base = Config(models={"a": ModelConfig(model="model-a")})
+        other = Config(models={"b": ModelConfig(model="model-b")})
+
+        base.merge(other)
+
+        # Originals should be unchanged
+        assert "b" not in base.models
+        assert "a" not in other.models
+
+    def test_merge_returns_new_config(self):
+        """Merge should return a new Config instance."""
+        base = Config(models={"a": ModelConfig(model="model-a")})
+        other = Config(models={"b": ModelConfig(model="model-b")})
+
+        merged = base.merge(other)
+
+        assert merged is not base
+        assert merged is not other
+
+    def test_context_merges_with_file_config(self, tmp_path, monkeypatch):
+        """Context config should merge with file config (issue #96)."""
+        pyproject = tmp_path / "pyproject.toml"
+        pyproject.write_text("""
+[tool.magically.models.fast]
+model = "file:fast-model"
+
+[tool.magically.models.reasoning]
+model = "file:reasoning-model"
+""")
+        monkeypatch.chdir(tmp_path)
+
+        # Context config with different alias and override for 'fast'
+        context = Config(models={
+            "fast": ModelConfig(model="ctx:fast-model"),  # override
+            "creative": ModelConfig(model="ctx:creative-model"),  # new
+        })
+
+        with context:
+            # All three should be available
+            assert "fast" in Config.current().models
+            assert "reasoning" in Config.current().models
+            assert "creative" in Config.current().models
+
+            # Context takes precedence for 'fast'
+            assert Config.current().resolve("fast").model == "ctx:fast-model"
+            # File config provides 'reasoning'
+            assert Config.current().resolve("reasoning").model == "file:reasoning-model"
+            # Context provides 'creative'
+            assert Config.current().resolve("creative").model == "ctx:creative-model"
+
+    def test_process_default_merges_with_file_and_context(self, tmp_path, monkeypatch):
+        """All three config sources should merge correctly."""
+        pyproject = tmp_path / "pyproject.toml"
+        pyproject.write_text("""
+[tool.magically.models.file_only]
+model = "file:model"
+""")
+        monkeypatch.chdir(tmp_path)
+
+        # Reset file cache to pick up the new file
+        config_module._file_config_cache = None
+
+        # Process default with its own alias
+        process_default = Config(models={
+            "default_only": ModelConfig(model="default:model"),
+        })
+        process_default.set_as_default()
+
+        # Context config with its own alias
+        context = Config(models={
+            "context_only": ModelConfig(model="ctx:model"),
+        })
+
+        with context:
+            # All three should be available
+            assert "file_only" in Config.current().models
+            assert "default_only" in Config.current().models
+            assert "context_only" in Config.current().models
+
+    def test_context_overrides_process_default(self, tmp_path, monkeypatch):
+        """Context should take precedence over process default for same alias."""
+        pyproject = tmp_path / "pyproject.toml"
+        pyproject.write_text("")
+        monkeypatch.chdir(tmp_path)
+
+        # Reset file cache
+        config_module._file_config_cache = None
+
+        process_default = Config(models={
+            "fast": ModelConfig(model="default:fast"),
+        })
+        process_default.set_as_default()
+
+        context = Config(models={
+            "fast": ModelConfig(model="ctx:fast"),
+        })
+
+        with context:
+            assert Config.current().resolve("fast").model == "ctx:fast"
+
+    def test_process_default_overrides_file(self, tmp_path, monkeypatch):
+        """Process default should take precedence over file for same alias."""
+        pyproject = tmp_path / "pyproject.toml"
+        pyproject.write_text("""
+[tool.magically.models.fast]
+model = "file:fast"
+""")
+        monkeypatch.chdir(tmp_path)
+
+        # Reset file cache
+        config_module._file_config_cache = None
+
+        process_default = Config(models={
+            "fast": ModelConfig(model="default:fast"),
+        })
+        process_default.set_as_default()
+
+        assert Config.current().resolve("fast").model == "default:fast"
