@@ -3,6 +3,29 @@
 > Research compiled for production-grade LLM library development
 > Last updated: December 2024
 
+## Implementation Status
+
+This research document informed the design of magically's observability and configuration systems. Key decisions:
+
+**Implemented:**
+- `SpellExecutionLog` dataclass for structured audit logging (section 4.1 pattern)
+- `ValidationMetrics` tracking guard passes/failures and retry attempts
+- Model configuration via `pyproject.toml` with hierarchical resolution
+- Default timeout handling (2 minutes) to prevent indefinite hangs
+
+**Partially Implemented:**
+- Basic retry logic via PydanticAI's built-in retry mechanism
+- Observability via `SpellExecutionLog` (simpler than full OpenTelemetry integration)
+
+**Deferred to external tools (as recommended):**
+- Rate limiting and token budgets (use API gateway or liteLLM proxy)
+- Circuit breakers (use tenacity or external service mesh)
+- Cost estimation and caps (use provider dashboards or specialized tools)
+- HIPAA/GDPR compliance checks (use specialized compliance tools)
+- Human-in-the-loop workflows (application-specific, not library-level)
+
+**Rationale:** These enterprise patterns are better handled at the infrastructure/gateway level rather than embedded in the spell library. See `logging.py` and `config.py` for the implemented patterns.
+
 ## Executive Summary
 
 Enterprise LLM deployments require comprehensive guardrails spanning compliance, cost control, reliability, and observability. This document synthesizes production patterns and best practices from industry leaders to guide the development of an enterprise-grade LLM library.

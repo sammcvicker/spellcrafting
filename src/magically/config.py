@@ -22,6 +22,7 @@ import tomllib
 import warnings
 from contextvars import ContextVar
 from pathlib import Path
+from types import TracebackType
 from typing import Any, Self
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, ValidationError as PydanticValidationError
@@ -221,7 +222,12 @@ class Config:
         self._token = _config_context.set(self)
         return self
 
-    def __exit__(self, *exc: object) -> None:
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_val: BaseException | None,
+        exc_tb: TracebackType | None,
+    ) -> None:
         """Pop this config from the context stack."""
         if self._token is not None:
             _config_context.reset(self._token)
