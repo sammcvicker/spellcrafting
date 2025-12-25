@@ -8,6 +8,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- `SpellResult.cost_estimate` field for estimated execution cost in USD (None if pricing unavailable)
+- `SpellResult.trace_id` field for correlation with logs (None if no trace context active)
+- `SpellResult.total_tokens` property for total token count (input + output)
 - `SpellResult[T]` generic wrapper for accessing execution metadata alongside spell output
   - `output` - The actual spell output (same type as normal call)
   - `input_tokens` - Number of input tokens used

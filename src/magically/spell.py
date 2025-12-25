@@ -38,6 +38,7 @@ from magically.logging import (
     TokenUsage,
     ValidationMetrics,
     _emit_log,
+    current_trace,
     estimate_cost,
     get_logging_config,
     trace_context,
@@ -800,6 +801,20 @@ def spell(
 
                 duration_ms = (time_module.perf_counter() - start_time) * 1000
 
+                # Estimate cost if we have token data
+                cost = None
+                if actual_model and (input_tokens > 0 or output_tokens > 0):
+                    cost_estimate_obj = estimate_cost(
+                        actual_model,
+                        TokenUsage(input_tokens=input_tokens, output_tokens=output_tokens),
+                    )
+                    if cost_estimate_obj:
+                        cost = cost_estimate_obj.total_cost
+
+                # Get trace ID if available
+                trace = current_trace()
+                trace_id = trace.trace_id if trace else None
+
                 return SpellResult(
                     output=output,
                     input_tokens=input_tokens,
@@ -807,6 +822,8 @@ def spell(
                     model_used=actual_model,
                     attempt_count=attempt_count,
                     duration_ms=duration_ms,
+                    cost_estimate=cost,
+                    trace_id=trace_id,
                 )
 
             wrapper.with_metadata = with_metadata_async  # type: ignore[attr-defined]
@@ -882,6 +899,20 @@ def spell(
 
                 duration_ms = (time_module.perf_counter() - start_time) * 1000
 
+                # Estimate cost if we have token data
+                cost = None
+                if actual_model and (input_tokens > 0 or output_tokens > 0):
+                    cost_estimate_obj = estimate_cost(
+                        actual_model,
+                        TokenUsage(input_tokens=input_tokens, output_tokens=output_tokens),
+                    )
+                    if cost_estimate_obj:
+                        cost = cost_estimate_obj.total_cost
+
+                # Get trace ID if available
+                trace = current_trace()
+                trace_id = trace.trace_id if trace else None
+
                 return SpellResult(
                     output=output,
                     input_tokens=input_tokens,
@@ -889,6 +920,8 @@ def spell(
                     model_used=actual_model,
                     attempt_count=attempt_count,
                     duration_ms=duration_ms,
+                    cost_estimate=cost,
+                    trace_id=trace_id,
                 )
 
             wrapper.with_metadata = with_metadata_sync  # type: ignore[attr-defined]

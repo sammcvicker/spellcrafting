@@ -8,6 +8,7 @@ from pydantic import BaseModel
 import magically.config as config_module
 from magically import spell, SpellResult
 from magically.config import Config, ModelConfig
+from magically.logging import trace_context, with_trace_id
 
 # Access the actual spell module
 import sys
@@ -63,6 +64,34 @@ class TestSpellResultType:
         assert result.model_used == ""
         assert result.attempt_count == 1
         assert result.duration_ms == 0.0
+        assert result.cost_estimate is None
+        assert result.trace_id is None
+
+    def test_total_tokens_property(self):
+        result = SpellResult(
+            output="test",
+            input_tokens=50,
+            output_tokens=100,
+        )
+        assert result.total_tokens == 150
+
+    def test_total_tokens_with_defaults(self):
+        result = SpellResult(output="test")
+        assert result.total_tokens == 0
+
+    def test_cost_estimate_field(self):
+        result = SpellResult(
+            output="test",
+            cost_estimate=0.00015,
+        )
+        assert result.cost_estimate == 0.00015
+
+    def test_trace_id_field(self):
+        result = SpellResult(
+            output="test",
+            trace_id="abc123def456",
+        )
+        assert result.trace_id == "abc123def456"
 
     def test_generic_type(self):
         result: SpellResult[Category] = SpellResult(
@@ -361,3 +390,212 @@ class TestWithMetadataEdgeCases:
 
             # Both calls should have used the same agent
             assert mock_agent.run_sync.call_count == 2
+
+
+class TestSpellResultCostEstimate:
+    """Tests for cost_estimate field in SpellResult."""
+
+    def test_cost_estimate_with_known_model(self):
+        """Cost estimate is populated for models with known pricing."""
+        @spell(model="openai:gpt-4o")
+        def classify(text: str) -> str:
+            """Classify the text."""
+            ...
+
+        mock_usage = MagicMock()
+        mock_usage.request_tokens = 1000
+        mock_usage.response_tokens = 500
+
+        mock_result = MagicMock()
+        mock_result.output = "result"
+        mock_result.usage.return_value = mock_usage
+
+        mock_agent = MagicMock()
+        mock_agent.run_sync.return_value = mock_result
+
+        with patch("magically.spell.Agent", return_value=mock_agent):
+            result = classify.with_metadata("some text")
+
+            assert result.cost_estimate is not None
+            # gpt-4o: $2.50/1M input, $10.00/1M output
+            # 1000 input tokens = $0.0025, 500 output tokens = $0.005
+            expected_cost = (1000 / 1_000_000) * 2.50 + (500 / 1_000_000) * 10.00
+            assert abs(result.cost_estimate - expected_cost) < 0.0001
+
+    def test_cost_estimate_none_for_unknown_model(self):
+        """Cost estimate is None for models without known pricing."""
+        @spell(model="unknown:some-model")
+        def classify(text: str) -> str:
+            """Classify the text."""
+            ...
+
+        mock_usage = MagicMock()
+        mock_usage.request_tokens = 1000
+        mock_usage.response_tokens = 500
+
+        mock_result = MagicMock()
+        mock_result.output = "result"
+        mock_result.usage.return_value = mock_usage
+
+        mock_agent = MagicMock()
+        mock_agent.run_sync.return_value = mock_result
+
+        with patch("magically.spell.Agent", return_value=mock_agent):
+            result = classify.with_metadata("some text")
+
+            assert result.cost_estimate is None
+
+    def test_cost_estimate_none_when_no_tokens(self):
+        """Cost estimate is None when there are no tokens."""
+        @spell(model="openai:gpt-4o")
+        def classify(text: str) -> str:
+            """Classify the text."""
+            ...
+
+        mock_result = MagicMock()
+        mock_result.output = "result"
+        mock_result.usage.side_effect = Exception("No usage")
+
+        mock_agent = MagicMock()
+        mock_agent.run_sync.return_value = mock_result
+
+        with patch("magically.spell.Agent", return_value=mock_agent):
+            result = classify.with_metadata("some text")
+
+            assert result.cost_estimate is None
+
+
+class TestSpellResultTraceId:
+    """Tests for trace_id field in SpellResult."""
+
+    def test_trace_id_none_without_trace_context(self):
+        """Trace ID is None when no trace context is active."""
+        @spell
+        def classify(text: str) -> str:
+            """Classify the text."""
+            ...
+
+        mock_usage = MagicMock()
+        mock_usage.request_tokens = 50
+        mock_usage.response_tokens = 100
+
+        mock_result = MagicMock()
+        mock_result.output = "result"
+        mock_result.usage.return_value = mock_usage
+
+        mock_agent = MagicMock()
+        mock_agent.run_sync.return_value = mock_result
+
+        with patch("magically.spell.Agent", return_value=mock_agent):
+            result = classify.with_metadata("some text")
+
+            assert result.trace_id is None
+
+    def test_trace_id_populated_with_trace_context(self):
+        """Trace ID is populated when trace context is active."""
+        @spell
+        def classify(text: str) -> str:
+            """Classify the text."""
+            ...
+
+        mock_usage = MagicMock()
+        mock_usage.request_tokens = 50
+        mock_usage.response_tokens = 100
+
+        mock_result = MagicMock()
+        mock_result.output = "result"
+        mock_result.usage.return_value = mock_usage
+
+        mock_agent = MagicMock()
+        mock_agent.run_sync.return_value = mock_result
+
+        with patch("magically.spell.Agent", return_value=mock_agent):
+            with trace_context() as ctx:
+                result = classify.with_metadata("some text")
+
+                assert result.trace_id is not None
+                assert result.trace_id == ctx.trace_id
+
+    def test_trace_id_with_specific_trace_id(self):
+        """Trace ID matches when using with_trace_id context manager."""
+        @spell
+        def classify(text: str) -> str:
+            """Classify the text."""
+            ...
+
+        mock_usage = MagicMock()
+        mock_usage.request_tokens = 50
+        mock_usage.response_tokens = 100
+
+        mock_result = MagicMock()
+        mock_result.output = "result"
+        mock_result.usage.return_value = mock_usage
+
+        mock_agent = MagicMock()
+        mock_agent.run_sync.return_value = mock_result
+
+        expected_trace_id = "my-external-trace-id-12345"
+
+        with patch("magically.spell.Agent", return_value=mock_agent):
+            with with_trace_id(expected_trace_id):
+                result = classify.with_metadata("some text")
+
+                assert result.trace_id == expected_trace_id
+
+    @pytest.mark.asyncio
+    async def test_async_trace_id_with_trace_context(self):
+        """Async: Trace ID is populated when trace context is active."""
+        @spell
+        async def classify(text: str) -> str:
+            """Classify the text."""
+            ...
+
+        mock_usage = MagicMock()
+        mock_usage.request_tokens = 50
+        mock_usage.response_tokens = 100
+
+        mock_result = MagicMock()
+        mock_result.output = "result"
+        mock_result.usage.return_value = mock_usage
+
+        mock_agent = MagicMock()
+
+        async def mock_run(prompt):
+            return mock_result
+        mock_agent.run = mock_run
+
+        with patch("magically.spell.Agent", return_value=mock_agent):
+            with trace_context() as ctx:
+                result = await classify.with_metadata("some text")
+
+                assert result.trace_id is not None
+                assert result.trace_id == ctx.trace_id
+
+
+class TestSpellResultTotalTokens:
+    """Tests for total_tokens property in SpellResult via with_metadata."""
+
+    def test_total_tokens_computed_correctly(self):
+        """Total tokens is correctly computed from input + output tokens."""
+        @spell(model="openai:gpt-4o")
+        def classify(text: str) -> str:
+            """Classify the text."""
+            ...
+
+        mock_usage = MagicMock()
+        mock_usage.request_tokens = 150
+        mock_usage.response_tokens = 250
+
+        mock_result = MagicMock()
+        mock_result.output = "result"
+        mock_result.usage.return_value = mock_usage
+
+        mock_agent = MagicMock()
+        mock_agent.run_sync.return_value = mock_result
+
+        with patch("magically.spell.Agent", return_value=mock_agent):
+            result = classify.with_metadata("some text")
+
+            assert result.input_tokens == 150
+            assert result.output_tokens == 250
+            assert result.total_tokens == 400

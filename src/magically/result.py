@@ -27,6 +27,9 @@ class SpellResult(Generic[T]):
         print(result.output)  # Category
         print(result.input_tokens)  # 50
         print(result.model_used)  # "openai:gpt-4o-mini"
+        print(result.total_tokens)  # 150
+        print(result.cost_estimate)  # 0.00015 (USD)
+        print(result.trace_id)  # "abc123..." (for log correlation)
 
     Attributes:
         output: The actual spell output (the value you'd get from a normal call)
@@ -35,6 +38,8 @@ class SpellResult(Generic[T]):
         model_used: The actual model used (may differ from alias if escalation occurred)
         attempt_count: Number of execution attempts (1 = no retries)
         duration_ms: Execution duration in milliseconds
+        cost_estimate: Estimated cost in USD (None if pricing unavailable)
+        trace_id: Trace ID for correlation with logs (None if no trace context)
     """
 
     output: T
@@ -47,3 +52,12 @@ class SpellResult(Generic[T]):
     model_used: str = ""
     attempt_count: int = 1
     duration_ms: float = 0.0
+
+    # Extended metadata
+    cost_estimate: float | None = None
+    trace_id: str | None = None
+
+    @property
+    def total_tokens(self) -> int:
+        """Total tokens used (input + output)."""
+        return self.input_tokens + self.output_tokens
