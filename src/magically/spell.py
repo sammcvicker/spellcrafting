@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import asyncio
 import functools
 import inspect
 import warnings
+from collections.abc import Awaitable
 from typing import Any, Callable, ParamSpec, Sequence, TypeVar, overload
 
 from pydantic_ai import Agent
@@ -44,6 +46,7 @@ def _build_user_prompt(func: Callable[..., Any], args: tuple, kwargs: dict) -> s
     return "\n".join(parts)
 
 
+# Overloads for sync functions
 @overload
 def spell(func: Callable[P, T]) -> Callable[P, T]: ...
 
@@ -57,6 +60,22 @@ def spell(
     tools: Sequence[Callable[..., Any]] = (),
     end_strategy: str = "early",
 ) -> Callable[[Callable[P, T]], Callable[P, T]]: ...
+
+
+# Overloads for async functions
+@overload
+def spell(func: Callable[P, Awaitable[T]]) -> Callable[P, Awaitable[T]]: ...
+
+
+@overload
+def spell(
+    *,
+    model: str | None = None,
+    model_settings: ModelSettings | None = None,
+    retries: int = 1,
+    tools: Sequence[Callable[..., Any]] = (),
+    end_strategy: str = "early",
+) -> Callable[[Callable[P, Awaitable[T]]], Callable[P, Awaitable[T]]]: ...
 
 
 def spell(
@@ -168,16 +187,12 @@ def spell(
         # Unique ID for this spell (using id of the wrapper after creation)
         spell_id: int = 0  # Will be set after wrapper is created
 
-        @functools.wraps(fn)
-        def wrapper(*args: P.args, **kwargs: P.kwargs) -> T:
-            resolved_model, resolved_settings, config_hash = _resolve_model_and_settings()
-
-            # Check cache for existing agent
+        def _get_or_create_agent(config_hash: int, resolved_model: str | None, resolved_settings: ModelSettings | None) -> Agent[None, Any]:
+            """Get agent from cache or create a new one."""
             cache_key = (spell_id, config_hash)
             agent = _agent_cache.get(cache_key)
 
             if agent is None:
-                # Create agent and cache it
                 agent = Agent(
                     model=resolved_model,
                     output_type=output_type,
@@ -189,9 +204,31 @@ def spell(
                 )
                 _agent_cache[cache_key] = agent
 
-            user_prompt = _build_user_prompt(fn, args, kwargs)
-            result = agent.run_sync(user_prompt)
-            return result.output  # type: ignore[return-value]
+            return agent
+
+        # Check if the decorated function is async
+        is_async = asyncio.iscoroutinefunction(fn)
+
+        if is_async:
+            @functools.wraps(fn)
+            async def async_wrapper(*args: P.args, **kwargs: P.kwargs) -> T:
+                resolved_model, resolved_settings, config_hash = _resolve_model_and_settings()
+                agent = _get_or_create_agent(config_hash, resolved_model, resolved_settings)
+                user_prompt = _build_user_prompt(fn, args, kwargs)
+                result = await agent.run(user_prompt)
+                return result.output  # type: ignore[return-value]
+
+            wrapper = async_wrapper  # type: ignore[assignment]
+        else:
+            @functools.wraps(fn)
+            def sync_wrapper(*args: P.args, **kwargs: P.kwargs) -> T:
+                resolved_model, resolved_settings, config_hash = _resolve_model_and_settings()
+                agent = _get_or_create_agent(config_hash, resolved_model, resolved_settings)
+                user_prompt = _build_user_prompt(fn, args, kwargs)
+                result = agent.run_sync(user_prompt)
+                return result.output  # type: ignore[return-value]
+
+            wrapper = sync_wrapper
 
         # Assign unique spell ID based on wrapper's id
         spell_id = id(wrapper)
@@ -203,6 +240,7 @@ def spell(
         wrapper._output_type = output_type  # type: ignore[attr-defined]
         wrapper._retries = retries  # type: ignore[attr-defined]
         wrapper._spell_id = spell_id  # type: ignore[attr-defined]
+        wrapper._is_async = is_async  # type: ignore[attr-defined]
         wrapper._resolve_model_and_settings = _resolve_model_and_settings  # type: ignore[attr-defined]
 
         return wrapper

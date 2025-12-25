@@ -494,3 +494,121 @@ class TestAgentCaching:
 
         assert hasattr(fn, "_spell_id")
         assert fn._spell_id == id(fn)
+
+
+class TestAsyncSpell:
+    """Tests for async @spell support."""
+
+    def test_async_function_detected(self):
+        @spell
+        async def summarize(text: str) -> str:
+            """Summarize."""
+            ...
+
+        assert summarize._is_async is True
+
+    def test_sync_function_detected(self):
+        @spell
+        def summarize(text: str) -> str:
+            """Summarize."""
+            ...
+
+        assert summarize._is_async is False
+
+    def test_async_preserves_metadata(self):
+        @spell
+        async def my_async_spell(text: str) -> str:
+            """My async docstring."""
+            ...
+
+        assert my_async_spell.__name__ == "my_async_spell"
+        assert my_async_spell.__doc__ == "My async docstring."
+
+    def test_async_extracts_return_type(self):
+        @spell
+        async def analyze(text: str) -> Summary:
+            """Analyze."""
+            ...
+
+        assert analyze._output_type == Summary
+
+    def test_async_with_model_param(self):
+        @spell(model="openai:gpt-4o", retries=3)
+        async def fn(text: str) -> str:
+            """Test."""
+            ...
+
+        resolved_model, _, _ = fn._resolve_model_and_settings()
+        assert resolved_model == "openai:gpt-4o"
+        assert fn._retries == 3
+        assert fn._is_async is True
+
+    @pytest.mark.asyncio
+    async def test_async_calls_agent_run(self):
+        @spell
+        async def summarize(text: str) -> str:
+            """Summarize."""
+            ...
+
+        mock_result = MagicMock()
+        mock_result.output = "Async mocked summary"
+        mock_agent = MagicMock()
+
+        # Make run return a coroutine
+        async def mock_run(prompt):
+            return mock_result
+        mock_agent.run = mock_run
+
+        with patch("magically.spell.Agent", return_value=mock_agent):
+            result = await summarize("Hello world")
+            assert result == "Async mocked summary"
+
+    @pytest.mark.asyncio
+    async def test_async_returns_structured_output(self):
+        @spell
+        async def analyze(text: str) -> Summary:
+            """Analyze."""
+            ...
+
+        expected = Summary(key_points=["async point"], sentiment="positive")
+        mock_result = MagicMock()
+        mock_result.output = expected
+        mock_agent = MagicMock()
+
+        async def mock_run(prompt):
+            return mock_result
+        mock_agent.run = mock_run
+
+        with patch("magically.spell.Agent", return_value=mock_agent):
+            result = await analyze("Test text")
+            assert result == expected
+            assert isinstance(result, Summary)
+
+    @pytest.mark.asyncio
+    async def test_async_agent_caching(self):
+        config = Config(models={
+            "fast": ModelConfig(model="test:model")
+        })
+
+        @spell(model="fast")
+        async def fn(text: str) -> str:
+            """Test."""
+            ...
+
+        mock_result = MagicMock()
+        mock_result.output = "result"
+        mock_agent = MagicMock()
+
+        async def mock_run(prompt):
+            return mock_result
+        mock_agent.run = mock_run
+
+        with config:
+            with patch("magically.spell.Agent", return_value=mock_agent) as mock_agent_class:
+                # First call creates agent
+                await fn("hello")
+                assert mock_agent_class.call_count == 1
+
+                # Second call with same config reuses agent
+                await fn("world")
+                assert mock_agent_class.call_count == 1
