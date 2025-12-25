@@ -16,7 +16,10 @@ from __future__ import annotations
 
 from collections.abc import Awaitable
 from dataclasses import dataclass
-from typing import Generic, ParamSpec, Protocol, TypeVar
+from typing import TYPE_CHECKING, Generic, ParamSpec, Protocol, TypeVar
+
+if TYPE_CHECKING:
+    from magically.logging import SpellExecutionLog
 
 P = ParamSpec("P")
 T = TypeVar("T")
@@ -103,6 +106,36 @@ class SpellResult(Generic[T]):
             True if output and model_used match, False otherwise
         """
         return self.output == other.output and self.model_used == other.model_used
+
+    @classmethod
+    def from_execution_log(cls, output: T, log: SpellExecutionLog) -> SpellResult[T]:
+        """Create a SpellResult from execution log data.
+
+        This allows with_metadata to reuse the core execution path and
+        construct the result from captured log metadata.
+
+        Args:
+            output: The spell output value
+            log: The execution log with metadata
+
+        Returns:
+            SpellResult populated from the log
+        """
+        # Only include cost estimate if there are actual tokens used
+        cost = None
+        if log.cost_estimate and log.token_usage.total_tokens > 0:
+            cost = log.cost_estimate.total_cost
+
+        return cls(
+            output=output,
+            input_tokens=log.token_usage.input_tokens,
+            output_tokens=log.token_usage.output_tokens,
+            model_used=log.model,
+            attempt_count=(log.validation.attempt_count if log.validation else 1),
+            duration_ms=log.duration_ms or 0.0,
+            cost_estimate=cost,
+            trace_id=log.trace_id,
+        )
 
 
 class SyncSpell(Protocol[T_co]):

@@ -10,7 +10,7 @@ import warnings
 from collections import OrderedDict
 from collections.abc import Awaitable
 from dataclasses import dataclass, field
-from typing import Any, Callable, ParamSpec, Sequence, TypeVar, overload
+from typing import Any, Callable, ParamSpec, TypeVar, overload
 
 # Module-level logger for debug messages about internal operations
 _logger = logging.getLogger(__name__)
@@ -38,9 +38,11 @@ from magically.logging import (
     TokenUsage,
     ValidationMetrics,
     _emit_log,
+    capture_execution_log,
     current_trace,
     estimate_cost,
     get_logging_config,
+    is_capture_mode,
     trace_context,
 )
 from magically.result import SpellResult
@@ -388,12 +390,12 @@ def _wrap_tool_async(tool: Callable[..., Any], log: SpellExecutionLog) -> Callab
 
 
 def _wrap_tools_for_logging(
-    tools: Sequence[Callable[..., Any]], log: SpellExecutionLog
+    tools: list[Callable[..., Any]], log: SpellExecutionLog
 ) -> list[Callable[..., Any]]:
     """Wrap tools to capture call logs.
 
     Args:
-        tools: Sequence of tool functions to wrap
+        tools: List of tool functions to wrap
         log: The SpellExecutionLog to append tool calls to
 
     Returns:
@@ -542,7 +544,7 @@ def spell(
     model_settings: ModelSettings | None = None,
     system_prompt: str | None = None,
     retries: int = 1,
-    tools: Sequence[Callable[..., Any]] = (),
+    tools: list[Callable[..., Any]] | None = None,
     end_strategy: EndStrategy = "early",
     on_fail: OnFailStrategy | None = None,
 ) -> Callable[[Callable[P, T]], Callable[P, T]]: ...
@@ -560,7 +562,7 @@ def spell(
     model_settings: ModelSettings | None = None,
     system_prompt: str | None = None,
     retries: int = 1,
-    tools: Sequence[Callable[..., Any]] = (),
+    tools: list[Callable[..., Any]] | None = None,
     end_strategy: EndStrategy = "early",
     on_fail: OnFailStrategy | None = None,
 ) -> Callable[[Callable[P, Awaitable[T]]], Callable[P, Awaitable[T]]]: ...
@@ -573,7 +575,7 @@ def spell(
     model_settings: ModelSettings | None = None,
     system_prompt: str | None = None,
     retries: int = 1,
-    tools: Sequence[Callable[..., Any]] = (),
+    tools: list[Callable[..., Any]] | None = None,
     end_strategy: EndStrategy = "early",
     on_fail: OnFailStrategy | None = None,
 ) -> Callable[P, T] | Callable[[Callable[P, T]], Callable[P, T]]:
@@ -711,7 +713,7 @@ def spell(
                     output_type=output_type,
                     system_prompt=effective_system_prompt,
                     retries=retries,
-                    tools=list(tools),
+                    tools=tools or [],
                     end_strategy=end_strategy,
                     model_settings=resolved_settings,
                 )
@@ -733,8 +735,9 @@ def spell(
                 input_args = _extract_input_args(fn, args, kwargs)
 
                 # Check logging config early to decide which guard runners to use
+                # Also take logging path if we're in capture mode (for with_metadata)
                 logging_config = get_logging_config()
-                logging_enabled = logging_config.enabled
+                logging_enabled = logging_config.enabled or is_capture_mode()
 
                 # Initialize validation metrics for tracking
                 validation_metrics: ValidationMetrics | None = None
@@ -773,7 +776,7 @@ def spell(
                                 user_prompt,
                                 output_type,
                                 effective_system_prompt,
-                                list(tools),
+                                tools or [],
                                 end_strategy,
                                 input_args,
                                 fn.__name__,
@@ -847,7 +850,7 @@ def spell(
                                     user_prompt,
                                     output_type,
                                     effective_system_prompt,
-                                    list(tools),
+                                    tools or [],
                                     end_strategy,
                                     input_args,
                                     fn.__name__,
@@ -897,8 +900,9 @@ def spell(
                 input_args = _extract_input_args(fn, args, kwargs)
 
                 # Check logging config early to decide which guard runners to use
+                # Also take logging path if we're in capture mode (for with_metadata)
                 logging_config = get_logging_config()
-                logging_enabled = logging_config.enabled
+                logging_enabled = logging_config.enabled or is_capture_mode()
 
                 # Initialize validation metrics for tracking
                 validation_metrics: ValidationMetrics | None = None
@@ -937,7 +941,7 @@ def spell(
                                 user_prompt,
                                 output_type,
                                 effective_system_prompt,
-                                list(tools),
+                                tools or [],
                                 end_strategy,
                                 input_args,
                                 fn.__name__,
@@ -1011,7 +1015,7 @@ def spell(
                                     user_prompt,
                                     output_type,
                                     effective_system_prompt,
-                                    list(tools),
+                                    tools or [],
                                     end_strategy,
                                     input_args,
                                     fn.__name__,
@@ -1069,195 +1073,75 @@ def spell(
         wrapper._resolve_model_and_settings = _resolve_model_and_settings  # type: ignore[attr-defined]
 
         # Add with_metadata method for accessing execution metadata
+        # This is a thin wrapper around the main execution path that captures
+        # metadata via the logging system instead of duplicating execution logic
         if is_async:
             async def with_metadata_async(*args: P.args, **kwargs: P.kwargs) -> SpellResult[T]:
                 """Run the spell and return output with execution metadata."""
-                start_time = time.perf_counter()
+                # Check if caller has an active trace context
+                caller_trace = current_trace()
+                caller_trace_id = caller_trace.trace_id if caller_trace else None
 
-                resolved_model, resolved_settings, config_hash = _resolve_model_and_settings()
-                agent = _get_or_create_agent(config_hash, resolved_model, resolved_settings)
+                with capture_execution_log() as captured:
+                    output = await async_wrapper(*args, **kwargs)
 
-                # Check for guards
-                guard_config = GuardExecutor.get_config(fn)
-                input_args = _extract_input_args(fn, args, kwargs)
-
-                # Run input guards if present
-                if guard_config and guard_config.input_guards:
-                    guard_context = GuardExecutor.build_context(fn, model=model)
-                    input_args = await GuardExecutor.run_input_guards_async(
-                        guard_config, input_args, guard_context
-                    )
-                    user_prompt = "\n".join(f"{k}: {v!r}" for k, v in input_args.items())
-                else:
-                    user_prompt = _build_user_prompt(fn, args, kwargs)
-
-                attempt_count = 1
-                actual_model = resolved_model or ""
-
-                try:
-                    result = await agent.run(user_prompt)
-                    output = result.output
-                except UnexpectedModelBehavior as e:
-                    if on_fail is not None:
-                        if isinstance(on_fail, EscalateStrategy):
-                            actual_model = on_fail.model
-                            attempt_count += 1
-                        output = await _handle_on_fail_async(
-                            e,
-                            on_fail,
-                            user_prompt,
-                            output_type,
-                            effective_system_prompt,
-                            list(tools),
-                            end_strategy,
-                            input_args,
-                            fn.__name__,
-                            model,
+                if captured.log:
+                    result = SpellResult.from_execution_log(output, captured.log)
+                    # Only include trace_id if caller had an active trace context
+                    # (the logging path creates its own internal trace context)
+                    if caller_trace_id is None:
+                        result = SpellResult(
+                            output=result.output,
+                            input_tokens=result.input_tokens,
+                            output_tokens=result.output_tokens,
+                            model_used=result.model_used,
+                            attempt_count=result.attempt_count,
+                            duration_ms=result.duration_ms,
+                            cost_estimate=result.cost_estimate,
+                            trace_id=None,
                         )
-                        result = None  # No result object when on_fail handles it
-                    else:
-                        raise ValidationError(str(e), original_error=e) from e
+                    return result
 
-                # Run output guards if present
-                if guard_config and guard_config.output_guards:
-                    guard_context = GuardExecutor.build_context(fn, model=model)
-                    output = await GuardExecutor.run_output_guards_async(
-                        guard_config, output, guard_context
-                    )
-
-                # Extract token usage from result
-                input_tokens = 0
-                output_tokens = 0
-                if result is not None:
-                    try:
-                        usage = result.usage()
-                        input_tokens = usage.request_tokens or 0
-                        output_tokens = usage.response_tokens or 0
-                    except (AttributeError, TypeError) as e:
-                        # Result may not have usage() method or unexpected format
-                        _logger.debug("Could not extract token usage in with_metadata (async): %s", e)
-
-                duration_ms = (time.perf_counter() - start_time) * 1000
-
-                # Estimate cost if we have token data
-                cost = None
-                if actual_model and (input_tokens > 0 or output_tokens > 0):
-                    cost_estimate_obj = estimate_cost(
-                        actual_model,
-                        TokenUsage(input_tokens=input_tokens, output_tokens=output_tokens),
-                    )
-                    if cost_estimate_obj:
-                        cost = cost_estimate_obj.total_cost
-
-                # Get trace ID if available
-                trace = current_trace()
-                trace_id = trace.trace_id if trace else None
-
+                # Fallback if no log was captured (should not happen in normal use)
+                resolved_model, _, _ = _resolve_model_and_settings()
                 return SpellResult(
                     output=output,
-                    input_tokens=input_tokens,
-                    output_tokens=output_tokens,
-                    model_used=actual_model,
-                    attempt_count=attempt_count,
-                    duration_ms=duration_ms,
-                    cost_estimate=cost,
-                    trace_id=trace_id,
+                    model_used=resolved_model or "",
                 )
 
             wrapper.with_metadata = with_metadata_async  # type: ignore[attr-defined]
         else:
             def with_metadata_sync(*args: P.args, **kwargs: P.kwargs) -> SpellResult[T]:
                 """Run the spell and return output with execution metadata."""
-                start_time = time.perf_counter()
+                # Check if caller has an active trace context
+                caller_trace = current_trace()
+                caller_trace_id = caller_trace.trace_id if caller_trace else None
 
-                resolved_model, resolved_settings, config_hash = _resolve_model_and_settings()
-                agent = _get_or_create_agent(config_hash, resolved_model, resolved_settings)
+                with capture_execution_log() as captured:
+                    output = sync_wrapper(*args, **kwargs)
 
-                # Check for guards
-                guard_config = GuardExecutor.get_config(fn)
-                input_args = _extract_input_args(fn, args, kwargs)
-
-                # Run input guards if present
-                if guard_config and guard_config.input_guards:
-                    guard_context = GuardExecutor.build_context(fn, model=model)
-                    input_args = GuardExecutor.run_input_guards(
-                        guard_config, input_args, guard_context
-                    )
-                    user_prompt = "\n".join(f"{k}: {v!r}" for k, v in input_args.items())
-                else:
-                    user_prompt = _build_user_prompt(fn, args, kwargs)
-
-                attempt_count = 1
-                actual_model = resolved_model or ""
-
-                try:
-                    result = agent.run_sync(user_prompt)
-                    output = result.output
-                except UnexpectedModelBehavior as e:
-                    if on_fail is not None:
-                        if isinstance(on_fail, EscalateStrategy):
-                            actual_model = on_fail.model
-                            attempt_count += 1
-                        output = _handle_on_fail_sync(
-                            e,
-                            on_fail,
-                            user_prompt,
-                            output_type,
-                            effective_system_prompt,
-                            list(tools),
-                            end_strategy,
-                            input_args,
-                            fn.__name__,
-                            model,
+                if captured.log:
+                    result = SpellResult.from_execution_log(output, captured.log)
+                    # Only include trace_id if caller had an active trace context
+                    # (the logging path creates its own internal trace context)
+                    if caller_trace_id is None:
+                        result = SpellResult(
+                            output=result.output,
+                            input_tokens=result.input_tokens,
+                            output_tokens=result.output_tokens,
+                            model_used=result.model_used,
+                            attempt_count=result.attempt_count,
+                            duration_ms=result.duration_ms,
+                            cost_estimate=result.cost_estimate,
+                            trace_id=None,
                         )
-                        result = None  # No result object when on_fail handles it
-                    else:
-                        raise ValidationError(str(e), original_error=e) from e
+                    return result
 
-                # Run output guards if present
-                if guard_config and guard_config.output_guards:
-                    guard_context = GuardExecutor.build_context(fn, model=model)
-                    output = GuardExecutor.run_output_guards(
-                        guard_config, output, guard_context
-                    )
-
-                # Extract token usage from result
-                input_tokens = 0
-                output_tokens = 0
-                if result is not None:
-                    try:
-                        usage = result.usage()
-                        input_tokens = usage.request_tokens or 0
-                        output_tokens = usage.response_tokens or 0
-                    except (AttributeError, TypeError) as e:
-                        # Result may not have usage() method or unexpected format
-                        _logger.debug("Could not extract token usage in with_metadata (sync): %s", e)
-
-                duration_ms = (time.perf_counter() - start_time) * 1000
-
-                # Estimate cost if we have token data
-                cost = None
-                if actual_model and (input_tokens > 0 or output_tokens > 0):
-                    cost_estimate_obj = estimate_cost(
-                        actual_model,
-                        TokenUsage(input_tokens=input_tokens, output_tokens=output_tokens),
-                    )
-                    if cost_estimate_obj:
-                        cost = cost_estimate_obj.total_cost
-
-                # Get trace ID if available
-                trace = current_trace()
-                trace_id = trace.trace_id if trace else None
-
+                # Fallback if no log was captured (should not happen in normal use)
+                resolved_model, _, _ = _resolve_model_and_settings()
                 return SpellResult(
                     output=output,
-                    input_tokens=input_tokens,
-                    output_tokens=output_tokens,
-                    model_used=actual_model,
-                    attempt_count=attempt_count,
-                    duration_ms=duration_ms,
-                    cost_estimate=cost,
-                    trace_id=trace_id,
+                    model_used=resolved_model or "",
                 )
 
             wrapper.with_metadata = with_metadata_sync  # type: ignore[attr-defined]

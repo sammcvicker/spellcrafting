@@ -78,7 +78,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `docs/design/output_validation.md`
   - `docs/research/enterprise-guardrails-patterns.md`
 
-## [0.1.0] - 2024-12-24
+## [0.1.0] - 2025-12-24
 
 ### Added
 - `@spell` decorator that turns Python functions into LLM calls
