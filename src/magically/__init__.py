@@ -4,7 +4,6 @@ from magically.guard import (
     GuardError,
     InputGuard,
     OutputGuard,
-    GuardContext,
 )
 from magically.on_fail import OnFail
 from magically.validator import llm_validator, ValidationResult
@@ -64,7 +63,6 @@ __all__ = [
     "OnFail",
     "InputGuard",
     "OutputGuard",
-    "GuardContext",
     # Validators
     "llm_validator",
     "ValidationResult",

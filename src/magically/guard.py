@@ -32,7 +32,6 @@ Example:
 from __future__ import annotations
 
 import asyncio
-import functools
 import warnings
 from dataclasses import dataclass, field
 from typing import Any, Callable, ParamSpec, Protocol, TypeVar
@@ -45,8 +44,6 @@ T = TypeVar("T")
 
 class GuardError(Exception):
     """Raised when a guard validation fails."""
-
-    pass
 
 
 class InputGuard(Protocol):
@@ -73,16 +70,6 @@ class OutputGuard(Protocol):
     def __call__(self, output: T, context: dict[str, Any]) -> T:
         """Validate/transform output. Raise to reject."""
         ...
-
-
-@dataclass
-class GuardContext:
-    """Context passed to guard functions."""
-
-    spell_name: str
-    model: str | None = None
-    attempt_number: int = 1
-    extra: dict[str, Any] = field(default_factory=dict)
 
 
 # Marker to detect if a function is guarded
@@ -539,5 +526,4 @@ __all__ = [
     "OnFail",
     "InputGuard",
     "OutputGuard",
-    "GuardContext",
 ]
