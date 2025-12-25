@@ -539,10 +539,27 @@ class TestGuardWithSpell:
 
 
 class TestAsyncGuardWithSpell:
-    """Tests for guard integration with async @spell decorator."""
+    """Tests for guard integration with async @spell decorator.
+
+    NOTE: Guard functions themselves are currently synchronous, even when used
+    with async spells. These tests verify that sync guards work correctly in
+    async spell context. The guards run in the async event loop but do not
+    themselves use await.
+
+    For async I/O in guards, you can use asyncio.to_thread() to run blocking
+    operations, or create async guard functions that will be awaited if they
+    return a coroutine.
+
+    Example of async-compatible guard:
+        async def async_guard(args: dict, ctx: dict) -> dict:
+            # This will be awaited automatically
+            result = await some_async_check(args)
+            return args if result else raise ValueError("Failed")
+    """
 
     @pytest.mark.asyncio
-    async def test_async_input_guard_runs(self):
+    async def test_sync_input_guard_runs_in_async_spell(self):
+        """Sync guards work correctly in async spell context."""
         guard_called = []
 
         def track_guard(args: dict, ctx: dict) -> dict:
@@ -570,7 +587,8 @@ class TestAsyncGuardWithSpell:
         assert guard_called == [True]
 
     @pytest.mark.asyncio
-    async def test_async_output_guard_runs(self):
+    async def test_sync_output_guard_runs_in_async_spell(self):
+        """Sync output guards work correctly in async spell context."""
         guard_called = []
 
         def track_guard(out: str, ctx: dict) -> str:
@@ -598,7 +616,9 @@ class TestAsyncGuardWithSpell:
         assert guard_called == [True]
 
     @pytest.mark.asyncio
-    async def test_async_guard_can_reject(self):
+    async def test_guard_rejection_works_in_async_spell(self):
+        """Guards can reject input/output in async spell context."""
+
         def rejecting_guard(args: dict, ctx: dict) -> dict:
             raise ValueError("Rejected!")
 
@@ -613,6 +633,36 @@ class TestAsyncGuardWithSpell:
         with patch("magically.spell.Agent", return_value=mock_agent):
             with pytest.raises(GuardError, match="Rejected!"):
                 await summarize("test")
+
+    @pytest.mark.asyncio
+    async def test_async_guard_function_is_awaited(self):
+        """Guard functions that return coroutines are properly awaited."""
+        guard_called = []
+
+        async def async_track_guard(args: dict, ctx: dict) -> dict:
+            # This is an async guard function
+            guard_called.append("async_guard")
+            return args
+
+        @spell
+        @guard.input(async_track_guard)
+        async def summarize(text: str) -> str:
+            """Summarize."""
+            ...
+
+        mock_result = MagicMock()
+        mock_result.output = "summary"
+        mock_agent = MagicMock()
+
+        async def mock_run(prompt):
+            return mock_result
+
+        mock_agent.run = mock_run
+
+        with patch("magically.spell.Agent", return_value=mock_agent):
+            await summarize("test")
+
+        assert guard_called == ["async_guard"]
 
 
 class TestGuardContext:

@@ -312,16 +312,46 @@ another_unknown = 123
         with pytest.warns(UserWarning, match="Unknown fields.*test.*unknown_field"):
             Config.from_file(pyproject)
 
-    def test_skips_non_dict_entries(self, tmp_path):
+    def test_raises_on_non_dict_entries(self, tmp_path):
+        """Non-dict model entries should raise a helpful error."""
         pyproject = tmp_path / "pyproject.toml"
         pyproject.write_text("""
 [tool.magically.models]
 valid = { model = "test:model" }
 invalid = "not a dict"
 """)
-        config = Config.from_file(pyproject)
-        assert "valid" in config.models
-        assert "invalid" not in config.models
+        with pytest.raises(
+            MagicallyConfigError,
+            match=r"Invalid config for \[tool\.magically\.models\.invalid\].*expected a table/dict"
+        ):
+            Config.from_file(pyproject)
+
+    def test_raises_on_invalid_types(self, tmp_path):
+        """Invalid types for fields should raise a helpful error."""
+        pyproject = tmp_path / "pyproject.toml"
+        pyproject.write_text("""
+[tool.magically.models.bad]
+model = "test:model"
+temperature = "hot"
+""")
+        with pytest.raises(
+            MagicallyConfigError,
+            match=r"Invalid config for \[tool\.magically\.models\.bad\]"
+        ):
+            Config.from_file(pyproject)
+
+    def test_raises_on_missing_required_field(self, tmp_path):
+        """Missing required 'model' field should raise a helpful error."""
+        pyproject = tmp_path / "pyproject.toml"
+        pyproject.write_text("""
+[tool.magically.models.incomplete]
+temperature = 0.7
+""")
+        with pytest.raises(
+            MagicallyConfigError,
+            match=r"Invalid config for \[tool\.magically\.models\.incomplete\]"
+        ):
+            Config.from_file(pyproject)
 
 
 class TestConfigCurrentWithFile:

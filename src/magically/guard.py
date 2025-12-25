@@ -36,14 +36,11 @@ import warnings
 from dataclasses import dataclass, field
 from typing import Any, Callable, ParamSpec, Protocol, TypeVar
 
+from magically.exceptions import GuardError
 from magically.on_fail import OnFail, RaiseStrategy
 
 P = ParamSpec("P")
 T = TypeVar("T")
-
-
-class GuardError(Exception):
-    """Raised when a guard validation fails."""
 
 
 class InputGuard(Protocol):
