@@ -37,11 +37,6 @@ def _get_spell_module():
     return sys.modules["magically.spell"]
 
 
-def pytest_configure(config):
-    config.addinivalue_line("markers", "smoke: tests that hit real LLM APIs")
-    config.addinivalue_line("markers", "internal: tests that check internal implementation details")
-
-
 @pytest.fixture(autouse=True)
 def reset_all_global_state():
     """Reset all global state before/after each test.
