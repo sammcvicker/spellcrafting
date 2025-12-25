@@ -35,6 +35,10 @@ ENV_DEFAULT_TIMEOUT = "MAGICALLY_DEFAULT_TIMEOUT"
 ENV_DEFAULT_TEMPERATURE = "MAGICALLY_DEFAULT_TEMPERATURE"
 ENV_DEFAULT_MAX_TOKENS = "MAGICALLY_DEFAULT_MAX_TOKENS"
 
+# Default timeout for LLM calls (in seconds)
+# This prevents indefinite hangs when providers are slow or unresponsive
+DEFAULT_TIMEOUT = 120.0  # 2 minutes
+
 
 _config_context: ContextVar[Config | None] = ContextVar("magically_config", default=None)
 _process_default: Config | None = None
@@ -87,7 +91,8 @@ class ModelConfig(BaseModel):
         """Convert to PydanticAI ModelSettings.
 
         Builds a ModelSettings dict from the configured values,
-        only including non-None values.
+        only including non-None values. Uses DEFAULT_TIMEOUT if no
+        timeout is explicitly configured.
 
         Returns:
             ModelSettings dict if any settings are configured, None otherwise.
@@ -99,8 +104,8 @@ class ModelConfig(BaseModel):
             settings["max_tokens"] = self.max_tokens
         if self.top_p is not None:
             settings["top_p"] = self.top_p
-        if self.timeout is not None:
-            settings["timeout"] = self.timeout
+        # Use configured timeout or fall back to default
+        settings["timeout"] = self.timeout if self.timeout is not None else DEFAULT_TIMEOUT
         return ModelSettings(**settings) if settings else None
 
 
