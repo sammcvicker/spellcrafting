@@ -986,64 +986,37 @@ class TestConcurrentSpellExecution:
 
 
 class TestNoneReturnType:
-    """Tests for spell with None return type annotation (#156).
+    """Tests for spell with None return type annotation (#156, #28).
 
-    Note: The spell decorator has special handling to convert NoneType to str.
-    The check in spell.py uses `output_type is type(None)` which only matches
-    when using `-> type(None)` annotation, not `-> None`.
+    Note: As of issue #28, spells with None return type now raise TypeError
+    at decoration time. Spells must return a value.
     """
 
-    def test_nonetype_return_type_defaults_to_str(self):
-        """Spell with -> type(None) return type should default to str output type.
+    def test_nonetype_return_type_raises_error(self):
+        """Spell with -> type(None) return type should raise TypeError.
 
-        This tests the explicit NoneType handling in spell.py line 627-628:
-            if output_type is type(None):
-                output_type = str
+        This tests the explicit NoneType handling per issue #28 - spells
+        must return a value, so None return types are not allowed.
         """
         # Using type(None) explicitly - this is what the code checks for
         NoneType = type(None)
 
-        @spell
-        def fn(text: str) -> NoneType:  # type: ignore[valid-type]
-            """Test."""
-            ...
+        with pytest.raises(TypeError, match="has None return type"):
+            @spell
+            def fn(text: str) -> NoneType:  # type: ignore[valid-type]
+                """Test."""
+                ...
 
-        assert fn._output_type == str
+    def test_none_annotation_raises_error(self):
+        """Spell with -> None annotation should raise TypeError.
 
-    def test_none_annotation_behavior(self):
-        """Document the behavior when using -> None annotation.
-
-        When using `-> None`, Python's annotation returns the singleton None,
-        not the NoneType class. The current implementation's check doesn't
-        match this case.
+        Both `-> None` and `-> type(None)` are now caught and raise an error.
         """
-        @spell
-        def fn(text: str) -> None:
-            """Test."""
-            ...
-
-        # Note: -> None gives None, not NoneType, so the conversion doesn't apply
-        # This documents the current behavior
-        assert fn._output_type is None
-
-    def test_none_return_spell_with_nonetype(self):
-        """Spell with NoneType return type should execute and return string."""
-        NoneType = type(None)
-
-        @spell
-        def fn(text: str) -> NoneType:  # type: ignore[valid-type]
-            """Return text as-is."""
-            ...
-
-        mock_result = MagicMock()
-        mock_result.output = "test output"
-        mock_agent = MagicMock()
-        mock_agent.run_sync.return_value = mock_result
-
-        with patch("magically.spell.Agent", return_value=mock_agent):
-            result = fn("hello")
-            assert result == "test output"
-            assert isinstance(result, str)
+        with pytest.raises(TypeError, match="has None return type"):
+            @spell
+            def fn(text: str) -> None:
+                """Test."""
+                ...
 
     def test_str_return_type_unchanged(self):
         """Spell with -> str should have str output type (not affected by None handling)."""
@@ -1073,39 +1046,15 @@ class TestNoneReturnType:
         assert fn._output_type == str
 
     @pytest.mark.asyncio
-    async def test_async_nonetype_return_type_defaults_to_str(self):
-        """Async spell with -> NoneType return type should also default to str."""
+    async def test_async_nonetype_return_type_raises_error(self):
+        """Async spell with -> NoneType return type should also raise TypeError."""
         NoneType = type(None)
 
-        @spell
-        async def fn(text: str) -> NoneType:  # type: ignore[valid-type]
-            """Test."""
-            ...
-
-        assert fn._output_type == str
-
-    @pytest.mark.asyncio
-    async def test_async_nonetype_return_spell_works(self):
-        """Async spell with NoneType return type should execute and return string."""
-        NoneType = type(None)
-
-        @spell
-        async def fn(text: str) -> NoneType:  # type: ignore[valid-type]
-            """Return text as-is."""
-            ...
-
-        mock_result = MagicMock()
-        mock_result.output = "async output"
-        mock_agent = MagicMock()
-
-        async def mock_run(prompt):
-            return mock_result
-        mock_agent.run = mock_run
-
-        with patch("magically.spell.Agent", return_value=mock_agent):
-            result = await fn("hello")
-            assert result == "async output"
-            assert isinstance(result, str)
+        with pytest.raises(TypeError, match="has None return type"):
+            @spell
+            async def fn(text: str) -> NoneType:  # type: ignore[valid-type]
+                """Test."""
+                ...
 
 
 class TestSpellDecoratorInvalidParams:
