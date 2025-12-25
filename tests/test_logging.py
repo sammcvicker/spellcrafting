@@ -1968,3 +1968,467 @@ output = 2.0
         assert isinstance(PRICING, dict)
         assert "gpt-4o" in PRICING
         assert "claude-sonnet-4-20250514" in PRICING
+
+
+class TestEmitLogHandlerErrors:
+    """Tests for _emit_log handler error handling (#129).
+
+    The _emit_log function silently catches all handler exceptions to prevent
+    logging from breaking spell execution. These tests verify that behavior.
+    """
+
+    def test_emit_log_survives_handler_exception(self):
+        """Handler exceptions should not break spell execution."""
+        from magically.logging import _emit_log
+
+        failing_handler = MagicMock()
+        failing_handler.handle.side_effect = Exception("Handler error")
+
+        working_handler = MagicMock()
+
+        configure_logging(LoggingConfig(
+            enabled=True,
+            handlers=[failing_handler, working_handler],
+        ))
+
+        log = SpellExecutionLog(
+            spell_name="test",
+            spell_id=1,
+            trace_id="abc",
+            span_id="def",
+        )
+
+        # Should not raise
+        _emit_log(log)
+
+        # Failing handler was called
+        failing_handler.handle.assert_called_once()
+        # Working handler should still be called
+        working_handler.handle.assert_called_once()
+
+    def test_emit_log_all_handlers_fail(self):
+        """Even if all handlers fail, no exception should propagate."""
+        from magically.logging import _emit_log
+
+        failing_handler1 = MagicMock()
+        failing_handler1.handle.side_effect = Exception("Error 1")
+
+        failing_handler2 = MagicMock()
+        failing_handler2.handle.side_effect = Exception("Error 2")
+
+        configure_logging(LoggingConfig(
+            enabled=True,
+            handlers=[failing_handler1, failing_handler2],
+        ))
+
+        log = SpellExecutionLog(
+            spell_name="test",
+            spell_id=1,
+            trace_id="abc",
+            span_id="def",
+        )
+
+        # Should not raise even when all handlers fail
+        _emit_log(log)
+
+        # Both handlers were called despite failures
+        failing_handler1.handle.assert_called_once()
+        failing_handler2.handle.assert_called_once()
+
+    def test_emit_log_handler_exception_doesnt_affect_log_data(self):
+        """Handler exception should not corrupt log data for subsequent handlers."""
+        from magically.logging import _emit_log
+
+        captured_logs = []
+
+        failing_handler = MagicMock()
+        failing_handler.handle.side_effect = Exception("Handler error")
+
+        def capture_log(log):
+            captured_logs.append(log)
+
+        capturing_handler = MagicMock()
+        capturing_handler.handle = capture_log
+
+        configure_logging(LoggingConfig(
+            enabled=True,
+            handlers=[failing_handler, capturing_handler],
+        ))
+
+        log = SpellExecutionLog(
+            spell_name="test_spell",
+            spell_id=1,
+            trace_id="abc123",
+            span_id="def456",
+        )
+
+        _emit_log(log)
+
+        # Log should be properly captured despite earlier handler failure
+        assert len(captured_logs) == 1
+        assert captured_logs[0].spell_name == "test_spell"
+        assert captured_logs[0].trace_id == "abc123"
+
+    def test_emit_log_handler_runtime_error(self):
+        """RuntimeError from handler should be caught."""
+        from magically.logging import _emit_log
+
+        handler = MagicMock()
+        handler.handle.side_effect = RuntimeError("Runtime error")
+
+        configure_logging(LoggingConfig(enabled=True, handlers=[handler]))
+
+        log = SpellExecutionLog(
+            spell_name="test",
+            spell_id=1,
+            trace_id="abc",
+            span_id="def",
+        )
+
+        # Should not raise
+        _emit_log(log)
+        handler.handle.assert_called_once()
+
+    def test_emit_log_handler_type_error(self):
+        """TypeError from handler should be caught."""
+        from magically.logging import _emit_log
+
+        handler = MagicMock()
+        handler.handle.side_effect = TypeError("Type error")
+
+        configure_logging(LoggingConfig(enabled=True, handlers=[handler]))
+
+        log = SpellExecutionLog(
+            spell_name="test",
+            spell_id=1,
+            trace_id="abc",
+            span_id="def",
+        )
+
+        # Should not raise
+        _emit_log(log)
+        handler.handle.assert_called_once()
+
+
+class TestExtractTokenUsageErrorHandling:
+    """Tests for _extract_token_usage error handling in logging path (#124).
+
+    The _extract_token_usage function catches AttributeError and TypeError.
+    These tests verify that expected error types are handled gracefully.
+    """
+
+    def test_logging_handles_token_extraction_attribute_error(self):
+        """When usage() raises AttributeError, logging works with zero tokens."""
+        handler = MagicMock()
+        configure_logging(LoggingConfig(enabled=True, handlers=[handler]))
+
+        @spell
+        def test_spell(text: str) -> str:
+            """Test."""
+            ...
+
+        mock_result = MagicMock()
+        mock_result.output = "result"
+        mock_result.usage.side_effect = AttributeError("No usage method")
+
+        mock_agent = MagicMock()
+        mock_agent.run_sync.return_value = mock_result
+
+        with patch("magically.spell.Agent", return_value=mock_agent):
+            result = test_spell("hello")
+
+        assert result == "result"
+        log = handler.handle.call_args[0][0]
+        assert log.token_usage.input_tokens == 0
+        assert log.token_usage.output_tokens == 0
+
+    def test_logging_handles_token_extraction_type_error(self):
+        """When usage() raises TypeError, logging works with zero tokens."""
+        handler = MagicMock()
+        configure_logging(LoggingConfig(enabled=True, handlers=[handler]))
+
+        @spell
+        def test_spell(text: str) -> str:
+            """Test."""
+            ...
+
+        mock_result = MagicMock()
+        mock_result.output = "result"
+        mock_result.usage.side_effect = TypeError("Unexpected type")
+
+        mock_agent = MagicMock()
+        mock_agent.run_sync.return_value = mock_result
+
+        with patch("magically.spell.Agent", return_value=mock_agent):
+            result = test_spell("hello")
+
+        assert result == "result"
+        log = handler.handle.call_args[0][0]
+        assert log.token_usage.input_tokens == 0
+        assert log.token_usage.output_tokens == 0
+
+    def test_logging_handles_usage_returns_none(self):
+        """When usage() returns unexpected None values, logging handles gracefully."""
+        handler = MagicMock()
+        configure_logging(LoggingConfig(enabled=True, handlers=[handler]))
+
+        @spell
+        def test_spell(text: str) -> str:
+            """Test."""
+            ...
+
+        mock_usage = MagicMock()
+        mock_usage.request_tokens = None
+        mock_usage.response_tokens = None
+
+        mock_result = MagicMock()
+        mock_result.output = "result"
+        mock_result.usage.return_value = mock_usage
+
+        mock_agent = MagicMock()
+        mock_agent.run_sync.return_value = mock_result
+
+        with patch("magically.spell.Agent", return_value=mock_agent):
+            result = test_spell("hello")
+
+        assert result == "result"
+        log = handler.handle.call_args[0][0]
+        # None values should default to 0
+        assert log.token_usage.input_tokens == 0
+        assert log.token_usage.output_tokens == 0
+
+    @pytest.mark.asyncio
+    async def test_async_logging_handles_token_extraction_attribute_error(self):
+        """Async: When usage() raises AttributeError, logging works with zero tokens."""
+        handler = MagicMock()
+        configure_logging(LoggingConfig(enabled=True, handlers=[handler]))
+
+        @spell
+        async def test_async_spell(text: str) -> str:
+            """Test async."""
+            ...
+
+        mock_result = MagicMock()
+        mock_result.output = "async result"
+        mock_result.usage.side_effect = AttributeError("No usage method")
+
+        mock_agent = MagicMock()
+
+        async def mock_run(prompt):
+            return mock_result
+        mock_agent.run = mock_run
+
+        with patch("magically.spell.Agent", return_value=mock_agent):
+            result = await test_async_spell("hello")
+
+        assert result == "async result"
+        log = handler.handle.call_args[0][0]
+        assert log.token_usage.input_tokens == 0
+        assert log.token_usage.output_tokens == 0
+
+    @pytest.mark.asyncio
+    async def test_async_logging_handles_token_extraction_type_error(self):
+        """Async: When usage() raises TypeError, logging works with zero tokens."""
+        handler = MagicMock()
+        configure_logging(LoggingConfig(enabled=True, handlers=[handler]))
+
+        @spell
+        async def test_async_spell(text: str) -> str:
+            """Test async."""
+            ...
+
+        mock_result = MagicMock()
+        mock_result.output = "async result"
+        mock_result.usage.side_effect = TypeError("Type error")
+
+        mock_agent = MagicMock()
+
+        async def mock_run(prompt):
+            return mock_result
+        mock_agent.run = mock_run
+
+        with patch("magically.spell.Agent", return_value=mock_agent):
+            result = await test_async_spell("hello")
+
+        assert result == "async result"
+        log = handler.handle.call_args[0][0]
+        assert log.token_usage.input_tokens == 0
+        assert log.token_usage.output_tokens == 0
+
+
+class TestNestedSpellTracing:
+    """Tests for nested spell calls with trace propagation (#120).
+
+    When a spell calls another spell, trace context should propagate:
+    - Both spells should share the same trace_id
+    - Each spell should have a unique span_id
+    - Child spell should have parent_span_id pointing to outer spell's span_id
+    """
+
+    def test_nested_spells_share_trace_id(self):
+        """Nested spell calls should share the same trace_id."""
+        handler = MagicMock()
+        configure_logging(LoggingConfig(enabled=True, handlers=[handler]))
+
+        inner_called = []
+
+        @spell
+        def inner_spell(text: str) -> str:
+            """Inner spell."""
+            inner_called.append(True)
+            ...
+
+        @spell
+        def outer_spell(text: str) -> str:
+            """Outer spell that calls inner."""
+            ...
+
+        # Set up mocks
+        inner_mock_result = MagicMock()
+        inner_mock_result.output = "inner result"
+        inner_mock_result.usage.return_value = MagicMock(request_tokens=10, response_tokens=5)
+
+        outer_mock_result = MagicMock()
+        outer_mock_result.output = "outer result"
+        outer_mock_result.usage.return_value = MagicMock(request_tokens=20, response_tokens=10)
+
+        call_count = [0]
+
+        def create_mock_agent(*args, **kwargs):
+            agent = MagicMock()
+            # Outer spell calls first, then inner
+            def run_sync(prompt):
+                call_count[0] += 1
+                if call_count[0] == 1:
+                    # Outer spell - it will call inner
+                    inner_spell("inner call")
+                    return outer_mock_result
+                else:
+                    return inner_mock_result
+            agent.run_sync = run_sync
+            return agent
+
+        with patch("magically.spell.Agent", side_effect=create_mock_agent):
+            outer_spell("test")
+
+        # Should have logged both spells
+        assert handler.handle.call_count == 2
+        logs = [call[0][0] for call in handler.handle.call_args_list]
+
+        # Both should have the same trace_id
+        trace_ids = {log.trace_id for log in logs}
+        assert len(trace_ids) == 1, "Both spells should share the same trace_id"
+
+        # Each should have unique span_id
+        span_ids = {log.span_id for log in logs}
+        assert len(span_ids) == 2, "Each spell should have unique span_id"
+
+    def test_nested_spell_has_parent_span_id(self):
+        """Inner spell should have parent_span_id pointing to outer spell's span_id."""
+        handler = MagicMock()
+        configure_logging(LoggingConfig(enabled=True, handlers=[handler]))
+
+        @spell
+        def inner_spell(text: str) -> str:
+            """Inner spell."""
+            ...
+
+        @spell
+        def outer_spell(text: str) -> str:
+            """Outer spell."""
+            ...
+
+        call_count = [0]
+
+        inner_mock_result = MagicMock()
+        inner_mock_result.output = "inner"
+        inner_mock_result.usage.return_value = MagicMock(request_tokens=10, response_tokens=5)
+
+        outer_mock_result = MagicMock()
+        outer_mock_result.output = "outer"
+        outer_mock_result.usage.return_value = MagicMock(request_tokens=20, response_tokens=10)
+
+        def create_mock_agent(*args, **kwargs):
+            agent = MagicMock()
+            def run_sync(prompt):
+                call_count[0] += 1
+                if call_count[0] == 1:
+                    inner_spell("inner")
+                    return outer_mock_result
+                else:
+                    return inner_mock_result
+            agent.run_sync = run_sync
+            return agent
+
+        with patch("magically.spell.Agent", side_effect=create_mock_agent):
+            outer_spell("test")
+
+        assert handler.handle.call_count == 2
+        logs = [call[0][0] for call in handler.handle.call_args_list]
+
+        # Find inner and outer logs
+        inner_log = next(log for log in logs if log.spell_name == "inner_spell")
+        outer_log = next(log for log in logs if log.spell_name == "outer_spell")
+
+        # Inner should have parent_span_id pointing to outer's span_id
+        assert inner_log.parent_span_id == outer_log.span_id
+        # Outer should have no parent (or None)
+        # Note: The outer spell creates a new trace, so it won't have a parent
+
+    def test_deeply_nested_spells_maintain_trace(self):
+        """Deeply nested spell calls should all share the same trace_id."""
+        handler = MagicMock()
+        configure_logging(LoggingConfig(enabled=True, handlers=[handler]))
+
+        @spell
+        def level3_spell(text: str) -> str:
+            """Level 3 (innermost)."""
+            ...
+
+        @spell
+        def level2_spell(text: str) -> str:
+            """Level 2."""
+            ...
+
+        @spell
+        def level1_spell(text: str) -> str:
+            """Level 1 (outermost)."""
+            ...
+
+        level_results = [
+            MagicMock(output="level1", usage=MagicMock(return_value=MagicMock(request_tokens=10, response_tokens=5))),
+            MagicMock(output="level2", usage=MagicMock(return_value=MagicMock(request_tokens=10, response_tokens=5))),
+            MagicMock(output="level3", usage=MagicMock(return_value=MagicMock(request_tokens=10, response_tokens=5))),
+        ]
+
+        call_count = [0]
+
+        def create_mock_agent(*args, **kwargs):
+            agent = MagicMock()
+            def run_sync(prompt):
+                idx = call_count[0]
+                call_count[0] += 1
+                if idx == 0:
+                    level2_spell("level2")
+                    return level_results[0]
+                elif idx == 1:
+                    level3_spell("level3")
+                    return level_results[1]
+                else:
+                    return level_results[2]
+            agent.run_sync = run_sync
+            return agent
+
+        with patch("magically.spell.Agent", side_effect=create_mock_agent):
+            level1_spell("test")
+
+        assert handler.handle.call_count == 3
+        logs = [call[0][0] for call in handler.handle.call_args_list]
+
+        # All should share the same trace_id
+        trace_ids = {log.trace_id for log in logs}
+        assert len(trace_ids) == 1, "All nested spells should share trace_id"
+
+        # All should have unique span_ids
+        span_ids = {log.span_id for log in logs}
+        assert len(span_ids) == 3, "Each spell should have unique span_id"
