@@ -27,20 +27,7 @@ from magically.on_fail import (
     FallbackStrategy,
     CustomStrategy,
 )
-from magically.guard import (
-    GuardError,
-    _build_context,
-    _get_or_create_guard_config,
-    _run_input_guards,
-    _run_input_guards_async,
-    _run_input_guards_tracked,
-    _run_input_guards_tracked_async,
-    _run_output_guards,
-    _run_output_guards_async,
-    _run_output_guards_tracked,
-    _run_output_guards_tracked_async,
-    _GUARD_MARKER,
-)
+from magically.guard import GuardError, GuardExecutor
 from magically.logging import (
     SpellExecutionLog,
     ToolCallLog,
@@ -733,7 +720,7 @@ def spell(
                 agent = _get_or_create_agent(config_hash, resolved_model, resolved_settings)
 
                 # Check for guards
-                guard_config = getattr(fn, _GUARD_MARKER, None)
+                guard_config = GuardExecutor.get_config(fn)
                 input_args = _extract_input_args(fn, args, kwargs)
 
                 # Check logging config early to decide which guard runners to use
@@ -747,18 +734,18 @@ def spell(
 
                 # Run input guards if present
                 if guard_config and guard_config.input_guards:
-                    guard_context = _build_context(fn)
+                    guard_context = GuardExecutor.build_context(fn)
                     guard_context["model"] = model  # Use alias, not resolved
                     if logging_enabled and validation_metrics:
-                        guard_result = await _run_input_guards_tracked_async(
-                            guard_config.input_guards, input_args, guard_context
+                        guard_result = await GuardExecutor.run_input_guards_tracked_async(
+                            guard_config, input_args, guard_context
                         )
                         input_args = guard_result.result
                         validation_metrics.input_guards_passed = guard_result.passed
                         validation_metrics.input_guards_failed = guard_result.failed
                     else:
-                        input_args = await _run_input_guards_async(
-                            guard_config.input_guards, input_args, guard_context
+                        input_args = await GuardExecutor.run_input_guards_async(
+                            guard_config, input_args, guard_context
                         )
                     # Rebuild user prompt with potentially transformed args
                     user_prompt = "\n".join(f"{k}: {v!r}" for k, v in input_args.items())
@@ -789,10 +776,10 @@ def spell(
 
                     # Run output guards if present
                     if guard_config and guard_config.output_guards:
-                        guard_context = _build_context(fn)
+                        guard_context = GuardExecutor.build_context(fn)
                         guard_context["model"] = model
-                        output = await _run_output_guards_async(
-                            guard_config.output_guards, output, guard_context
+                        output = await GuardExecutor.run_output_guards_async(
+                            guard_config, output, guard_context
                         )
 
                     return output  # type: ignore[return-value]
@@ -867,18 +854,18 @@ def spell(
 
                         # Run output guards if present (with tracking)
                         if guard_config and guard_config.output_guards:
-                            guard_context = _build_context(fn)
+                            guard_context = GuardExecutor.build_context(fn)
                             guard_context["model"] = model
                             if validation_metrics:
-                                guard_result = await _run_output_guards_tracked_async(
-                                    guard_config.output_guards, output, guard_context
+                                guard_result = await GuardExecutor.run_output_guards_tracked_async(
+                                    guard_config, output, guard_context
                                 )
                                 output = guard_result.result
                                 validation_metrics.output_guards_passed = guard_result.passed
                                 validation_metrics.output_guards_failed = guard_result.failed
                             else:
-                                output = await _run_output_guards_async(
-                                    guard_config.output_guards, output, guard_context
+                                output = await GuardExecutor.run_output_guards_async(
+                                    guard_config, output, guard_context
                                 )
 
                         if result is not None:
@@ -900,7 +887,7 @@ def spell(
                 agent = _get_or_create_agent(config_hash, resolved_model, resolved_settings)
 
                 # Check for guards
-                guard_config = getattr(fn, _GUARD_MARKER, None)
+                guard_config = GuardExecutor.get_config(fn)
                 input_args = _extract_input_args(fn, args, kwargs)
 
                 # Check logging config early to decide which guard runners to use
@@ -914,18 +901,18 @@ def spell(
 
                 # Run input guards if present
                 if guard_config and guard_config.input_guards:
-                    guard_context = _build_context(fn)
+                    guard_context = GuardExecutor.build_context(fn)
                     guard_context["model"] = model  # Use alias, not resolved
                     if logging_enabled and validation_metrics:
-                        guard_result = _run_input_guards_tracked(
-                            guard_config.input_guards, input_args, guard_context
+                        guard_result = GuardExecutor.run_input_guards_tracked(
+                            guard_config, input_args, guard_context
                         )
                         input_args = guard_result.result
                         validation_metrics.input_guards_passed = guard_result.passed
                         validation_metrics.input_guards_failed = guard_result.failed
                     else:
-                        input_args = _run_input_guards(
-                            guard_config.input_guards, input_args, guard_context
+                        input_args = GuardExecutor.run_input_guards(
+                            guard_config, input_args, guard_context
                         )
                     # Rebuild user prompt with potentially transformed args
                     user_prompt = "\n".join(f"{k}: {v!r}" for k, v in input_args.items())
@@ -956,10 +943,10 @@ def spell(
 
                     # Run output guards if present
                     if guard_config and guard_config.output_guards:
-                        guard_context = _build_context(fn)
+                        guard_context = GuardExecutor.build_context(fn)
                         guard_context["model"] = model
-                        output = _run_output_guards(
-                            guard_config.output_guards, output, guard_context
+                        output = GuardExecutor.run_output_guards(
+                            guard_config, output, guard_context
                         )
 
                     return output  # type: ignore[return-value]
@@ -1034,18 +1021,18 @@ def spell(
 
                         # Run output guards if present (with tracking)
                         if guard_config and guard_config.output_guards:
-                            guard_context = _build_context(fn)
+                            guard_context = GuardExecutor.build_context(fn)
                             guard_context["model"] = model
                             if validation_metrics:
-                                guard_result = _run_output_guards_tracked(
-                                    guard_config.output_guards, output, guard_context
+                                guard_result = GuardExecutor.run_output_guards_tracked(
+                                    guard_config, output, guard_context
                                 )
                                 output = guard_result.result
                                 validation_metrics.output_guards_passed = guard_result.passed
                                 validation_metrics.output_guards_failed = guard_result.failed
                             else:
-                                output = _run_output_guards(
-                                    guard_config.output_guards, output, guard_context
+                                output = GuardExecutor.run_output_guards(
+                                    guard_config, output, guard_context
                                 )
 
                         if result is not None:
@@ -1088,15 +1075,15 @@ def spell(
                 agent = _get_or_create_agent(config_hash, resolved_model, resolved_settings)
 
                 # Check for guards
-                guard_config = getattr(fn, _GUARD_MARKER, None)
+                guard_config = GuardExecutor.get_config(fn)
                 input_args = _extract_input_args(fn, args, kwargs)
 
                 # Run input guards if present
                 if guard_config and guard_config.input_guards:
-                    guard_context = _build_context(fn)
+                    guard_context = GuardExecutor.build_context(fn)
                     guard_context["model"] = model
-                    input_args = await _run_input_guards_async(
-                        guard_config.input_guards, input_args, guard_context
+                    input_args = await GuardExecutor.run_input_guards_async(
+                        guard_config, input_args, guard_context
                     )
                     user_prompt = "\n".join(f"{k}: {v!r}" for k, v in input_args.items())
                 else:
@@ -1131,10 +1118,10 @@ def spell(
 
                 # Run output guards if present
                 if guard_config and guard_config.output_guards:
-                    guard_context = _build_context(fn)
+                    guard_context = GuardExecutor.build_context(fn)
                     guard_context["model"] = model
-                    output = await _run_output_guards_async(
-                        guard_config.output_guards, output, guard_context
+                    output = await GuardExecutor.run_output_guards_async(
+                        guard_config, output, guard_context
                     )
 
                 # Extract token usage from result
@@ -1185,15 +1172,15 @@ def spell(
                 agent = _get_or_create_agent(config_hash, resolved_model, resolved_settings)
 
                 # Check for guards
-                guard_config = getattr(fn, _GUARD_MARKER, None)
+                guard_config = GuardExecutor.get_config(fn)
                 input_args = _extract_input_args(fn, args, kwargs)
 
                 # Run input guards if present
                 if guard_config and guard_config.input_guards:
-                    guard_context = _build_context(fn)
+                    guard_context = GuardExecutor.build_context(fn)
                     guard_context["model"] = model
-                    input_args = _run_input_guards(
-                        guard_config.input_guards, input_args, guard_context
+                    input_args = GuardExecutor.run_input_guards(
+                        guard_config, input_args, guard_context
                     )
                     user_prompt = "\n".join(f"{k}: {v!r}" for k, v in input_args.items())
                 else:
@@ -1228,10 +1215,10 @@ def spell(
 
                 # Run output guards if present
                 if guard_config and guard_config.output_guards:
-                    guard_context = _build_context(fn)
+                    guard_context = GuardExecutor.build_context(fn)
                     guard_context["model"] = model
-                    output = _run_output_guards(
-                        guard_config.output_guards, output, guard_context
+                    output = GuardExecutor.run_output_guards(
+                        guard_config, output, guard_context
                     )
 
                 # Extract token usage from result

@@ -506,10 +506,111 @@ class _GuardNamespace:
 guard = _GuardNamespace()
 
 
+# ---------------------------------------------------------------------------
+# GuardExecutor: Internal API for spell.py integration
+# ---------------------------------------------------------------------------
+
+
+class GuardExecutor:
+    """Internal API for running guards from spell.py.
+
+    This class provides a clean interface for spell.py to execute guards
+    without needing to import private helper functions directly.
+
+    NOT for external use - this is an internal implementation detail.
+    """
+
+    # Expose the guard marker constant for spell.py
+    MARKER = _GUARD_MARKER
+
+    @staticmethod
+    def get_config(func: Callable) -> _GuardConfig | None:
+        """Get the guard config attached to a function, if any."""
+        return getattr(func, _GUARD_MARKER, None)
+
+    @staticmethod
+    def build_context(func: Callable, attempt: int = 1) -> dict[str, Any]:
+        """Build context dict for guard functions."""
+        return _build_context(func, attempt)
+
+    @staticmethod
+    def run_input_guards(
+        guard_config: _GuardConfig,
+        input_args: dict[str, Any],
+        context: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Run input guards synchronously."""
+        return _run_input_guards(guard_config.input_guards, input_args, context)
+
+    @staticmethod
+    async def run_input_guards_async(
+        guard_config: _GuardConfig,
+        input_args: dict[str, Any],
+        context: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Run input guards asynchronously."""
+        return await _run_input_guards_async(guard_config.input_guards, input_args, context)
+
+    @staticmethod
+    def run_input_guards_tracked(
+        guard_config: _GuardConfig,
+        input_args: dict[str, Any],
+        context: dict[str, Any],
+    ) -> GuardRunResult:
+        """Run input guards with tracking for metrics."""
+        return _run_input_guards_tracked(guard_config.input_guards, input_args, context)
+
+    @staticmethod
+    async def run_input_guards_tracked_async(
+        guard_config: _GuardConfig,
+        input_args: dict[str, Any],
+        context: dict[str, Any],
+    ) -> GuardRunResult:
+        """Run input guards asynchronously with tracking."""
+        return await _run_input_guards_tracked_async(guard_config.input_guards, input_args, context)
+
+    @staticmethod
+    def run_output_guards(
+        guard_config: _GuardConfig,
+        output: T,
+        context: dict[str, Any],
+    ) -> T:
+        """Run output guards synchronously."""
+        return _run_output_guards(guard_config.output_guards, output, context)
+
+    @staticmethod
+    async def run_output_guards_async(
+        guard_config: _GuardConfig,
+        output: T,
+        context: dict[str, Any],
+    ) -> T:
+        """Run output guards asynchronously."""
+        return await _run_output_guards_async(guard_config.output_guards, output, context)
+
+    @staticmethod
+    def run_output_guards_tracked(
+        guard_config: _GuardConfig,
+        output: T,
+        context: dict[str, Any],
+    ) -> GuardRunResult:
+        """Run output guards with tracking for metrics."""
+        return _run_output_guards_tracked(guard_config.output_guards, output, context)
+
+    @staticmethod
+    async def run_output_guards_tracked_async(
+        guard_config: _GuardConfig,
+        output: T,
+        context: dict[str, Any],
+    ) -> GuardRunResult:
+        """Run output guards asynchronously with tracking."""
+        return await _run_output_guards_tracked_async(guard_config.output_guards, output, context)
+
+
 # Export for use in spell.py
 __all__ = [
     "guard",
     "GuardError",
+    "GuardExecutor",
     "OnFail",
     "InputGuard",
     "OutputGuard",
