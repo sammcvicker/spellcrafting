@@ -5,33 +5,9 @@ from unittest.mock import MagicMock, patch
 import pytest
 from pydantic import BaseModel
 
-import sys
-
-import magically.config as config_module
 from magically import spell
 from magically.config import Config, MagicallyConfigError, ModelConfig
 from magically.spell import _build_user_prompt, _is_literal_model
-
-# Access the actual spell module (not the function)
-spell_module = sys.modules["magically.spell"]
-
-
-@pytest.fixture(autouse=True)
-def reset_config():
-    """Reset config state between tests."""
-    config_module._file_config_cache = None
-    config_module._process_default = None
-    yield
-    config_module._file_config_cache = None
-    config_module._process_default = None
-
-
-@pytest.fixture(autouse=True)
-def reset_agent_cache():
-    """Reset agent cache between tests."""
-    spell_module._agent_cache.clear()
-    yield
-    spell_module._agent_cache.clear()
 
 
 class Summary(BaseModel):

@@ -5,32 +5,9 @@ from unittest.mock import MagicMock, patch
 import pytest
 from pydantic import BaseModel
 
-import magically.config as config_module
 from magically import spell, SpellResult
 from magically.config import Config, ModelConfig
 from magically.logging import trace_context, with_trace_id
-
-# Access the actual spell module
-import sys
-spell_module = sys.modules["magically.spell"]
-
-
-@pytest.fixture(autouse=True)
-def reset_config():
-    """Reset config state between tests."""
-    config_module._file_config_cache = None
-    config_module._process_default = None
-    yield
-    config_module._file_config_cache = None
-    config_module._process_default = None
-
-
-@pytest.fixture(autouse=True)
-def reset_agent_cache():
-    """Reset agent cache between tests."""
-    spell_module._agent_cache.clear()
-    yield
-    spell_module._agent_cache.clear()
 
 
 class Category(BaseModel):
@@ -226,7 +203,8 @@ class TestWithMetadataSync:
 
         mock_result = MagicMock()
         mock_result.output = "result"
-        mock_result.usage.side_effect = Exception("Usage error")
+        # Use AttributeError to simulate usage() method not available
+        mock_result.usage.side_effect = AttributeError("Usage not available")
 
         mock_agent = MagicMock()
         mock_agent.run_sync.return_value = mock_result
@@ -454,7 +432,8 @@ class TestSpellResultCostEstimate:
 
         mock_result = MagicMock()
         mock_result.output = "result"
-        mock_result.usage.side_effect = Exception("No usage")
+        # Use AttributeError to simulate usage() method not available
+        mock_result.usage.side_effect = AttributeError("No usage")
 
         mock_agent = MagicMock()
         mock_agent.run_sync.return_value = mock_result
