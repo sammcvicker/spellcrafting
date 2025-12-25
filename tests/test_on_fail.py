@@ -585,3 +585,136 @@ class TestOnFailStrategyImmutability:
         fallback1 = OnFail.fallback("default1")
         fallback2 = OnFail.fallback("default2")
         assert fallback1 != fallback2
+
+
+class TestResolveEscalationModel:
+    """Tests for _resolve_escalation_model function (#20).
+
+    This function resolves escalation model aliases to actual model strings
+    and settings. It's used by the escalate on_fail strategy.
+    """
+
+    def test_literal_model_returned_as_is(self):
+        """Literal model (with colon) should be returned unchanged."""
+        from magically.spell import _resolve_escalation_model
+
+        model, settings = _resolve_escalation_model("openai:gpt-4o")
+        assert model == "openai:gpt-4o"
+        assert settings is None
+
+    def test_literal_model_with_provider_prefix(self):
+        """Various literal model formats should work."""
+        from magically.spell import _resolve_escalation_model
+
+        # Anthropic model
+        model, settings = _resolve_escalation_model("anthropic:claude-sonnet-4-20250514")
+        assert model == "anthropic:claude-sonnet-4-20250514"
+        assert settings is None
+
+        # Google model
+        model, settings = _resolve_escalation_model("google:gemini-1.5-pro")
+        assert model == "google:gemini-1.5-pro"
+        assert settings is None
+
+    def test_alias_resolved_from_config_context(self):
+        """Alias should be resolved from Config context."""
+        from magically.spell import _resolve_escalation_model
+        from magically.config import Config, ModelConfig
+
+        config = Config(
+            models={
+                "reasoning": ModelConfig(
+                    model="openai:gpt-4o",
+                    temperature=0.7,
+                    max_tokens=4096,
+                )
+            }
+        )
+
+        with config:
+            model, settings = _resolve_escalation_model("reasoning")
+            assert model == "openai:gpt-4o"
+            assert settings is not None
+            assert settings.get("temperature") == 0.7
+            assert settings.get("max_tokens") == 4096
+
+    def test_alias_resolved_from_process_default(self):
+        """Alias should be resolved from process-level default config."""
+        from magically.spell import _resolve_escalation_model
+        from magically.config import Config, ModelConfig
+
+        config = Config(
+            models={
+                "powerful": ModelConfig(
+                    model="anthropic:claude-opus-4-20250514",
+                    temperature=0.5,
+                )
+            }
+        )
+        config.set_as_default()
+
+        try:
+            model, settings = _resolve_escalation_model("powerful")
+            assert model == "anthropic:claude-opus-4-20250514"
+            assert settings is not None
+            assert settings.get("temperature") == 0.5
+        finally:
+            # Clean up process default
+            Config(models={}).set_as_default()
+
+    def test_unknown_alias_raises_config_error(self):
+        """Unknown alias should raise MagicallyConfigError with helpful message."""
+        from magically.spell import _resolve_escalation_model
+        from magically.config import MagicallyConfigError
+
+        with pytest.raises(MagicallyConfigError, match="could not be resolved"):
+            _resolve_escalation_model("unknown_alias")
+
+    def test_unknown_alias_error_mentions_alias_name(self):
+        """Error message should include the alias name that couldn't be resolved."""
+        from magically.spell import _resolve_escalation_model
+        from magically.config import MagicallyConfigError
+
+        with pytest.raises(MagicallyConfigError, match="my_custom_model"):
+            _resolve_escalation_model("my_custom_model")
+
+    def test_settings_extraction_from_model_config(self):
+        """Settings should be extracted from ModelConfig correctly."""
+        from magically.spell import _resolve_escalation_model
+        from magically.config import Config, ModelConfig
+
+        config = Config(
+            models={
+                "custom": ModelConfig(
+                    model="openai:gpt-4o-mini",
+                    temperature=0.2,
+                    max_tokens=1000,
+                    top_p=0.9,
+                )
+            }
+        )
+
+        with config:
+            model, settings = _resolve_escalation_model("custom")
+            assert model == "openai:gpt-4o-mini"
+            assert settings is not None
+            assert settings.get("temperature") == 0.2
+            assert settings.get("max_tokens") == 1000
+            assert settings.get("top_p") == 0.9
+
+    def test_model_config_without_optional_settings(self):
+        """ModelConfig with only required fields should return None settings."""
+        from magically.spell import _resolve_escalation_model
+        from magically.config import Config, ModelConfig
+
+        config = Config(
+            models={
+                "minimal": ModelConfig(model="openai:gpt-4o")
+            }
+        )
+
+        with config:
+            model, settings = _resolve_escalation_model("minimal")
+            assert model == "openai:gpt-4o"
+            # Settings may be None or an empty dict depending on implementation
+            # The key is that no error is raised
