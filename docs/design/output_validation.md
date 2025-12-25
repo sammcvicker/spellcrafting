@@ -165,6 +165,10 @@ class Response(BaseModel):
 
 ## 2. Semantic Validation
 
+> **Status**: The patterns in this section are NOT implemented in magically.
+> They describe external library patterns and techniques that can be used alongside
+> magically's `@guard.output()` decorator. See `guardrails.md` for design rationale.
+
 ### 2.1 Hallucination Detection
 
 Hallucination detection requires comparing LLM output against provided context or known facts.
@@ -319,6 +323,10 @@ def answer_with_sources(question: str, documents: list[Document]) -> CitedRespon
 ---
 
 ## 3. Safety and Content Filtering
+
+> **Status**: The patterns in this section are NOT implemented in magically.
+> They describe external library patterns (Detoxify, LLM Guard, Guardrails AI)
+> that can be used alongside magically's guards. See `guardrails.md` for design rationale.
 
 ### 3.1 Toxicity Detection
 
@@ -518,6 +526,10 @@ CompetitorFreeText = Annotated[str, AfterValidator(filter_competitors)]
 ---
 
 ## 4. Quality Metrics
+
+> **Status**: The patterns in this section are NOT implemented in magically.
+> They describe external library patterns (embedding models, LLM-as-judge)
+> that can be used alongside magically's guards. See `guardrails.md` for design rationale.
 
 ### 4.1 Relevance Scoring
 

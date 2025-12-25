@@ -15,6 +15,7 @@ internal telemetry types where validation overhead is not needed.
 
 from __future__ import annotations
 
+import os
 import tomllib
 import warnings
 from contextvars import ContextVar, Token
@@ -28,9 +29,17 @@ from magically._pyproject import find_pyproject
 from magically.exceptions import MagicallyConfigError
 
 
+# Environment variable names for configuration
+ENV_DEFAULT_MODEL = "MAGICALLY_DEFAULT_MODEL"
+ENV_DEFAULT_TIMEOUT = "MAGICALLY_DEFAULT_TIMEOUT"
+ENV_DEFAULT_TEMPERATURE = "MAGICALLY_DEFAULT_TEMPERATURE"
+ENV_DEFAULT_MAX_TOKENS = "MAGICALLY_DEFAULT_MAX_TOKENS"
+
+
 _config_context: ContextVar[Config | None] = ContextVar("magically_config", default=None)
 _process_default: Config | None = None
 _file_config_cache: Config | None = None
+_env_config_cache: Config | None = None
 
 
 class ModelConfig(BaseModel):
@@ -259,6 +268,58 @@ class Config:
         return cls(models=validated_models)
 
     @classmethod
+    def from_env(cls) -> Config:
+        """Load config from environment variables.
+
+        Reads environment variables to create a 'default' model alias:
+        - MAGICALLY_DEFAULT_MODEL: Model identifier (e.g., 'anthropic:claude-sonnet')
+        - MAGICALLY_DEFAULT_TIMEOUT: Request timeout in seconds
+        - MAGICALLY_DEFAULT_TEMPERATURE: Temperature (0.0-1.0)
+        - MAGICALLY_DEFAULT_MAX_TOKENS: Maximum tokens to generate
+
+        Returns:
+            Config with 'default' model alias if MAGICALLY_DEFAULT_MODEL is set,
+            or empty Config if not set.
+
+        Example:
+            # Set environment variables:
+            # export MAGICALLY_DEFAULT_MODEL=anthropic:claude-sonnet
+            # export MAGICALLY_DEFAULT_TEMPERATURE=0.7
+
+            config = Config.from_env()
+            # config.resolve("default") will return the model config
+        """
+        env_model = os.environ.get(ENV_DEFAULT_MODEL)
+        if not env_model:
+            return cls()
+
+        # Build model config from env vars
+        model_settings: dict[str, Any] = {"model": env_model}
+
+        env_timeout = os.environ.get(ENV_DEFAULT_TIMEOUT)
+        if env_timeout:
+            try:
+                model_settings["timeout"] = float(env_timeout)
+            except ValueError:
+                pass  # Ignore invalid timeout values
+
+        env_temp = os.environ.get(ENV_DEFAULT_TEMPERATURE)
+        if env_temp:
+            try:
+                model_settings["temperature"] = float(env_temp)
+            except ValueError:
+                pass  # Ignore invalid temperature values
+
+        env_max_tokens = os.environ.get(ENV_DEFAULT_MAX_TOKENS)
+        if env_max_tokens:
+            try:
+                model_settings["max_tokens"] = int(env_max_tokens)
+            except ValueError:
+                pass  # Ignore invalid max_tokens values
+
+        return cls(models={"default": model_settings})
+
+    @classmethod
     def current(cls) -> Config:
         """Get the currently active config.
 
@@ -268,14 +329,21 @@ class Config:
         Resolution order (highest priority first):
         1. Active context (from `with config:`)
         2. Process default (from `config.set_as_default()`)
-        3. File config (from pyproject.toml, cached)
+        3. Environment variables (from MAGICALLY_* env vars, cached)
+        4. File config (from pyproject.toml, cached)
         """
-        global _file_config_cache
+        global _file_config_cache, _env_config_cache
 
         # Start with file config as base (loaded once and cached)
         if _file_config_cache is None:
             _file_config_cache = cls.from_file()
         base = _file_config_cache
+
+        # Merge env config on top of file config
+        if _env_config_cache is None:
+            _env_config_cache = cls.from_env()
+        if _env_config_cache._models:
+            base = base.merge(_env_config_cache)
 
         # Merge process default on top
         if _process_default is not None:
@@ -292,3 +360,29 @@ class Config:
 def current_config() -> Config:
     """Get the currently active config."""
     return Config.current()
+
+
+def clear_config_cache() -> None:
+    """Clear the cached file and environment configuration.
+
+    This function clears all cached configuration, forcing the next call
+    to Config.current() to reload from pyproject.toml and environment
+    variables.
+
+    Useful for:
+    - Development when pyproject.toml changes (with hot-reload frameworks)
+    - Testing when you need to reset config state
+    - Forcing re-read of environment variables after they change
+
+    Note:
+        This does NOT clear programmatic config set via set_as_default()
+        or active context managers. Those must be explicitly managed.
+
+    Example:
+        # After modifying pyproject.toml:
+        clear_config_cache()
+        config = Config.current()  # Will reload from file
+    """
+    global _file_config_cache, _env_config_cache
+    _file_config_cache = None
+    _env_config_cache = None

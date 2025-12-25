@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import functools
 import inspect
+import logging
 import threading
 import time
 import warnings
@@ -10,6 +11,9 @@ from collections import OrderedDict
 from collections.abc import Awaitable
 from dataclasses import dataclass, field
 from typing import Any, Callable, ParamSpec, Sequence, TypeVar, overload
+
+# Module-level logger for debug messages about internal operations
+_logger = logging.getLogger(__name__)
 
 from magically._pydantic_ai import (
     Agent,
@@ -277,8 +281,9 @@ def _extract_token_usage(result: Any) -> TokenUsage:
             cache_read_tokens=0,  # PydanticAI doesn't expose cache tokens yet
             cache_write_tokens=0,
         )
-    except (AttributeError, TypeError):
+    except (AttributeError, TypeError) as e:
         # Result may not have usage() method, or usage may have unexpected format
+        _logger.debug("Could not extract token usage from result: %s", e)
         return TokenUsage()
 
 
@@ -1136,9 +1141,9 @@ def spell(
                         usage = result.usage()
                         input_tokens = usage.request_tokens or 0
                         output_tokens = usage.response_tokens or 0
-                    except (AttributeError, TypeError):
+                    except (AttributeError, TypeError) as e:
                         # Result may not have usage() method or unexpected format
-                        pass
+                        _logger.debug("Could not extract token usage in with_metadata (async): %s", e)
 
                 duration_ms = (time.perf_counter() - start_time) * 1000
 
@@ -1234,9 +1239,9 @@ def spell(
                         usage = result.usage()
                         input_tokens = usage.request_tokens or 0
                         output_tokens = usage.response_tokens or 0
-                    except (AttributeError, TypeError):
+                    except (AttributeError, TypeError) as e:
                         # Result may not have usage() method or unexpected format
-                        pass
+                        _logger.debug("Could not extract token usage in with_metadata (sync): %s", e)
 
                 duration_ms = (time.perf_counter() - start_time) * 1000
 

@@ -19,6 +19,19 @@ with guards applied INSIDE:
     def my_spell(...):
         ...
 
+Async Guard Support:
+    Guards can be either sync or async functions. When used with async spells,
+    async guards are properly awaited. Sync guards work in both contexts.
+
+    async def async_validator(input_args: dict, ctx: dict) -> dict:
+        result = await some_async_check(input_args)
+        return input_args
+
+    @spell(model="fast")
+    @guard.input(async_validator)  # Awaited in async spell
+    async def my_async_spell(text: str) -> str:
+        ...
+
 Example:
     from magically import spell, guard
 
@@ -55,10 +68,26 @@ class InputGuard(Protocol):
     Input guards validate/transform input arguments before the LLM call.
     They receive the bound arguments as a dict and a context dict.
     They can modify and return the arguments, or raise to reject.
+
+    Guards can be either synchronous or asynchronous:
+    - Sync guards: Called directly in both sync and async spell execution
+    - Async guards: Awaited when spell is async, run via asyncio when spell is sync
+
+    Note:
+        For async guards, define them as async functions::
+
+            async def my_async_guard(input_args: dict, ctx: dict) -> dict:
+                result = await some_async_validation(input_args)
+                return input_args
+
+        Async guards will be awaited when used with async spells.
     """
 
     def __call__(self, input_args: dict[str, Any], context: dict[str, Any]) -> dict[str, Any]:
-        """Validate/transform inputs. Raise to reject."""
+        """Validate/transform inputs. Raise to reject.
+
+        Can also return a coroutine for async guards.
+        """
         ...
 
 
@@ -68,10 +97,28 @@ class OutputGuard(Protocol):
     Output guards validate/transform the output after the LLM call.
     They receive the output value and a context dict.
     They can modify and return the output, or raise to reject.
+
+    Guards can be either synchronous or asynchronous:
+    - Sync guards: Called directly in both sync and async spell execution
+    - Async guards: Awaited when spell is async, run via asyncio when spell is sync
+
+    Note:
+        For async guards, define them as async functions::
+
+            async def my_async_guard(output: str, ctx: dict) -> str:
+                is_valid = await some_async_check(output)
+                if not is_valid:
+                    raise ValueError("Invalid output")
+                return output
+
+        Async guards will be awaited when used with async spells.
     """
 
     def __call__(self, output: T, context: dict[str, Any]) -> T:
-        """Validate/transform output. Raise to reject."""
+        """Validate/transform output. Raise to reject.
+
+        Can also return a coroutine for async guards.
+        """
         ...
 
 
