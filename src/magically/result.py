@@ -77,6 +77,33 @@ class SpellResult(Generic[T]):
         """Total tokens used (input + output)."""
         return self.input_tokens + self.output_tokens
 
+    def __repr__(self) -> str:
+        """Return a concise representation, truncating long output."""
+        output_repr = repr(self.output)
+        if len(output_repr) > 100:
+            output_repr = output_repr[:97] + "..."
+        return (
+            f"SpellResult(output={output_repr}, "
+            f"tokens={self.total_tokens}, "
+            f"model={self.model_used!r}, "
+            f"duration_ms={self.duration_ms:.1f})"
+        )
+
+    def content_eq(self, other: SpellResult[T]) -> bool:
+        """Compare content without timing/tokens.
+
+        This is useful for testing when you want to verify the output
+        and model match but don't care about variable fields like
+        duration_ms, token counts, or attempt_count.
+
+        Args:
+            other: Another SpellResult to compare against
+
+        Returns:
+            True if output and model_used match, False otherwise
+        """
+        return self.output == other.output and self.model_used == other.model_used
+
 
 class SyncSpell(Protocol[T_co]):
     """Protocol for synchronous spell-decorated functions.
