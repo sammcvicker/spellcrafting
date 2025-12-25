@@ -31,6 +31,9 @@ from uuid import uuid4
 
 from magically._pyproject import find_pyproject
 
+# Module-level logger for debug messages about internal operations
+_logger = stdlib_logging.getLogger(__name__)
+
 
 class LogLevel(str, Enum):
     """Log levels for magically logging."""
@@ -494,9 +497,10 @@ class OpenTelemetryHandler:
                     span.set_attribute("spell.cost.total", log.cost_estimate.total_cost)
                 for key, value in log.tags.items():
                     span.set_attribute(f"spell.tag.{key}", value)
-        except Exception:
+        except Exception as e:
             # Intentionally broad: OTEL failures should never break spell execution
-            pass
+            # Log at debug level for troubleshooting
+            _logger.debug("OpenTelemetry export failed for spell '%s': %s", log.spell_name, e)
 
     def flush(self) -> None:
         pass
@@ -942,6 +946,8 @@ def _emit_log(log: SpellExecutionLog) -> None:
     for handler in config.handlers:
         try:
             handler.handle(log)
-        except Exception:
+        except Exception as e:
             # Intentionally broad: handler failures should never break spell execution
-            pass
+            # Log at debug level for troubleshooting
+            handler_name = type(handler).__name__
+            _logger.debug("Log handler %s failed: %s", handler_name, e)

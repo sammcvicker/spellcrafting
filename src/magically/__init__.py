@@ -17,7 +17,7 @@ Import Guidelines:
 
 from importlib.metadata import version, PackageNotFoundError
 
-from magically.config import Config, ModelConfig, current_config
+from magically.config import Config, ModelConfig, current_config, clear_config_cache
 from magically.exceptions import (
     MagicallyError,
     MagicallyConfigError,
@@ -100,6 +100,7 @@ __all__ = [
     "Config",
     "ModelConfig",
     "current_config",
+    "clear_config_cache",
     # Exceptions (all inherit from MagicallyError)
     "MagicallyError",
     "MagicallyConfigError",
