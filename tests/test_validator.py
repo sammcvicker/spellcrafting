@@ -268,3 +268,101 @@ class TestLlmValidatorCacheClearing:
 
             # The cache entry should be cleared
             assert _agent_cache.get((fake_spell_id, 0)) is None
+
+    def test_clears_multiple_cached_agents(self):
+        """If multiple agents cached for same spell, all should be cleared (#179)."""
+        from magically.spell import _agent_cache
+
+        fake_spell_id = 99999
+        # Multiple cache entries with different config hashes
+        _agent_cache.set((fake_spell_id, 0), MagicMock())
+        _agent_cache.set((fake_spell_id, 1), MagicMock())
+        _agent_cache.set((fake_spell_id, 2), MagicMock())
+
+        with patch("magically.validator.spell") as mock_spell:
+            def make_spell(model):
+                def decorator(fn):
+                    fn._spell_id = fake_spell_id
+                    fn._system_prompt = ""
+                    return fn
+                return decorator
+            mock_spell.side_effect = make_spell
+
+            llm_validator("Test rule")
+
+        # All entries should be cleared
+        for i in range(3):
+            assert _agent_cache.get((fake_spell_id, i)) is None
+
+    def test_cache_clearing_with_empty_cache(self):
+        """Cache clearing should be safe with empty cache (#179)."""
+        from magically.spell import _agent_cache
+        _agent_cache.clear()
+
+        # Should not raise
+        with patch("magically.validator.spell") as mock_spell:
+            def make_spell(model):
+                def decorator(fn):
+                    fn._spell_id = 12345
+                    fn._system_prompt = ""
+                    return fn
+                return decorator
+            mock_spell.side_effect = make_spell
+
+            # This should complete without error
+            validator = llm_validator("Test rule")
+            assert callable(validator)
+
+    def test_cache_clearing_only_affects_target_spell(self):
+        """Cache clearing should not affect other spells' agents (#179)."""
+        from magically.spell import _agent_cache
+
+        fake_spell_id = 88888
+        other_spell_id = 77777
+
+        # Pre-populate cache with agents for different spells
+        other_agent = MagicMock()
+        _agent_cache.set((other_spell_id, 0), other_agent)
+        _agent_cache.set((fake_spell_id, 0), MagicMock())
+
+        with patch("magically.validator.spell") as mock_spell:
+            def make_spell(model):
+                def decorator(fn):
+                    fn._spell_id = fake_spell_id
+                    fn._system_prompt = ""
+                    return fn
+                return decorator
+            mock_spell.side_effect = make_spell
+
+            llm_validator("Test rule")
+
+        # Target spell's cache should be cleared
+        assert _agent_cache.get((fake_spell_id, 0)) is None
+        # Other spell's cache should remain
+        assert _agent_cache.get((other_spell_id, 0)) is other_agent
+
+    def test_cache_clearing_with_various_config_hashes(self):
+        """Cache clearing should handle any config hash values (#179)."""
+        from magically.spell import _agent_cache
+
+        fake_spell_id = 66666
+        # Various config hash values including negative
+        config_hashes = [0, 1, -1, 999999, -999999]
+
+        for h in config_hashes:
+            _agent_cache.set((fake_spell_id, h), MagicMock())
+
+        with patch("magically.validator.spell") as mock_spell:
+            def make_spell(model):
+                def decorator(fn):
+                    fn._spell_id = fake_spell_id
+                    fn._system_prompt = ""
+                    return fn
+                return decorator
+            mock_spell.side_effect = make_spell
+
+            llm_validator("Test rule")
+
+        # All entries should be cleared
+        for h in config_hashes:
+            assert _agent_cache.get((fake_spell_id, h)) is None
