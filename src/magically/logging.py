@@ -7,8 +7,9 @@ from __future__ import annotations
 
 import json
 import logging as stdlib_logging
+import tomllib
 from contextlib import contextmanager
-from contextvars import ContextVar, Token
+from contextvars import ContextVar
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from enum import Enum
@@ -16,6 +17,8 @@ from pathlib import Path
 from collections.abc import Awaitable, Generator
 from typing import Any, Literal, Protocol
 from uuid import uuid4
+
+from magically._pyproject import find_pyproject
 
 
 class LogLevel(str, Enum):
@@ -490,17 +493,7 @@ def configure_logging(config: LoggingConfig) -> None:
 
 def _load_logging_config_from_file() -> LoggingConfig | None:
     """Load logging configuration from pyproject.toml."""
-    import tomllib
-
-    # Find pyproject.toml
-    cwd = Path.cwd()
-    pyproject_path = None
-    for parent in [cwd, *cwd.parents]:
-        candidate = parent / "pyproject.toml"
-        if candidate.exists():
-            pyproject_path = candidate
-            break
-
+    pyproject_path = find_pyproject()
     if pyproject_path is None:
         return None
 
