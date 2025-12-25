@@ -4,6 +4,15 @@ Guards provide composable validation that runs before (input) or after (output)
 spell execution. They're designed to work alongside Pydantic structural validation
 for semantic/safety checks that need the full context.
 
+IMPORTANT: Decorator order matters! @spell must be the OUTERMOST decorator,
+with guards applied INSIDE:
+
+    @spell                    # <-- Always outermost
+    @guard.input(validate)    # Input guards run before LLM
+    @guard.output(check)      # Output guards run after LLM
+    def my_spell(...):
+        ...
+
 Example:
     from magically import spell, guard
 
@@ -24,6 +33,7 @@ from __future__ import annotations
 
 import asyncio
 import functools
+import warnings
 from dataclasses import dataclass, field
 from typing import Any, Callable, ParamSpec, Protocol, TypeVar
 
@@ -370,6 +380,20 @@ class _GuardNamespace:
         """
 
         def decorator(func: Callable[P, T]) -> Callable[P, T]:
+            # Check if guards are being applied OUTSIDE @spell (wrong order)
+            if getattr(func, "_is_spell_wrapper", False):
+                func_name = getattr(func, "__name__", "unknown")
+                warnings.warn(
+                    f"Guard applied outside @spell decorator on '{func_name}'. "
+                    f"Guards must be applied INSIDE @spell:\n"
+                    f"    @spell                    # <-- outermost\n"
+                    f"    @guard.input(...)         # <-- inside\n"
+                    f"    def {func_name}(...):\n"
+                    f"        ...\n"
+                    f"The guard will NOT be integrated with spell execution.",
+                    UserWarning,
+                    stacklevel=2,
+                )
             config = _get_or_create_guard_config(func)
             # Prepend so guards run in decorator order (innermost first for input)
             config.input_guards.insert(0, (guard_fn, on_fail))
@@ -412,6 +436,20 @@ class _GuardNamespace:
         """
 
         def decorator(func: Callable[P, T]) -> Callable[P, T]:
+            # Check if guards are being applied OUTSIDE @spell (wrong order)
+            if getattr(func, "_is_spell_wrapper", False):
+                func_name = getattr(func, "__name__", "unknown")
+                warnings.warn(
+                    f"Guard applied outside @spell decorator on '{func_name}'. "
+                    f"Guards must be applied INSIDE @spell:\n"
+                    f"    @spell                    # <-- outermost\n"
+                    f"    @guard.output(...)        # <-- inside\n"
+                    f"    def {func_name}(...):\n"
+                    f"        ...\n"
+                    f"The guard will NOT be integrated with spell execution.",
+                    UserWarning,
+                    stacklevel=2,
+                )
             config = _get_or_create_guard_config(func)
             # Append so guards run in decorator order (outermost first for output)
             config.output_guards.append((guard_fn, on_fail))
@@ -443,6 +481,20 @@ class _GuardNamespace:
         """
 
         def decorator(func: Callable[P, T]) -> Callable[P, T]:
+            # Check if guards are being applied OUTSIDE @spell (wrong order)
+            if getattr(func, "_is_spell_wrapper", False):
+                func_name = getattr(func, "__name__", "unknown")
+                warnings.warn(
+                    f"Guard applied outside @spell decorator on '{func_name}'. "
+                    f"Guards must be applied INSIDE @spell:\n"
+                    f"    @spell                         # <-- outermost\n"
+                    f"    @guard.max_length(...)         # <-- inside\n"
+                    f"    def {func_name}(...):\n"
+                    f"        ...\n"
+                    f"The guard will NOT be integrated with spell execution.",
+                    UserWarning,
+                    stacklevel=2,
+                )
             config = _get_or_create_guard_config(func)
 
             if input is not None:

@@ -286,6 +286,15 @@ def spell(
     The function's return type annotation becomes the output schema.
     Function arguments are passed to the LLM as the user message.
 
+    IMPORTANT: Decorator order matters! @spell must be the OUTERMOST decorator,
+    with guards applied INSIDE:
+
+        @spell                    # <-- Always outermost
+        @guard.input(validate)    # Input guards run before LLM
+        @guard.output(check)      # Output guards run after LLM
+        def my_spell(...):
+            ...
+
     Args:
         func: The function to decorate (when used without parentheses)
         model: LLM model to use (e.g., 'openai:gpt-4o', 'anthropic:claude-sonnet')
@@ -719,6 +728,9 @@ def spell(
 
         # Store for testing/introspection
         wrapper._original_func = fn  # type: ignore[attr-defined]
+
+        # Store marker to detect if guards are applied outside @spell
+        wrapper._is_spell_wrapper = True  # type: ignore[attr-defined]
         wrapper._model_alias = model  # type: ignore[attr-defined]
         wrapper._system_prompt = system_prompt  # type: ignore[attr-defined]
         wrapper._output_type = output_type  # type: ignore[attr-defined]
