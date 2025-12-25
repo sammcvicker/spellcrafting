@@ -636,3 +636,134 @@ model = "file:fast"
         process_default.set_as_default()
 
         assert Config.current().resolve("fast").model == "default:fast"
+
+
+class TestModelConfigValidation:
+    """Tests for ModelConfig model string validation (#71)."""
+
+    def test_valid_model_format(self):
+        """Valid provider:model format should work."""
+        config = ModelConfig(model="anthropic:claude-sonnet")
+        assert config.model == "anthropic:claude-sonnet"
+
+    def test_strips_whitespace(self):
+        """Whitespace should be stripped from model string."""
+        config = ModelConfig(model="  anthropic:claude-sonnet  ")
+        assert config.model == "anthropic:claude-sonnet"
+
+    def test_strips_whitespace_around_colon(self):
+        """Whitespace around colon should be stripped."""
+        config = ModelConfig(model="anthropic : claude-sonnet")
+        assert config.model == "anthropic:claude-sonnet"
+
+    def test_empty_model_raises(self):
+        """Empty model string should raise."""
+        with pytest.raises(ValidationError, match="cannot be empty"):
+            ModelConfig(model="")
+
+    def test_whitespace_only_model_raises(self):
+        """Whitespace-only model string should raise."""
+        with pytest.raises(ValidationError, match="cannot be empty"):
+            ModelConfig(model="   ")
+
+    def test_empty_provider_raises(self):
+        """Empty provider in provider:model format should raise."""
+        with pytest.raises(ValidationError, match="Provider cannot be empty"):
+            ModelConfig(model=":gpt-4")
+
+    def test_empty_model_name_raises(self):
+        """Empty model name in provider:model format should raise."""
+        with pytest.raises(ValidationError, match="Model name cannot be empty"):
+            ModelConfig(model="openai:")
+
+    def test_alias_without_colon_allowed(self):
+        """Alias strings without colon should be allowed."""
+        config = ModelConfig(model="fast")
+        assert config.model == "fast"
+
+    def test_model_with_multiple_colons(self):
+        """Model names with multiple colons should work (colon in model name)."""
+        # Some providers may use colons in model names
+        config = ModelConfig(model="provider:model:variant")
+        assert config.model == "provider:model:variant"
+
+
+class TestModelConfigHashWithNestedValues:
+    """Tests for ModelConfig hash with nested dict/list values (#68)."""
+
+    def test_hash_with_nested_dict(self):
+        """ModelConfig with nested dict in extra should be hashable."""
+        config = ModelConfig(
+            model="openai:gpt-4",
+            extra={"headers": {"X-Custom": "value"}}
+        )
+        # Should not raise TypeError
+        hash_value = hash(config)
+        assert isinstance(hash_value, int)
+
+    def test_hash_with_nested_list(self):
+        """ModelConfig with list in extra should be hashable."""
+        config = ModelConfig(
+            model="openai:gpt-4",
+            extra={"stop_sequences": ["END", "STOP"]}
+        )
+        hash_value = hash(config)
+        assert isinstance(hash_value, int)
+
+    def test_hash_with_deeply_nested_structure(self):
+        """ModelConfig with deeply nested structure should be hashable."""
+        config = ModelConfig(
+            model="openai:gpt-4",
+            extra={
+                "nested": {
+                    "list": [1, 2, {"deep": "value"}],
+                    "dict": {"a": {"b": {"c": 1}}}
+                }
+            }
+        )
+        hash_value = hash(config)
+        assert isinstance(hash_value, int)
+
+    def test_hash_equality_with_nested_values(self):
+        """Equal nested structures should have equal hashes."""
+        config1 = ModelConfig(
+            model="test",
+            extra={"headers": {"X-Custom": "value"}}
+        )
+        config2 = ModelConfig(
+            model="test",
+            extra={"headers": {"X-Custom": "value"}}
+        )
+        assert hash(config1) == hash(config2)
+
+    def test_hash_inequality_with_different_nested_values(self):
+        """Different nested structures should have different hashes."""
+        config1 = ModelConfig(
+            model="test",
+            extra={"headers": {"X-Custom": "value1"}}
+        )
+        config2 = ModelConfig(
+            model="test",
+            extra={"headers": {"X-Custom": "value2"}}
+        )
+        assert hash(config1) != hash(config2)
+
+
+class TestTOMLParseWarning:
+    """Tests for TOML parse error warning (#67)."""
+
+    def test_malformed_toml_emits_warning(self, tmp_path):
+        """Malformed TOML should emit a warning with details."""
+        pyproject = tmp_path / "pyproject.toml"
+        pyproject.write_text("this is [not valid toml")
+
+        with pytest.warns(UserWarning, match="Failed to parse.*Magically configuration will be ignored"):
+            Config.from_file(pyproject)
+
+    def test_warning_includes_file_path(self, tmp_path):
+        """Warning should include the file path."""
+        pyproject = tmp_path / "pyproject.toml"
+        pyproject.write_text("invalid = [toml")
+
+        with pytest.warns(UserWarning, match=str(pyproject)):
+            Config.from_file(pyproject)

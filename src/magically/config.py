@@ -22,7 +22,8 @@ from contextvars import ContextVar, Token
 from pathlib import Path
 from typing import Any, Self
 
-from pydantic import BaseModel, ConfigDict, Field, ValidationError as PydanticValidationError
+import json
+from pydantic import BaseModel, ConfigDict, Field, field_validator, ValidationError as PydanticValidationError
 
 from magically._pydantic_ai import ModelSettings
 from magically._pyproject import find_pyproject
@@ -64,6 +65,35 @@ class ModelConfig(BaseModel):
     model: str
     """Provider:model-name format (e.g., 'anthropic:claude-sonnet')."""
 
+    @field_validator("model")
+    @classmethod
+    def validate_model_format(cls, v: str) -> str:
+        """Validate and normalize model string format.
+
+        - Strips whitespace
+        - Validates provider:model format if colon is present
+        - Ensures both provider and model name are non-empty
+        """
+        v = v.strip()
+        if not v:
+            raise ValueError("Model string cannot be empty")
+
+        if ":" in v:
+            # Split on first colon only to allow model names with colons
+            parts = v.split(":", 1)
+            provider = parts[0].strip()
+            model_name = parts[1].strip()
+
+            if not provider:
+                raise ValueError(f"Invalid model format: {v!r}. Provider cannot be empty.")
+            if not model_name:
+                raise ValueError(f"Invalid model format: {v!r}. Model name cannot be empty.")
+
+            # Return normalized format (stripped)
+            return f"{provider}:{model_name}"
+
+        return v
+
     temperature: float | None = None
     max_tokens: int | None = None
     top_p: float | None = None
@@ -74,7 +104,15 @@ class ModelConfig(BaseModel):
     """Passthrough for provider-specific settings."""
 
     def __hash__(self) -> int:
-        """Hash for agent caching."""
+        """Hash for agent caching.
+
+        Uses JSON serialization for the extra dict to handle nested
+        dicts and lists that would otherwise be unhashable.
+        """
+        # Serialize extra values to JSON strings to handle nested dicts/lists
+        extra_items = tuple(
+            sorted((k, json.dumps(v, sort_keys=True)) for k, v in self.extra.items())
+        )
         return hash(
             (
                 self.model,
@@ -83,7 +121,7 @@ class ModelConfig(BaseModel):
                 self.top_p,
                 self.timeout,
                 self.retries,
-                tuple(sorted(self.extra.items())),
+                extra_items,
             )
         )
 
@@ -226,7 +264,12 @@ class Config:
         try:
             with open(pyproject_path, "rb") as f:
                 data = tomllib.load(f)
-        except tomllib.TOMLDecodeError:
+        except tomllib.TOMLDecodeError as e:
+            warnings.warn(
+                f"Failed to parse {pyproject_path}: {e}. "
+                "Magically configuration will be ignored.",
+                stacklevel=2,
+            )
             return cls()
 
         tool_config = data.get("tool", {}).get("magically", {})
