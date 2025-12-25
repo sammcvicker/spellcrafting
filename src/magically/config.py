@@ -18,7 +18,7 @@ from __future__ import annotations
 import os
 import tomllib
 import warnings
-from contextvars import ContextVar, Token
+from contextvars import ContextVar
 from pathlib import Path
 from typing import Any, Self
 
@@ -169,7 +169,7 @@ class Config:
     ) -> None:
         """Create config. Dicts are coerced to ModelConfig."""
         self._models: dict[str, ModelConfig] = {}
-        self._token: Token[Config | None] | None = None
+        self._token: Any = None  # contextvars.Token, private implementation detail
 
         if models:
             for alias, model_config in models.items():

@@ -662,6 +662,127 @@ class TestMaxLengthGuard:
         )
         assert result == "1234567890"
 
+    def test_max_length_input_ignores_non_strings(self):
+        """Input guard should skip non-string arguments (#58)."""
+        @guard.max_length(input_max=10)
+        def fn(text: str, count: int, data: list) -> str:
+            return text
+
+        config = get_guard_config(fn)
+        assert config is not None
+
+        # Non-string arguments should not be checked, even if "large"
+        result = _run_input_guards(
+            config.input_guards,
+            {"text": "short", "count": 99999, "data": list(range(1000))},
+            TEST_CONTEXT,
+        )
+        assert result["text"] == "short"
+        assert result["count"] == 99999
+        assert len(result["data"]) == 1000
+
+    def test_max_length_input_checks_only_strings(self):
+        """Input guard should only check string arguments (#58)."""
+        @guard.max_length(input_max=5)
+        def fn(text: str, number: int) -> str:
+            return text
+
+        config = get_guard_config(fn)
+        assert config is not None
+
+        # String over limit should fail
+        with pytest.raises(GuardError, match="exceeds maximum length of 5"):
+            _run_input_guards(
+                config.input_guards,
+                {"text": "this is too long", "number": 12345678},
+                TEST_CONTEXT,
+            )
+
+        # String under limit passes, even with large int
+        result = _run_input_guards(
+            config.input_guards,
+            {"text": "ok", "number": 12345678},
+            TEST_CONTEXT,
+        )
+        assert result["text"] == "ok"
+
+    def test_max_length_output_ignores_non_strings(self):
+        """Output guard should skip non-string values (#58)."""
+        @guard.max_length(output_max=5)
+        def fn() -> dict:
+            pass
+
+        config = get_guard_config(fn)
+        assert config is not None
+
+        # Dict output should not be checked
+        result = _run_output_guards(
+            config.output_guards,
+            {"key": "a very long value that exceeds limit"},
+            TEST_CONTEXT,
+        )
+        assert result == {"key": "a very long value that exceeds limit"}
+
+    def test_max_length_output_ignores_list(self):
+        """Output guard should skip list values (#58)."""
+        @guard.max_length(output_max=3)
+        def fn() -> list:
+            pass
+
+        config = get_guard_config(fn)
+        assert config is not None
+
+        # List output should not be checked (even though len > 3)
+        result = _run_output_guards(
+            config.output_guards,
+            [1, 2, 3, 4, 5],
+            TEST_CONTEXT,
+        )
+        assert result == [1, 2, 3, 4, 5]
+
+    def test_max_length_output_ignores_int(self):
+        """Output guard should skip int values (#58)."""
+        @guard.max_length(output_max=2)
+        def fn() -> int:
+            pass
+
+        config = get_guard_config(fn)
+        assert config is not None
+
+        # Int output should not be checked
+        result = _run_output_guards(
+            config.output_guards,
+            12345,
+            TEST_CONTEXT,
+        )
+        assert result == 12345
+
+    def test_max_length_input_mixed_string_limits(self):
+        """Input guard checks strings but not other types in mixed args (#58)."""
+        @guard.max_length(input_max=10)
+        def fn(a: str, b: int, c: str, d: dict) -> str:
+            return a
+
+        config = get_guard_config(fn)
+        assert config is not None
+
+        # First string under limit, second string over limit - should fail
+        with pytest.raises(GuardError, match="'c' exceeds maximum length"):
+            _run_input_guards(
+                config.input_guards,
+                {"a": "short", "b": 999, "c": "this is way too long", "d": {"x": 1}},
+                TEST_CONTEXT,
+            )
+
+        # Both strings under limit - should pass
+        result = _run_input_guards(
+            config.input_guards,
+            {"a": "short", "b": 999, "c": "also ok", "d": {"x": 1}},
+            TEST_CONTEXT,
+        )
+        assert result["a"] == "short"
+        assert result["c"] == "also ok"
+
 
 class TestBuildContext:
     """Tests for context building helper."""

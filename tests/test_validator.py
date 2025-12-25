@@ -389,6 +389,154 @@ class TestLlmValidatorNonStringTypes:
             assert result is None
 
 
+class TestLlmValidatorEdgeCases:
+    """Tests for llm_validator with edge case values (#56)."""
+
+    def test_empty_string_validation_fails(self):
+        """Empty string should be validated by LLM and can fail."""
+        mock_result = ValidationResult(valid=False, reason="Empty string not allowed")
+
+        with patch("magically.validator.spell") as mock_spell:
+            mock_validate = MagicMock(return_value=mock_result)
+            mock_spell.return_value = lambda fn: mock_validate
+
+            validator_fn = llm_validator("Must not be empty")
+
+            with pytest.raises(ValueError, match="Validation failed: Empty string not allowed"):
+                validator_fn("")
+
+    def test_empty_string_validation_passes(self):
+        """Empty string can pass validation if LLM determines it's valid."""
+        mock_result = ValidationResult(valid=True)
+
+        with patch("magically.validator.spell") as mock_spell:
+            mock_validate = MagicMock(return_value=mock_result)
+            mock_spell.return_value = lambda fn: mock_validate
+
+            validator_fn = llm_validator("Optional field that can be empty")
+            result = validator_fn("")
+
+            assert result == ""
+
+    def test_whitespace_only_validation_fails(self):
+        """Whitespace-only string should be validated by LLM and can fail."""
+        mock_result = ValidationResult(valid=False, reason="Contains only whitespace")
+
+        with patch("magically.validator.spell") as mock_spell:
+            mock_validate = MagicMock(return_value=mock_result)
+            mock_spell.return_value = lambda fn: mock_validate
+
+            validator_fn = llm_validator("Must contain meaningful content")
+
+            with pytest.raises(ValueError, match="Validation failed: Contains only whitespace"):
+                validator_fn("   \t\n  ")
+
+    def test_whitespace_only_validation_passes(self):
+        """Whitespace-only string can pass validation if rule allows."""
+        mock_result = ValidationResult(valid=True)
+
+        with patch("magically.validator.spell") as mock_spell:
+            mock_validate = MagicMock(return_value=mock_result)
+            mock_spell.return_value = lambda fn: mock_validate
+
+            validator_fn = llm_validator("Any string is allowed")
+            result = validator_fn("   ")
+
+            assert result == "   "
+
+    def test_very_long_string_validation(self):
+        """Very long strings should be handled properly."""
+        mock_result = ValidationResult(valid=True)
+        long_string = "a" * 10000
+
+        with patch("magically.validator.spell") as mock_spell:
+            mock_validate = MagicMock(return_value=mock_result)
+            mock_spell.return_value = lambda fn: mock_validate
+
+            validator_fn = llm_validator("Must be valid text")
+            result = validator_fn(long_string)
+
+            assert result == long_string
+            # Verify the LLM was called with the full string
+            mock_validate.assert_called_once_with(long_string)
+
+    def test_very_long_string_validation_fails(self):
+        """Very long strings can fail validation based on rule."""
+        mock_result = ValidationResult(valid=False, reason="Input too long")
+        long_string = "a" * 10000
+
+        with patch("magically.validator.spell") as mock_spell:
+            mock_validate = MagicMock(return_value=mock_result)
+            mock_spell.return_value = lambda fn: mock_validate
+
+            validator_fn = llm_validator("Must be under 1000 characters")
+
+            with pytest.raises(ValueError, match="Validation failed: Input too long"):
+                validator_fn(long_string)
+
+    def test_empty_string_with_fix_mode(self):
+        """Empty string with FIX mode should return fixed value."""
+        mock_result = ValidationResult(
+            valid=False,
+            reason="Empty string not allowed",
+            fixed_value="[placeholder]"
+        )
+
+        with patch("magically.validator.spell") as mock_spell:
+            mock_validate = MagicMock(return_value=mock_result)
+            mock_spell.return_value = lambda fn: mock_validate
+
+            validator_fn = llm_validator("Must not be empty", on_fail=OnFail.FIX)
+            result = validator_fn("")
+
+            assert result == "[placeholder]"
+
+    def test_whitespace_with_fix_mode(self):
+        """Whitespace-only string with FIX mode should return fixed value."""
+        mock_result = ValidationResult(
+            valid=False,
+            reason="Only whitespace",
+            fixed_value="default value"
+        )
+
+        with patch("magically.validator.spell") as mock_spell:
+            mock_validate = MagicMock(return_value=mock_result)
+            mock_spell.return_value = lambda fn: mock_validate
+
+            validator_fn = llm_validator("Must have content", on_fail=OnFail.FIX)
+            result = validator_fn("   \n\t  ")
+
+            assert result == "default value"
+
+    def test_newlines_in_string(self):
+        """Strings with newlines should be validated properly."""
+        mock_result = ValidationResult(valid=True)
+        multiline = "line1\nline2\nline3"
+
+        with patch("magically.validator.spell") as mock_spell:
+            mock_validate = MagicMock(return_value=mock_result)
+            mock_spell.return_value = lambda fn: mock_validate
+
+            validator_fn = llm_validator("Valid multiline text")
+            result = validator_fn(multiline)
+
+            assert result == multiline
+
+    def test_special_characters_in_string(self):
+        """Strings with special characters should be validated properly."""
+        mock_result = ValidationResult(valid=True)
+        special = "Hello! @#$%^&*() 你好 مرحبا"
+
+        with patch("magically.validator.spell") as mock_spell:
+            mock_validate = MagicMock(return_value=mock_result)
+            mock_spell.return_value = lambda fn: mock_validate
+
+            validator_fn = llm_validator("Any characters allowed")
+            result = validator_fn(special)
+
+            assert result == special
+
+
 class TestLlmValidatorSystemPromptParameter:
     """Tests for system_prompt parameter usage (no longer mutates internals)."""
 
