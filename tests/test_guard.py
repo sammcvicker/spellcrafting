@@ -7,13 +7,14 @@ import pytest
 
 from magically import spell, guard, GuardError, OnFail
 from magically.guard import (
+    GuardConfig,
+    get_guard_config,
     _get_or_create_guard_config,
     _run_input_guards,
     _run_output_guards,
     _run_input_guards_tracked,
     _run_output_guards_tracked,
     _build_context,
-    _GUARD_MARKER,
 )
 
 
@@ -28,7 +29,8 @@ class TestGuardDecoratorsBasic:
         def fn(text: str) -> str:
             return text
 
-        config = getattr(fn, _GUARD_MARKER)
+        config = get_guard_config(fn)
+        assert config is not None
         assert len(config.input_guards) == 1
         assert config.input_guards[0][0] is my_guard
         assert config.input_guards[0][1] == OnFail.RAISE
@@ -41,7 +43,8 @@ class TestGuardDecoratorsBasic:
         def fn(text: str) -> str:
             return text
 
-        config = getattr(fn, _GUARD_MARKER)
+        config = get_guard_config(fn)
+        assert config is not None
         assert len(config.output_guards) == 1
         assert config.output_guards[0][0] is my_guard
         assert config.output_guards[0][1] == OnFail.RAISE
@@ -58,7 +61,8 @@ class TestGuardDecoratorsBasic:
         def fn(text: str) -> str:
             return text
 
-        config = getattr(fn, _GUARD_MARKER)
+        config = get_guard_config(fn)
+        assert config is not None
         assert len(config.input_guards) == 2
         # Decorators apply bottom-up: guard2 first, then guard1
         # With insert(0, ...), guard1 ends up first in the list
@@ -77,7 +81,8 @@ class TestGuardDecoratorsBasic:
         def fn(text: str) -> str:
             return text
 
-        config = getattr(fn, _GUARD_MARKER)
+        config = get_guard_config(fn)
+        assert config is not None
         assert len(config.output_guards) == 2
         # Decorators apply bottom-up: guard2 first, then guard1
         # With append(...), guard2 ends up first in the list, guard1 second
@@ -96,9 +101,17 @@ class TestGuardDecoratorsBasic:
         def fn(text: str) -> str:
             return text
 
-        config = getattr(fn, _GUARD_MARKER)
+        config = get_guard_config(fn)
+        assert config is not None
         assert len(config.input_guards) == 1
         assert len(config.output_guards) == 1
+
+    def test_get_guard_config_returns_none_for_unguarded_function(self):
+        def fn(text: str) -> str:
+            return text
+
+        config = get_guard_config(fn)
+        assert config is None
 
 
 class TestInputGuardExecution:
@@ -237,7 +250,8 @@ class TestMaxLengthGuard:
         def fn(text: str) -> str:
             return text
 
-        config = getattr(fn, _GUARD_MARKER)
+        config = get_guard_config(fn)
+        assert config is not None
         result = _run_input_guards(
             config.input_guards,
             {"text": "short text"},
@@ -250,7 +264,8 @@ class TestMaxLengthGuard:
         def fn(text: str) -> str:
             return text
 
-        config = getattr(fn, _GUARD_MARKER)
+        config = get_guard_config(fn)
+        assert config is not None
 
         with pytest.raises(GuardError, match="exceeds maximum length of 10"):
             _run_input_guards(
@@ -264,7 +279,8 @@ class TestMaxLengthGuard:
         def fn(text: str) -> str:
             return text
 
-        config = getattr(fn, _GUARD_MARKER)
+        config = get_guard_config(fn)
+        assert config is not None
         result = _run_output_guards(
             config.output_guards,
             "short output",
@@ -277,7 +293,8 @@ class TestMaxLengthGuard:
         def fn(text: str) -> str:
             return text
 
-        config = getattr(fn, _GUARD_MARKER)
+        config = get_guard_config(fn)
+        assert config is not None
 
         with pytest.raises(GuardError, match="exceeds maximum length of 5"):
             _run_output_guards(
@@ -291,7 +308,8 @@ class TestMaxLengthGuard:
         def fn(text: str) -> str:
             return text
 
-        config = getattr(fn, _GUARD_MARKER)
+        config = get_guard_config(fn)
+        assert config is not None
         assert len(config.input_guards) == 1
         assert len(config.output_guards) == 1
 

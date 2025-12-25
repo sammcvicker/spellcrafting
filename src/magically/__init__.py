@@ -7,6 +7,8 @@ from magically.exceptions import (
 )
 from magically.guard import (
     guard,
+    GuardConfig,
+    get_guard_config,
     InputGuard,
     OutputGuard,
 )
@@ -71,6 +73,8 @@ __all__ = [
     "ValidationError",
     # Guards
     "guard",
+    "GuardConfig",
+    "get_guard_config",
     "OnFail",
     "InputGuard",
     "OutputGuard",
