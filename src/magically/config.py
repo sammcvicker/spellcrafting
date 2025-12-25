@@ -13,6 +13,7 @@ from typing import Any, Self
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError as PydanticValidationError
 
+from magically._pyproject import find_pyproject
 from magically.exceptions import MagicallyConfigError
 
 
@@ -172,7 +173,7 @@ class Config:
         if path is not None:
             pyproject_path = Path(path)
         else:
-            pyproject_path = cls._find_pyproject()
+            pyproject_path = find_pyproject()
 
         if pyproject_path is None or not pyproject_path.exists():
             return cls()
@@ -225,16 +226,6 @@ class Config:
                 ) from e
 
         return cls(models=validated_models)
-
-    @classmethod
-    def _find_pyproject(cls) -> Path | None:
-        """Search for pyproject.toml from cwd upward."""
-        cwd = Path.cwd()
-        for parent in [cwd, *cwd.parents]:
-            candidate = parent / "pyproject.toml"
-            if candidate.exists():
-                return candidate
-        return None
 
     @classmethod
     def current(cls) -> Config:
