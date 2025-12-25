@@ -75,22 +75,64 @@ class OutputGuard(Protocol):
         ...
 
 
-# Marker to detect if a function is guarded
+# Internal marker attribute name - use get_guard_config() for public access
 _GUARD_MARKER = "_magically_guards"
 
 
 @dataclass
-class _GuardConfig:
-    """Internal configuration for guards on a function."""
+class GuardConfig:
+    """Guard configuration attached to decorated functions.
+
+    This class stores the input and output guards configured on a function
+    via @guard.input() and @guard.output() decorators.
+
+    Users can introspect guard configuration using get_guard_config():
+
+        @spell
+        @guard.input(my_validator)
+        def my_spell(text: str) -> str:
+            ...
+
+        config = get_guard_config(my_spell)
+        if config:
+            print(f"Has {len(config.input_guards)} input guards")
+    """
 
     input_guards: list[tuple[InputGuard, RaiseStrategy]] = field(default_factory=list)
     output_guards: list[tuple[OutputGuard, RaiseStrategy]] = field(default_factory=list)
 
 
-def _get_or_create_guard_config(func: Callable) -> _GuardConfig:
-    """Get or create guard config on a function."""
+def get_guard_config(func: Callable) -> GuardConfig | None:
+    """Get the guard configuration for a decorated function.
+
+    Returns the GuardConfig if the function has guards attached,
+    or None if no guards are configured.
+
+    Args:
+        func: A function that may have guards attached via @guard decorators.
+
+    Returns:
+        GuardConfig with input_guards and output_guards lists, or None.
+
+    Example:
+        @spell
+        @guard.input(validate_input)
+        @guard.output(check_output)
+        def my_spell(text: str) -> str:
+            ...
+
+        config = get_guard_config(my_spell)
+        if config:
+            print(f"Input guards: {len(config.input_guards)}")
+            print(f"Output guards: {len(config.output_guards)}")
+    """
+    return getattr(func, _GUARD_MARKER, None)
+
+
+def _get_or_create_guard_config(func: Callable) -> GuardConfig:
+    """Get or create guard config on a function (internal helper)."""
     if not hasattr(func, _GUARD_MARKER):
-        setattr(func, _GUARD_MARKER, _GuardConfig())
+        setattr(func, _GUARD_MARKER, GuardConfig())
     return getattr(func, _GUARD_MARKER)
 
 
@@ -535,9 +577,9 @@ class GuardExecutor:
     MARKER = _GUARD_MARKER
 
     @staticmethod
-    def get_config(func: Callable) -> _GuardConfig | None:
+    def get_config(func: Callable) -> GuardConfig | None:
         """Get the guard config attached to a function, if any."""
-        return getattr(func, _GUARD_MARKER, None)
+        return get_guard_config(func)
 
     @staticmethod
     def build_context(func: Callable, attempt: int = 1) -> dict[str, Any]:
@@ -546,7 +588,7 @@ class GuardExecutor:
 
     @staticmethod
     def run_input_guards(
-        guard_config: _GuardConfig,
+        guard_config: GuardConfig,
         input_args: dict[str, Any],
         context: dict[str, Any],
     ) -> dict[str, Any]:
@@ -555,7 +597,7 @@ class GuardExecutor:
 
     @staticmethod
     async def run_input_guards_async(
-        guard_config: _GuardConfig,
+        guard_config: GuardConfig,
         input_args: dict[str, Any],
         context: dict[str, Any],
     ) -> dict[str, Any]:
@@ -564,7 +606,7 @@ class GuardExecutor:
 
     @staticmethod
     def run_input_guards_tracked(
-        guard_config: _GuardConfig,
+        guard_config: GuardConfig,
         input_args: dict[str, Any],
         context: dict[str, Any],
     ) -> GuardRunResult[dict[str, Any]]:
@@ -573,7 +615,7 @@ class GuardExecutor:
 
     @staticmethod
     async def run_input_guards_tracked_async(
-        guard_config: _GuardConfig,
+        guard_config: GuardConfig,
         input_args: dict[str, Any],
         context: dict[str, Any],
     ) -> GuardRunResult[dict[str, Any]]:
@@ -582,7 +624,7 @@ class GuardExecutor:
 
     @staticmethod
     def run_output_guards(
-        guard_config: _GuardConfig,
+        guard_config: GuardConfig,
         output: T,
         context: dict[str, Any],
     ) -> T:
@@ -591,7 +633,7 @@ class GuardExecutor:
 
     @staticmethod
     async def run_output_guards_async(
-        guard_config: _GuardConfig,
+        guard_config: GuardConfig,
         output: T,
         context: dict[str, Any],
     ) -> T:
@@ -600,7 +642,7 @@ class GuardExecutor:
 
     @staticmethod
     def run_output_guards_tracked(
-        guard_config: _GuardConfig,
+        guard_config: GuardConfig,
         output: T,
         context: dict[str, Any],
     ) -> GuardRunResult[T]:
@@ -609,7 +651,7 @@ class GuardExecutor:
 
     @staticmethod
     async def run_output_guards_tracked_async(
-        guard_config: _GuardConfig,
+        guard_config: GuardConfig,
         output: T,
         context: dict[str, Any],
     ) -> GuardRunResult[T]:
@@ -620,6 +662,8 @@ class GuardExecutor:
 # Export for use in spell.py
 __all__ = [
     "guard",
+    "GuardConfig",
+    "get_guard_config",
     "GuardError",
     "GuardExecutor",
     "GuardRunResult",
