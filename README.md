@@ -221,11 +221,122 @@ def creative_writing(prompt: str) -> str:
     ...
 ```
 
+## LLM-Powered Validation
+
+Use `llm_validator` to create Pydantic validators powered by natural language rules:
+
+```python
+from magically import llm_validator
+from pydantic import BaseModel, BeforeValidator
+from typing import Annotated
+
+# Create a validator from a natural language rule
+family_friendly = llm_validator(
+    "Content must be appropriate for all ages with no profanity",
+    model="fast"
+)
+
+class Response(BaseModel):
+    content: Annotated[str, BeforeValidator(family_friendly)]
+
+# Use FIX strategy to auto-correct values
+professional = llm_validator(
+    "Must be professional business communication",
+    model="fast",
+    on_fail="fix"  # Attempt to fix invalid values
+)
+
+class Email(BaseModel):
+    body: Annotated[str, BeforeValidator(professional)]
+```
+
+The `on_fail` parameter controls behavior when validation fails:
+- `"raise"` (default): Raise `ValueError` with the reason
+- `"fix"`: Attempt to fix the value to satisfy the rule
+
+> **Note**: LLM validators add latency and cost. Use fast/cheap models for validation checks.
+
+## Observability
+
+Magically provides comprehensive logging, tracing, and cost tracking.
+
+### Quick Setup
+
+```python
+from magically import setup_logging, LogLevel
+
+# Enable logging with default settings
+setup_logging(level=LogLevel.INFO)
+
+# With OpenTelemetry export
+setup_logging(level=LogLevel.INFO, otel=True)
+
+# Write to JSON file
+setup_logging(level=LogLevel.INFO, json_file="spells.jsonl")
+
+# Redact sensitive content
+setup_logging(level=LogLevel.INFO, redact_content=True)
+```
+
+### Provider Integrations
+
+```python
+from magically import setup_logfire, setup_datadog
+
+# Logfire (requires: pip install magically[logfire])
+setup_logfire()
+
+# Datadog (requires: pip install magically[datadog])
+setup_datadog()
+```
+
+### Distributed Tracing
+
+Propagate trace context across spell calls:
+
+```python
+from magically import with_trace_id
+
+# Correlate with external request trace
+with with_trace_id(request.headers["X-Trace-ID"]):
+    result = my_spell("input")
+```
+
+### Execution Metadata
+
+Access token usage and cost estimates:
+
+```python
+result = my_spell.with_metadata("input")
+
+print(f"Tokens: {result.input_tokens} in, {result.output_tokens} out")
+print(f"Cost: ${result.cost_estimate.total_cost:.4f}")
+print(f"Duration: {result.duration_ms}ms")
+print(f"Output: {result.output}")
+```
+
+### Configuration via pyproject.toml
+
+```toml
+[tool.magically.logging]
+enabled = true
+level = "info"
+redact_content = false
+
+[tool.magically.logging.handlers.python]
+type = "python"
+logger_name = "magically"
+
+[tool.magically.logging.handlers.file]
+type = "json_file"
+path = "logs/spells.jsonl"
+```
+
 ## How It Works
 
-1. **Docstring → System Prompt**: Your function's docstring becomes the LLM's system prompt
-2. **Arguments → User Message**: Function arguments are formatted as the user message
-3. **Return Type → Schema**: The return type annotation defines the expected output structure
+1. **Docstring to System Prompt**: Your function's docstring becomes the LLM's system prompt
+2. **Arguments to User Message**: Function arguments are formatted as the user message
+3. **Return Type to Schema**: The return type annotation defines the expected output structure
 4. **Validation**: Pydantic validates the LLM's response matches your schema
 
 ## Supported Providers
