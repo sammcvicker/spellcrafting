@@ -767,3 +767,184 @@ class TestTOMLParseWarning:
 
         with pytest.warns(UserWarning, match=str(pyproject)):
             Config.from_file(pyproject)
+
+
+class TestFindPyprojectTraversal:
+    """Tests for _find_pyproject directory traversal logic (#48)."""
+
+    def test_finds_pyproject_in_parent_dir(self, tmp_path, monkeypatch):
+        """Should find pyproject.toml in parent directory."""
+        # Create nested structure
+        child = tmp_path / "subdir" / "nested"
+        child.mkdir(parents=True)
+
+        pyproject = tmp_path / "pyproject.toml"
+        pyproject.write_text('''
+[tool.magically.models.parent]
+model = "test:model"
+''')
+
+        monkeypatch.chdir(child)
+
+        # Reset cache to pick up new file
+        config_module._file_config_cache = None
+
+        config = Config.current()
+        assert "parent" in config.models
+
+    def test_finds_closest_pyproject(self, tmp_path, monkeypatch):
+        """Should find the closest pyproject.toml when multiple exist."""
+        # Create structure with pyproject at multiple levels
+        child = tmp_path / "subdir"
+        child.mkdir()
+
+        # Parent pyproject
+        parent_pyproject = tmp_path / "pyproject.toml"
+        parent_pyproject.write_text('''
+[tool.magically.models.parent]
+model = "parent:model"
+''')
+
+        # Child pyproject (closer)
+        child_pyproject = child / "pyproject.toml"
+        child_pyproject.write_text('''
+[tool.magically.models.child]
+model = "child:model"
+''')
+
+        monkeypatch.chdir(child)
+
+        # Reset cache
+        config_module._file_config_cache = None
+
+        config = Config.current()
+        # Should find child's config (closest), not parent's
+        assert "child" in config.models
+        assert "parent" not in config.models
+
+    def test_no_pyproject_returns_empty(self, tmp_path, monkeypatch):
+        """Should return empty config when no pyproject.toml exists."""
+        # Create empty directory with no pyproject anywhere
+        empty = tmp_path / "empty"
+        empty.mkdir()
+        monkeypatch.chdir(empty)
+
+        # Reset cache
+        config_module._file_config_cache = None
+
+        config = Config.from_file()
+        assert config.models == {}
+
+    def test_deeply_nested_finds_root_pyproject(self, tmp_path, monkeypatch):
+        """Should traverse multiple levels to find pyproject.toml."""
+        # Create deeply nested structure
+        deep = tmp_path / "a" / "b" / "c" / "d" / "e"
+        deep.mkdir(parents=True)
+
+        pyproject = tmp_path / "pyproject.toml"
+        pyproject.write_text('''
+[tool.magically.models.root]
+model = "root:model"
+''')
+
+        monkeypatch.chdir(deep)
+
+        # Reset cache
+        config_module._file_config_cache = None
+
+        config = Config.current()
+        assert "root" in config.models
+
+
+class TestConfigFromFileEdgeCases:
+    """Tests for Config.from_file edge cases (#47)."""
+
+    def test_empty_model_dict(self, tmp_path):
+        """Empty model dict should raise helpful error (missing 'model' field)."""
+        pyproject = tmp_path / "pyproject.toml"
+        pyproject.write_text('''
+[tool.magically.models.empty]
+# No model field - empty table
+''')
+        with pytest.raises(MagicallyConfigError, match="Invalid config.*empty"):
+            Config.from_file(pyproject)
+
+    def test_unicode_model_alias(self, tmp_path):
+        """Unicode characters in model alias should work."""
+        pyproject = tmp_path / "pyproject.toml"
+        pyproject.write_text('''
+[tool.magically.models."fast-模型"]
+model = "test:model"
+''')
+        config = Config.from_file(pyproject)
+        assert "fast-模型" in config.models
+
+    def test_model_with_only_model_field(self, tmp_path):
+        """Model config with only 'model' field should work."""
+        pyproject = tmp_path / "pyproject.toml"
+        pyproject.write_text('''
+[tool.magically.models.minimal]
+model = "test:model"
+''')
+        config = Config.from_file(pyproject)
+        assert config.models["minimal"].model == "test:model"
+        assert config.models["minimal"].temperature is None
+        assert config.models["minimal"].max_tokens is None
+
+    def test_model_name_with_special_characters(self, tmp_path):
+        """Model names with special characters should work."""
+        pyproject = tmp_path / "pyproject.toml"
+        pyproject.write_text('''
+[tool.magically.models."my-special_model.v2"]
+model = "test:model"
+''')
+        config = Config.from_file(pyproject)
+        assert "my-special_model.v2" in config.models
+
+    def test_unicode_in_model_value(self, tmp_path):
+        """Unicode in model string value should work."""
+        pyproject = tmp_path / "pyproject.toml"
+        pyproject.write_text('''
+[tool.magically.models.test]
+model = "provider:model-名前"
+''')
+        config = Config.from_file(pyproject)
+        assert config.models["test"].model == "provider:model-名前"
+
+    def test_empty_tool_magically_section(self, tmp_path):
+        """Empty [tool.magically] section should return empty config."""
+        pyproject = tmp_path / "pyproject.toml"
+        pyproject.write_text('''
+[tool.magically]
+''')
+        config = Config.from_file(pyproject)
+        assert config.models == {}
+
+    def test_empty_models_section(self, tmp_path):
+        """Empty [tool.magically.models] section should return empty config."""
+        pyproject = tmp_path / "pyproject.toml"
+        pyproject.write_text('''
+[tool.magically.models]
+''')
+        config = Config.from_file(pyproject)
+        assert config.models == {}
+
+    def test_model_with_all_optional_fields(self, tmp_path):
+        """Model with all optional fields set should load correctly."""
+        pyproject = tmp_path / "pyproject.toml"
+        pyproject.write_text('''
+[tool.magically.models.full]
+model = "test:model"
+temperature = 0.5
+max_tokens = 1000
+top_p = 0.9
+timeout = 60.0
+retries = 3
+''')
+        config = Config.from_file(pyproject)
+        model = config.models["full"]
+        assert model.temperature == 0.5
+        assert model.max_tokens == 1000
+        assert model.top_p == 0.9
+        assert model.timeout == 60.0
+        assert model.retries == 3

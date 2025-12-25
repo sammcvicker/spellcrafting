@@ -2,6 +2,29 @@
 
 This document analyzes four major guardrails/validation libraries for LLMs, focusing on patterns that could inform a decorator-based spell system with simple, composable guardrails.
 
+## Implementation Status
+
+This research document informed the design of magically's guard and validation systems. Key decisions:
+
+**Implemented:**
+- `@guard.input()` and `@guard.output()` decorators (Guardrails AI-inspired composable pattern)
+- `OnFail` strategies: `RAISE`, `escalate()`, `fallback()`, `custom()` (Guardrails AI on_fail pattern)
+- Pydantic-first validation via return types (Instructor-inspired)
+- Built-in retry with error context via PydanticAI
+- Provider-agnostic design across multiple LLM providers
+
+**Explicitly NOT implemented (as recommended):**
+- No DSL or config files (learned from NeMo Guardrails complexity)
+- No hub dependencies (learned from Guardrails AI installation friction)
+- No input validation building (beyond structural Pydantic validation)
+
+**Deferred to external libraries:**
+- Toxicity detection (use Detoxify, LLM Guard)
+- PII detection (use Presidio, AWS Comprehend)
+- Hallucination detection (use NLI models)
+
+See `guard.py` and `on_fail.py` for the actual implementation.
+
 ## Table of Contents
 1. [Guardrails AI](#guardrails-ai)
 2. [NeMo Guardrails (NVIDIA)](#nemo-guardrails-nvidia)
