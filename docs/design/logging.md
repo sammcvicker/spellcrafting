@@ -437,8 +437,8 @@ from magically.logging import (
     get_logging_config,
 )
 
-# Quick setup
-from magically.observability import (
+# Quick setup (also in magically.logging)
+from magically.logging import (
     setup_logging,
     setup_logfire,
     setup_datadog,

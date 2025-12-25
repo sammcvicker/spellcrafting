@@ -23,7 +23,7 @@ import warnings
 from contextvars import ContextVar
 from pathlib import Path
 from types import TracebackType
-from typing import Any, Self
+from typing import Any, NotRequired, Self, TypedDict
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, ValidationError as PydanticValidationError
 
@@ -60,6 +60,23 @@ _process_default: Config | None = None
 _file_config_cache: Config | None = None
 _env_config_cache: Config | None = None
 _config_cache_lock = threading.Lock()
+
+
+class ModelConfigDict(TypedDict, total=False):
+    """TypedDict for model configuration with explicit key hints.
+
+    This provides IDE autocomplete and type checking for dict-based config.
+    All fields except 'model' are optional (NotRequired).
+    """
+
+    model: str
+    """Provider:model-name format (e.g., 'anthropic:claude-sonnet'). Required."""
+    temperature: NotRequired[float]
+    max_tokens: NotRequired[int]
+    top_p: NotRequired[float]
+    timeout: NotRequired[float]
+    retries: NotRequired[int]
+    extra: NotRequired[dict[str, Any]]
 
 
 class ModelConfig(BaseModel):
@@ -180,9 +197,17 @@ class Config:
 
     def __init__(
         self,
-        models: dict[str, ModelConfig | dict[str, Any]] | None = None,
+        models: dict[str, ModelConfig | ModelConfigDict] | None = None,
     ) -> None:
-        """Create config. Dicts are coerced to ModelConfig."""
+        """Create config.
+
+        Args:
+            models: Dict mapping alias names to model configurations.
+                    Values can be ModelConfig instances or dicts with keys:
+                    - model (required): Provider:model-name format
+                    - temperature, max_tokens, top_p, timeout, retries (optional)
+                    - extra (optional): Dict for provider-specific settings
+        """
         self._models: dict[str, ModelConfig] = {}
         self._token: Any = None  # contextvars.Token, private implementation detail
 
