@@ -1,3 +1,5 @@
+from importlib.metadata import version, PackageNotFoundError
+
 from magically.config import Config, ModelConfig, current_config
 from magically.exceptions import (
     MagicallyError,
@@ -51,7 +53,15 @@ from magically.spell import (
 )
 from magically.result import SpellResult, SyncSpell, AsyncSpell
 
+# Package metadata
+try:
+    __version__ = version("magically")
+except PackageNotFoundError:
+    __version__ = "0.1.0"  # Fallback for development/editable installs
+
 __all__ = [
+    # Package metadata
+    "__version__",
     # Core
     "spell",
     "SpellResult",
