@@ -56,6 +56,108 @@ class TestSpellResultType:
         result = SpellResult(output="test")
         assert result.total_tokens == 0
 
+    def test_repr_short_output(self):
+        """Repr shows full output when short."""
+        result = SpellResult(
+            output="short text",
+            input_tokens=50,
+            output_tokens=100,
+            model_used="openai:gpt-4o",
+            duration_ms=123.456,
+        )
+        repr_str = repr(result)
+        assert "SpellResult(" in repr_str
+        assert "'short text'" in repr_str
+        assert "tokens=150" in repr_str
+        assert "model='openai:gpt-4o'" in repr_str
+        assert "duration_ms=123.5" in repr_str
+
+    def test_repr_long_output_truncated(self):
+        """Repr truncates output longer than 100 characters."""
+        long_output = "x" * 200
+        result = SpellResult(
+            output=long_output,
+            model_used="openai:gpt-4o",
+        )
+        repr_str = repr(result)
+        # The repr of output is "'xxx...'" which is longer than the string itself
+        # So we check that the full output is not in repr and truncation happened
+        assert long_output not in repr_str
+        assert "..." in repr_str
+
+    def test_repr_complex_output_truncated(self):
+        """Repr truncates complex Pydantic model output when repr is long."""
+        # Create a Pydantic model with long content
+        long_name = "category_" + "x" * 100
+        complex_output = Category(name=long_name, confidence=0.95)
+        result = SpellResult(
+            output=complex_output,
+            model_used="openai:gpt-4o",
+        )
+        repr_str = repr(result)
+        # The full long_name should not appear since output is truncated
+        assert long_name not in repr_str
+        assert "..." in repr_str
+
+    def test_content_eq_same_content(self):
+        """content_eq returns True when output and model match."""
+        result1 = SpellResult(
+            output="test output",
+            model_used="openai:gpt-4o",
+            input_tokens=50,
+            output_tokens=100,
+            duration_ms=100.0,
+        )
+        result2 = SpellResult(
+            output="test output",
+            model_used="openai:gpt-4o",
+            input_tokens=75,  # Different tokens
+            output_tokens=150,  # Different tokens
+            duration_ms=200.0,  # Different duration
+        )
+        assert result1.content_eq(result2)
+
+    def test_content_eq_different_output(self):
+        """content_eq returns False when output differs."""
+        result1 = SpellResult(
+            output="output1",
+            model_used="openai:gpt-4o",
+        )
+        result2 = SpellResult(
+            output="output2",
+            model_used="openai:gpt-4o",
+        )
+        assert not result1.content_eq(result2)
+
+    def test_content_eq_different_model(self):
+        """content_eq returns False when model differs."""
+        result1 = SpellResult(
+            output="test output",
+            model_used="openai:gpt-4o",
+        )
+        result2 = SpellResult(
+            output="test output",
+            model_used="anthropic:claude-3-haiku",
+        )
+        assert not result1.content_eq(result2)
+
+    def test_content_eq_with_pydantic_models(self):
+        """content_eq works correctly with Pydantic model outputs."""
+        cat1 = Category(name="positive", confidence=0.95)
+        cat2 = Category(name="positive", confidence=0.95)
+
+        result1 = SpellResult(
+            output=cat1,
+            model_used="openai:gpt-4o",
+            duration_ms=100.0,
+        )
+        result2 = SpellResult(
+            output=cat2,
+            model_used="openai:gpt-4o",
+            duration_ms=200.0,
+        )
+        assert result1.content_eq(result2)
+
     def test_cost_estimate_field(self):
         result = SpellResult(
             output="test",
