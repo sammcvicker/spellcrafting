@@ -6,6 +6,7 @@ from magically.guard import (
     OutputGuard,
 )
 from magically.on_fail import OnFail
+from magically._pydantic_ai import ValidationError
 from magically.validator import llm_validator, ValidationResult
 from magically.logging import (
     # Configuration
@@ -63,6 +64,8 @@ __all__ = [
     "OnFail",
     "InputGuard",
     "OutputGuard",
+    # Exceptions
+    "ValidationError",
     # Validators
     "llm_validator",
     "ValidationResult",

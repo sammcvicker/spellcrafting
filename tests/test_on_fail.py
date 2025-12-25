@@ -5,9 +5,9 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 from pydantic import BaseModel
-from pydantic_ai.exceptions import UnexpectedModelBehavior
 
-from magically import spell, OnFail, Config, ModelConfig
+from magically import spell, OnFail, Config, ModelConfig, ValidationError
+from magically._pydantic_ai import UnexpectedModelBehavior
 from magically.on_fail import (
     RetryStrategy,
     EscalateStrategy,
@@ -203,6 +203,7 @@ class TestOnFailCustomStrategy:
         mock_agent.run_sync.side_effect = UnexpectedModelBehavior("Validation failed")
 
         with patch("magically.spell.Agent", return_value=mock_agent):
+            # Custom handler re-raises the original error, so we get the original exception
             with pytest.raises(UnexpectedModelBehavior):
                 analyze("test input")
 
@@ -315,7 +316,7 @@ class TestOnFailRetryStrategy:
         mock_agent.run_sync.side_effect = UnexpectedModelBehavior("Validation failed")
 
         with patch("magically.spell.Agent", return_value=mock_agent):
-            with pytest.raises(UnexpectedModelBehavior):
+            with pytest.raises(ValidationError):
                 analyze("test input")
 
 
@@ -431,8 +432,27 @@ class TestOnFailNoStrategyProvided:
         mock_agent.run_sync.side_effect = UnexpectedModelBehavior("Validation failed")
 
         with patch("magically.spell.Agent", return_value=mock_agent):
-            with pytest.raises(UnexpectedModelBehavior):
+            with pytest.raises(ValidationError):
                 analyze("test input")
+
+    def test_validation_error_has_original_error(self):
+        """Test that ValidationError wraps the original pydantic_ai exception."""
+        @spell
+        def analyze(text: str) -> Analysis:
+            """Analyze text."""
+            ...
+
+        mock_agent = MagicMock()
+        original_error = UnexpectedModelBehavior("Validation failed")
+        mock_agent.run_sync.side_effect = original_error
+
+        with patch("magically.spell.Agent", return_value=mock_agent):
+            with pytest.raises(ValidationError) as exc_info:
+                analyze("test input")
+
+            # Verify the original error is preserved
+            assert exc_info.value.original_error is original_error
+            assert "Validation failed" in str(exc_info.value)
 
     def test_no_strategy_passes_on_success(self):
         expected = Analysis(summary="success", confidence=0.9)
