@@ -155,7 +155,7 @@ For applications that load config once at startup:
 
 ```python
 # startup.py
-config = Config.from_dict(fetch_config())
+config = Config(models=fetch_config())
 config.set_as_default()
 
 # Elsewhere in the app—no context manager needed

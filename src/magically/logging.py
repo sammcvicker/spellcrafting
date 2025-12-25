@@ -34,6 +34,19 @@ from magically._pyproject import find_pyproject
 # Module-level logger for debug messages about internal operations
 _logger = stdlib_logging.getLogger(__name__)
 
+# ---------------------------------------------------------------------------
+# Constants
+# ---------------------------------------------------------------------------
+
+# W3C Trace Context defines span_id as 16 hex chars
+SPAN_ID_LENGTH = 16
+
+# Default buffer size for JSONFileHandler before flushing to disk
+DEFAULT_BUFFER_SIZE = 100
+
+# Tokens per million for cost calculations (standard pricing unit)
+TOKENS_PER_MILLION = 1_000_000
+
 
 class LogLevel(str, Enum):
     """Log levels for magically logging."""
@@ -303,7 +316,7 @@ class TraceContext:
         """Create a new trace context, optionally inheriting from parent."""
         return cls(
             trace_id=parent.trace_id if parent else uuid4().hex,
-            span_id=uuid4().hex[:16],
+            span_id=uuid4().hex[:SPAN_ID_LENGTH],
             parent_span_id=parent.span_id if parent else None,
         )
 
@@ -413,7 +426,7 @@ class PythonLoggingHandler:
 class JSONFileHandler:
     """Handler that writes JSON logs to a file."""
 
-    def __init__(self, path: str | Path, buffer_size: int = 100):
+    def __init__(self, path: str | Path, buffer_size: int = DEFAULT_BUFFER_SIZE):
         self.path = Path(path)
         self.buffer_size = buffer_size
         self.buffer: list[SpellExecutionLog] = []
@@ -911,8 +924,8 @@ def estimate_cost(model: str, usage: TokenUsage) -> CostEstimate | None:
     if pricing is None:
         return None
 
-    input_cost = (usage.input_tokens / 1_000_000) * pricing["input"]
-    output_cost = (usage.output_tokens / 1_000_000) * pricing["output"]
+    input_cost = (usage.input_tokens / TOKENS_PER_MILLION) * pricing["input"]
+    output_cost = (usage.output_tokens / TOKENS_PER_MILLION) * pricing["output"]
 
     return CostEstimate(
         input_cost=input_cost,
