@@ -384,6 +384,15 @@ class _GuardNamespace:
         Input guards run before the LLM call. They receive the function's
         bound arguments as a dict and can validate, transform, or reject.
 
+        Execution Order:
+            Guards execute in decorator order (top to bottom)::
+
+                @spell(model="fast")
+                @guard.input(first_guard)   # Runs first
+                @guard.input(second_guard)  # Runs second
+                def summarize(text: str) -> str:
+                    ...
+
         Args:
             guard_fn: Function that validates/transforms inputs.
                       Signature: (input_args: dict, context: dict) -> dict
@@ -438,6 +447,15 @@ class _GuardNamespace:
 
         Output guards run after the LLM call. They receive the output
         value and can validate, transform, or reject.
+
+        Execution Order:
+            Guards execute in decorator order (top to bottom)::
+
+                @spell(model="fast")
+                @guard.output(first_guard)   # Runs first
+                @guard.output(second_guard)  # Runs second
+                def respond(query: str) -> str:
+                    ...
 
         Args:
             guard_fn: Function that validates/transforms output.
