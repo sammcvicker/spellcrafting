@@ -53,6 +53,37 @@ export OPENAI_API_KEY="sk-..."
 - Add docstrings to all public APIs
 - Keep imports organized (standard library, third-party, local)
 
+### Mutable Default Arguments
+
+Never use mutable defaults directly. Use factory patterns:
+
+**Pydantic models:**
+```python
+from pydantic import Field
+
+class MyConfig(BaseModel):
+    items: list[str] = Field(default_factory=list)
+    extra: dict[str, Any] = Field(default_factory=dict)
+```
+
+**Dataclasses:**
+```python
+from dataclasses import dataclass, field
+
+@dataclass
+class MyData:
+    items: list[str] = field(default_factory=list)
+    extra: dict[str, Any] = field(default_factory=dict)
+```
+
+**Function arguments:**
+```python
+def my_func(items: list[str] | None = None) -> None:
+    items = items or []
+```
+
+For truly optional values that shouldn't be passed downstream if unset, use `None`. For collections that should always exist (even if empty), use `default_factory`.
+
 ## Testing Requirements
 
 - All new features must include tests

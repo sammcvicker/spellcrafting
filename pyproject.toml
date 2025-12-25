@@ -25,7 +25,10 @@ sources = ["src"]
 testpaths = ["tests"]
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
-markers = ["smoke: tests that hit real LLM APIs"]
+markers = [
+    "smoke: tests that hit real LLM APIs",
+    "internal: tests that check internal implementation details",
+]
 
 [dependency-groups]
 dev = [
