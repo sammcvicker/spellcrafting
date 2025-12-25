@@ -420,19 +420,7 @@ def _resolve_escalation_model(
             f"Define it in pyproject.toml or provide via Config context."
         )
 
-    # Build ModelSettings from ModelConfig
-    resolved_settings: dict[str, Any] = {}
-    if model_config.temperature is not None:
-        resolved_settings["temperature"] = model_config.temperature
-    if model_config.max_tokens is not None:
-        resolved_settings["max_tokens"] = model_config.max_tokens
-    if model_config.top_p is not None:
-        resolved_settings["top_p"] = model_config.top_p
-    if model_config.timeout is not None:
-        resolved_settings["timeout"] = model_config.timeout
-
-    final_settings = ModelSettings(**resolved_settings) if resolved_settings else None
-    return model_config.model, final_settings
+    return model_config.model, model_config.to_model_settings()
 
 
 def _handle_on_fail_sync(
@@ -674,24 +662,18 @@ def spell(
                     f"Define it in pyproject.toml or provide via Config context."
                 )
 
-            # Build ModelSettings from ModelConfig
-            resolved_settings: dict[str, Any] = {}
-            if model_config.temperature is not None:
-                resolved_settings["temperature"] = model_config.temperature
-            if model_config.max_tokens is not None:
-                resolved_settings["max_tokens"] = model_config.max_tokens
-            if model_config.top_p is not None:
-                resolved_settings["top_p"] = model_config.top_p
-            if model_config.timeout is not None:
-                resolved_settings["timeout"] = model_config.timeout
+            # Get base settings from ModelConfig
+            config_settings = model_config.to_model_settings()
 
             # Merge with explicit model_settings (explicit takes precedence)
             if model_settings:
+                resolved_settings: dict[str, Any] = dict(config_settings) if config_settings else {}
                 for key, value in model_settings.items():
                     if value is not None:
                         resolved_settings[key] = value
-
-            final_settings = ModelSettings(**resolved_settings) if resolved_settings else None
+                final_settings = ModelSettings(**resolved_settings) if resolved_settings else None
+            else:
+                final_settings = config_settings
 
             # Hash based on resolved ModelConfig + explicit overrides
             config_hash = hash((hash(model_config), _settings_hash(model_settings)))
