@@ -1,6 +1,7 @@
 """Tests for the @guard decorator."""
 
 import sys
+import warnings
 from typing import Any
 from unittest.mock import MagicMock, patch
 
@@ -692,3 +693,151 @@ class TestGuardPreservesFunction:
 
         assert summarize.__name__ == "summarize"
         assert summarize._system_prompt == "Summarize text."
+
+
+class TestDecoratorOrderWarning:
+    """Tests for decorator order detection and warnings."""
+
+    def test_guard_input_outside_spell_warns(self):
+        """Guard applied outside @spell should warn about incorrect order."""
+        with warnings.catch_warnings(record=True) as w:
+            warnings.simplefilter("always")
+
+            @guard.input(lambda a, c: a)
+            @spell
+            def my_spell(text: str) -> str:
+                """Test."""
+                ...
+
+            assert len(w) == 1
+            assert issubclass(w[0].category, UserWarning)
+            assert "Guard applied outside @spell decorator" in str(w[0].message)
+            assert "my_spell" in str(w[0].message)
+            assert "Guards must be applied INSIDE @spell" in str(w[0].message)
+
+    def test_guard_output_outside_spell_warns(self):
+        """Guard applied outside @spell should warn about incorrect order."""
+        with warnings.catch_warnings(record=True) as w:
+            warnings.simplefilter("always")
+
+            @guard.output(lambda o, c: o)
+            @spell
+            def my_spell(text: str) -> str:
+                """Test."""
+                ...
+
+            assert len(w) == 1
+            assert issubclass(w[0].category, UserWarning)
+            assert "Guard applied outside @spell decorator" in str(w[0].message)
+            assert "my_spell" in str(w[0].message)
+
+    def test_guard_max_length_outside_spell_warns(self):
+        """max_length guard applied outside @spell should warn."""
+        with warnings.catch_warnings(record=True) as w:
+            warnings.simplefilter("always")
+
+            @guard.max_length(input=100)
+            @spell
+            def my_spell(text: str) -> str:
+                """Test."""
+                ...
+
+            assert len(w) == 1
+            assert issubclass(w[0].category, UserWarning)
+            assert "Guard applied outside @spell decorator" in str(w[0].message)
+
+    def test_guard_inside_spell_no_warning(self):
+        """Guards correctly inside @spell should not warn."""
+        with warnings.catch_warnings(record=True) as w:
+            warnings.simplefilter("always")
+
+            @spell
+            @guard.input(lambda a, c: a)
+            @guard.output(lambda o, c: o)
+            def my_spell(text: str) -> str:
+                """Test."""
+                ...
+
+            # Filter only UserWarnings (may have other deprecation warnings)
+            guard_warnings = [x for x in w if "Guard applied outside" in str(x.message)]
+            assert len(guard_warnings) == 0
+
+    def test_multiple_guards_outside_spell_warns_each(self):
+        """Multiple guards outside @spell should each produce a warning."""
+        with warnings.catch_warnings(record=True) as w:
+            warnings.simplefilter("always")
+
+            @guard.input(lambda a, c: a)
+            @guard.output(lambda o, c: o)
+            @spell
+            def my_spell(text: str) -> str:
+                """Test."""
+                ...
+
+            guard_warnings = [x for x in w if "Guard applied outside" in str(x.message)]
+            assert len(guard_warnings) == 2
+
+    def test_spell_wrapper_has_marker(self):
+        """Spell wrapper should have _is_spell_wrapper marker."""
+        @spell
+        def my_spell(text: str) -> str:
+            """Test."""
+            ...
+
+        assert hasattr(my_spell, "_is_spell_wrapper")
+        assert my_spell._is_spell_wrapper is True
+
+    def test_guard_outside_spell_not_integrated(self):
+        """Guards outside @spell should not run during spell execution."""
+        guard_calls = []
+
+        def track_guard(args: dict, ctx: dict) -> dict:
+            guard_calls.append("guard_called")
+            return args
+
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+
+            @guard.input(track_guard)
+            @spell
+            def my_spell(text: str) -> str:
+                """Test."""
+                ...
+
+        mock_result = MagicMock()
+        mock_result.output = "result"
+        mock_agent = MagicMock()
+        mock_agent.run_sync.return_value = mock_result
+
+        with patch("magically.spell.Agent", return_value=mock_agent):
+            my_spell("test")
+
+        # Guard on outer wrapper is NOT integrated with spell execution
+        # The guard marker is on the spell wrapper, not the original function
+        # So spell's inner logic doesn't see it
+        assert guard_calls == []
+
+    def test_guard_inside_spell_runs(self):
+        """Guards inside @spell should run during spell execution."""
+        guard_calls = []
+
+        def track_guard(args: dict, ctx: dict) -> dict:
+            guard_calls.append("guard_called")
+            return args
+
+        @spell
+        @guard.input(track_guard)
+        def my_spell(text: str) -> str:
+            """Test."""
+            ...
+
+        mock_result = MagicMock()
+        mock_result.output = "result"
+        mock_agent = MagicMock()
+        mock_agent.run_sync.return_value = mock_result
+
+        with patch("magically.spell.Agent", return_value=mock_agent):
+            my_spell("test")
+
+        # Guard inside @spell IS integrated and runs
+        assert guard_calls == ["guard_called"]
