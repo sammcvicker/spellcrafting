@@ -11,7 +11,7 @@ from contextvars import ContextVar, Token
 from pathlib import Path
 from typing import Any, Self
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 
 _config_context: ContextVar[Config | None] = ContextVar("magically_config", default=None)
@@ -47,7 +47,7 @@ class ModelConfig(BaseModel):
     timeout: float | None = None
     retries: int | None = None
 
-    extra: dict[str, Any] = {}
+    extra: dict[str, Any] = Field(default_factory=dict)
     """Passthrough for provider-specific settings."""
 
     def __hash__(self) -> int:
