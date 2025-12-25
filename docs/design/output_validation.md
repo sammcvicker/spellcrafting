@@ -1,23 +1,40 @@
-# Output Validation and Guardrails Design
+# Output Validation Patterns (Reference Document)
+
+> **Note:** This is a **research/reference document** describing general output validation patterns
+> for LLM applications. It catalogs Pydantic validation techniques, external libraries, and
+> validation strategies that can be used with or alongside magically.
+>
+> For the actual magically implementation, see:
+> - **Guards:** `@guard.input()` and `@guard.output()` decorators in `guard.py`
+> - **Failure Strategies:** `OnFail.escalate()`, `OnFail.fallback()`, etc. in `on_fail.py`
+> - **Design Decisions:** `guardrails.md` for what we chose to build vs. defer
 
 ## Overview
 
-Enterprise-grade output validation for magically spells: structural enforcement, semantic validation, safety filtering, and quality metrics. All patterns integrate with Pydantic-based structured outputs.
+This document catalogs output validation patterns for LLM applications: structural enforcement via Pydantic, semantic validation techniques, safety filtering approaches, and quality metrics. These patterns can be used with magically's `@spell` decorator or with external validation libraries.
 
-## Goals
+## Pattern Categories
 
-1. **Structural integrity**: Guarantee LLM outputs match expected Pydantic schemas
-2. **Semantic correctness**: Detect hallucinations, verify factuality, ensure consistency
-3. **Safety enforcement**: Filter toxic content, detect refusals, block off-topic responses
-4. **Quality assurance**: Score relevance, measure completeness, estimate confidence
-5. **Zero overhead when disabled**: Validation layers are opt-in and composable
+This document covers patterns for:
 
-## Non-Goals
+1. **Structural validation**: Pydantic schema enforcement, retries with feedback
+2. **Semantic validation**: Hallucination detection, factuality checking, consistency
+3. **Safety filtering**: Toxicity detection, refusal detection, off-topic filtering
+4. **Quality metrics**: Relevance scoring, completeness checking, confidence estimation
 
-- Automatic PII detection (use dedicated PII libraries)
-- Real-time fact-checking against external databases (use RAG)
-- Content moderation training (use pre-trained models)
-- Perfect hallucination elimination (focus on detection and mitigation)
+## What magically Provides vs. External Libraries
+
+| Need | magically Provides | External Libraries |
+|------|-------------------|-------------------|
+| Structural validation | Pydantic return types + `retries` | Instructor |
+| Retry with feedback | Built-in via PydanticAI | - |
+| Semantic guards | `@guard.output()` decorator | Guardrails AI |
+| Failure handling | `OnFail.escalate/fallback/custom` | - |
+| Toxicity detection | - | Detoxify, LLM Guard |
+| PII detection | - | Presidio, AWS Comprehend |
+| Content moderation | - | OpenAI Moderation API |
+
+See `guardrails.md` for the rationale behind these decisions.
 
 ---
 
@@ -633,7 +650,27 @@ def calculate_semantic_entropy(logprobs: list[float]) -> float:
 
 ## 5. Validation Pipeline Architecture
 
-### 5.1 Composable Validation Layers
+> **Note:** This section describes **conceptual patterns** that can be implemented using
+> magically's `@guard.output()` decorator or external validation libraries. The `ValidationConfig`
+> shown below is a hypothetical API, not currently implemented in magically.
+
+### 5.1 Composable Validation Layers (Pattern)
+
+This pattern shows how to build a validation pipeline. In magically, you achieve this
+with stacked `@guard.output()` decorators:
+
+```python
+# magically approach: stacked guards
+@spell
+@guard.output(check_toxicity)
+@guard.output(check_competitors)
+@guard.output(check_relevance)
+def generate_response(query: str) -> Response:
+    """Generate a helpful response."""
+    ...
+```
+
+For more complex pipelines, here's a generic pattern you could implement:
 
 ```python
 from typing import Protocol, TypeVar
@@ -689,10 +726,29 @@ class ValidationPipeline(Generic[T]):
 
 ### 5.2 Integration with Spells
 
-```python
-from magically import spell, ValidationConfig
+**Current magically approach** - use `@guard.output()` decorators:
 
-# Declarative validation configuration
+```python
+from magically import spell, guard
+
+def no_competitors(output: Response, ctx: dict) -> Response:
+    """Block competitor mentions."""
+    competitors = {"acme", "globex"}
+    if any(c in output.content.lower() for c in competitors):
+        raise ValueError("Response mentions competitor")
+    return output
+
+@spell(model="fast")
+@guard.output(no_competitors)
+def generate_response(query: str, context: str) -> Response:
+    """Generate a helpful response based on the provided context."""
+    ...
+```
+
+**Hypothetical declarative API** (not implemented - shown for reference):
+
+```python
+# This is a HYPOTHETICAL API, not currently available in magically
 @spell(
     model="fast",
     validation=ValidationConfig(
@@ -707,49 +763,137 @@ def generate_response(query: str, context: str) -> Response:
     ...
 ```
 
-### 5.3 Validation Log Schema Extension
+### 5.3 Validation Metrics in Logging
 
-Extend `SpellExecutionLog` for validation metrics:
+magically's `SpellExecutionLog` includes `ValidationMetrics` for tracking guard results
+and retry information. The **actual implementation** in `logging.py`:
 
 ```python
 @dataclass
 class ValidationMetrics:
-    # Structural
-    schema_valid: bool
-    retry_count: int
+    """Tracks validation during spell execution."""
 
-    # Semantic
-    hallucination_score: float | None
-    groundedness_score: float | None
-    consistency_score: float | None
+    # Retry tracking
+    attempt_count: int = 1
+    retry_reasons: list[str] = field(default_factory=list)
 
-    # Safety
-    toxicity_score: float | None
-    is_refusal: bool
-    is_on_topic: bool
+    # Guard results
+    input_guards_passed: list[str] = field(default_factory=list)
+    input_guards_failed: list[str] = field(default_factory=list)
+    output_guards_passed: list[str] = field(default_factory=list)
+    output_guards_failed: list[str] = field(default_factory=list)
 
-    # Quality
-    relevance_score: float | None
-    completeness_score: float | None
-    confidence_score: float | None
+    # Pydantic validation errors
+    pydantic_errors: list[str] = field(default_factory=list)
 
-    # Validation errors
-    validation_errors: list[str]
+    # On-fail strategy tracking
+    on_fail_triggered: str | None = None  # "escalate", "fallback", "custom"
+    escalated_to_model: str | None = None
+```
 
+**Extended schema** (not implemented - conceptual for semantic validation):
 
+```python
+# Hypothetical extension for semantic/safety metrics
 @dataclass
-class SpellExecutionLog:
-    # ... existing fields ...
+class ExtendedValidationMetrics(ValidationMetrics):
+    # Semantic (would require external libraries)
+    hallucination_score: float | None = None
+    groundedness_score: float | None = None
 
-    # New validation section
-    validation: ValidationMetrics | None = None
+    # Safety (would require Detoxify, LLM Guard, etc.)
+    toxicity_score: float | None = None
+    is_refusal: bool = False
+
+    # Quality (would require embedding models)
+    relevance_score: float | None = None
+    confidence_score: float | None = None
+```
+
+See `guardrails.md` for why magically defers semantic/safety scoring to external libraries.
+
+---
+
+## 6. Actual magically Implementation
+
+For reference, here's what magically actually provides:
+
+### 6.1 Guard Decorators (`guard.py`)
+
+```python
+from magically import spell, guard
+
+def validate_input(input_args: dict, ctx: dict) -> dict:
+    """Validate/transform inputs before LLM call."""
+    if not input_args.get("text", "").strip():
+        raise ValueError("Text cannot be empty")
+    return input_args
+
+def validate_output(output: str, ctx: dict) -> str:
+    """Validate/transform output after LLM call."""
+    if len(output) < 10:
+        raise ValueError("Output too short")
+    return output
+
+@spell(model="fast")
+@guard.input(validate_input)
+@guard.output(validate_output)
+def summarize(text: str) -> str:
+    """Summarize the text."""
+    ...
+```
+
+### 6.2 OnFail Strategies (`on_fail.py`)
+
+```python
+from magically import spell, OnFail
+
+# Escalate to better model on validation failure
+@spell(model="fast", on_fail=OnFail.escalate("reasoning"))
+def complex_task(query: str) -> Analysis:
+    """Complex analysis that may need a better model."""
+    ...
+
+# Return default on failure
+@spell(on_fail=OnFail.fallback(default=EmptyResponse()))
+def optional_enrichment(data: str) -> Enriched:
+    """Optional enrichment - return empty if LLM fails."""
+    ...
+
+# Custom error handling
+@spell(on_fail=OnFail.custom(my_error_handler))
+def with_custom_handling(text: str) -> Result:
+    """Custom error handling logic."""
+    ...
 ```
 
 ---
 
-## 6. Tools and Libraries
+## 7. Implementation Roadmap
 
-### 6.1 Recommended Stack
+> **Status:** This roadmap reflects the original design vision. See `guardrails.md`
+> for what was actually built vs. deferred.
+
+### Implemented
+
+1. Pydantic validation via return types
+2. Retry with feedback via `retries` parameter
+3. `@guard.input()` and `@guard.output()` decorators
+4. `OnFail` strategies (escalate, fallback, custom)
+5. `ValidationMetrics` in logging
+
+### Deferred to External Libraries
+
+1. Toxicity detection (use Detoxify, LLM Guard)
+2. Hallucination/grounding checks (use NLI models)
+3. Relevance scoring (use embedding models)
+4. Declarative `ValidationConfig` API
+
+---
+
+## 8. Tools and Libraries (External)
+
+### 8.1 Recommended Stack
 
 | Category | Tool | Use Case |
 |----------|------|----------|
@@ -760,7 +904,7 @@ class SpellExecutionLog:
 | Factuality | [LLM Guard](https://llm-guard.com/) | NLI-based consistency |
 | Embeddings | [Sentence Transformers](https://www.sbert.net/) | Relevance/similarity scoring |
 
-### 6.2 Minimal Dependencies Approach
+### 8.2 Minimal Dependencies Approach
 
 For minimal footprint, implement core validation without heavy dependencies:
 
@@ -793,36 +937,45 @@ class MinimalValidator:
 
 ---
 
-## 7. Implementation Roadmap
+## 9. Original Research Roadmap (Historical)
 
-### Phase 1: Structural Foundation
+> **Note:** This was the original research roadmap. See section 7 for what was actually
+> implemented. Most items here were intentionally deferred - see `guardrails.md` for rationale.
+
+### Phase 1: Structural Foundation - COMPLETED
 1. Document Pydantic validation patterns for spells
 2. Add validation metrics to `SpellExecutionLog`
-3. Implement `ValidationResult` return type option
+3. ~~Implement `ValidationResult` return type option~~ -> Implemented as `SpellResult` via `.with_metadata()`
 
-### Phase 2: Safety Layer
-1. Integrate Detoxify for toxicity detection
-2. Add refusal detection
-3. Implement competitor filtering
+### Phase 2: Safety Layer - DEFERRED
+> Deferred to external libraries (Detoxify, LLM Guard, OpenAI Moderation)
 
-### Phase 3: Semantic Validation
-1. Add groundedness checking (NLI-based)
-2. Implement self-consistency helper
-3. Source attribution verification
+1. ~~Integrate Detoxify for toxicity detection~~ -> Use external library
+2. ~~Add refusal detection~~ -> Use external library
+3. ~~Implement competitor filtering~~ -> Achievable via `@guard.output()`
 
-### Phase 4: Quality Metrics
-1. Relevance scoring (embedding-based)
-2. Completeness checking (LLM-as-judge)
-3. Confidence estimation
+### Phase 3: Semantic Validation - DEFERRED
+> Deferred to external libraries (NLI models, embedding models)
 
-### Phase 5: Pipeline Integration
-1. Declarative `ValidationConfig` for `@spell`
-2. Composable `ValidationPipeline`
-3. Validation dashboard/reporting
+1. ~~Add groundedness checking (NLI-based)~~ -> Use external library
+2. ~~Implement self-consistency helper~~ -> Pattern documented in this file
+3. ~~Source attribution verification~~ -> Use Pydantic validators
+
+### Phase 4: Quality Metrics - DEFERRED
+> Deferred to external libraries (embedding models, LLM-as-judge patterns)
+
+1. ~~Relevance scoring (embedding-based)~~ -> Use Sentence Transformers
+2. ~~Completeness checking (LLM-as-judge)~~ -> Pattern documented (use validator spells)
+3. ~~Confidence estimation~~ -> Implemented in `SpellResult`
+
+### Phase 5: Pipeline Integration - PARTIALLY IMPLEMENTED
+1. ~~Declarative `ValidationConfig` for `@spell`~~ -> Use `@guard` decorators instead
+2. ~~Composable `ValidationPipeline`~~ -> Use stacked `@guard` decorators
+3. ~~Validation dashboard/reporting~~ -> Use `SpellExecutionLog` + external tools
 
 ---
 
-## 8. Design Decisions
+## 10. Design Decisions
 
 1. **Pydantic-first**: All validation leverages Pydantic validators where possible. This keeps validation declarative and co-located with types.
 
@@ -838,7 +991,7 @@ class MinimalValidator:
 
 ---
 
-## References
+## 11. References
 
 ### Structural Validation
 - [Instructor Library](https://python.useinstructor.com/)
