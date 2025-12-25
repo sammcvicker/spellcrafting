@@ -7,7 +7,7 @@ from pydantic import BaseModel
 
 from magically import spell
 from magically.config import Config, MagicallyConfigError, ModelConfig
-from magically.spell import _build_user_prompt, _is_literal_model
+from magically.spell import _build_user_prompt, _extract_input_args, _is_literal_model, _settings_hash
 
 
 class Summary(BaseModel):
@@ -1304,3 +1304,126 @@ class TestSpellDecoratorInvalidParams:
         # inspect.getdoc strips leading/trailing whitespace
         # but preserves the docstring if it exists
         assert fn._system_prompt.strip() == ""
+
+
+class TestSettingsHash:
+    """Tests for _settings_hash helper function (#18)."""
+
+    def test_none_settings_returns_zero(self):
+        """None settings should return hash of 0."""
+        assert _settings_hash(None) == 0
+
+    def test_empty_settings_returns_consistent_hash(self):
+        """Empty settings dict should return consistent hash."""
+        result1 = _settings_hash({})
+        result2 = _settings_hash({})
+        assert result1 == result2
+        # Empty dict with no non-None values hashes to empty tuple
+        assert result1 == hash(())
+
+    def test_same_settings_same_hash(self):
+        """Same settings should produce same hash."""
+        settings1 = {"temperature": 0.5, "max_tokens": 100}
+        settings2 = {"temperature": 0.5, "max_tokens": 100}
+        assert _settings_hash(settings1) == _settings_hash(settings2)
+
+    def test_different_settings_different_hash(self):
+        """Different settings should produce different hash."""
+        settings1 = {"temperature": 0.5}
+        settings2 = {"temperature": 0.9}
+        assert _settings_hash(settings1) != _settings_hash(settings2)
+
+    def test_order_independent(self):
+        """Hash should be order-independent (sorted internally)."""
+        settings1 = {"temperature": 0.5, "max_tokens": 100}
+        settings2 = {"max_tokens": 100, "temperature": 0.5}
+        assert _settings_hash(settings1) == _settings_hash(settings2)
+
+    def test_none_values_excluded(self):
+        """None values in settings should be excluded from hash."""
+        settings1 = {"temperature": 0.5}
+        settings2 = {"temperature": 0.5, "max_tokens": None}
+        assert _settings_hash(settings1) == _settings_hash(settings2)
+
+    def test_all_none_values_equals_empty(self):
+        """Settings with all None values should hash same as empty."""
+        settings = {"temperature": None, "max_tokens": None}
+        assert _settings_hash(settings) == _settings_hash({})
+
+
+class TestExtractInputArgs:
+    """Tests for _extract_input_args helper function (#18)."""
+
+    def test_positional_args(self):
+        """Extract positional args correctly."""
+        def fn(a: str, b: int) -> str:
+            pass
+
+        result = _extract_input_args(fn, ("hello", 42), {})
+        assert result == {"a": "hello", "b": 42}
+
+    def test_keyword_args(self):
+        """Extract keyword args correctly."""
+        def fn(a: str, b: int) -> str:
+            pass
+
+        result = _extract_input_args(fn, (), {"a": "hello", "b": 42})
+        assert result == {"a": "hello", "b": 42}
+
+    def test_mixed_args(self):
+        """Extract mixed positional and keyword args."""
+        def fn(a: str, b: int, c: float) -> str:
+            pass
+
+        result = _extract_input_args(fn, ("hello",), {"b": 42, "c": 3.14})
+        assert result == {"a": "hello", "b": 42, "c": 3.14}
+
+    def test_default_values_applied(self):
+        """Default values should be applied for missing args."""
+        def fn(a: str, b: int = 5, c: str = "default") -> str:
+            pass
+
+        result = _extract_input_args(fn, ("hello",), {})
+        assert result == {"a": "hello", "b": 5, "c": "default"}
+
+    def test_override_defaults(self):
+        """Explicit values should override defaults."""
+        def fn(a: str, b: int = 5) -> str:
+            pass
+
+        result = _extract_input_args(fn, ("hello",), {"b": 10})
+        assert result == {"a": "hello", "b": 10}
+
+    def test_no_args_function(self):
+        """Function with no arguments should return empty dict."""
+        def fn() -> str:
+            pass
+
+        result = _extract_input_args(fn, (), {})
+        assert result == {}
+
+    def test_single_arg(self):
+        """Single argument extraction."""
+        def fn(text: str) -> str:
+            pass
+
+        result = _extract_input_args(fn, ("hello world",), {})
+        assert result == {"text": "hello world"}
+
+    def test_complex_types(self):
+        """Extract complex types like lists and dicts."""
+        def fn(items: list, data: dict) -> str:
+            pass
+
+        items_list = [1, 2, 3]
+        data_dict = {"key": "value"}
+        result = _extract_input_args(fn, (items_list, data_dict), {})
+        assert result == {"items": items_list, "data": data_dict}
+
+    def test_none_value_arg(self):
+        """None as argument value should be preserved."""
+        def fn(value: str | None) -> str:
+            pass
+
+        result = _extract_input_args(fn, (None,), {})
+        assert result == {"value": None}
