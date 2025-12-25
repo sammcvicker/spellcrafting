@@ -244,6 +244,141 @@ class TestLlmValidatorSystemPrompt:
             # The prompt should mention fixed_value for fix mode
 
 
+class TestLlmValidatorNonStringTypes:
+    """Tests for llm_validator with non-string input types (#115)."""
+
+    def test_dict_value_passes_through(self):
+        """Validator should accept dict input and return dict on success."""
+        mock_result = ValidationResult(valid=True)
+
+        with patch("magically.validator.spell") as mock_spell:
+            mock_validate = MagicMock(return_value=mock_result)
+            mock_spell.return_value = lambda fn: mock_validate
+
+            validator_fn = llm_validator("Must have 'name' key")
+            input_dict = {"name": "test", "value": 123}
+            result = validator_fn(input_dict)
+
+            assert result == input_dict
+            assert isinstance(result, dict)
+
+    def test_list_value_passes_through(self):
+        """Validator should accept list input and return list on success."""
+        mock_result = ValidationResult(valid=True)
+
+        with patch("magically.validator.spell") as mock_spell:
+            mock_validate = MagicMock(return_value=mock_result)
+            mock_spell.return_value = lambda fn: mock_validate
+
+            validator_fn = llm_validator("Must have at least 2 items")
+            input_list = [1, 2, 3]
+            result = validator_fn(input_list)
+
+            assert result == input_list
+            assert isinstance(result, list)
+
+    def test_int_value_passes_through(self):
+        """Validator should accept int input and return int on success."""
+        mock_result = ValidationResult(valid=True)
+
+        with patch("magically.validator.spell") as mock_spell:
+            mock_validate = MagicMock(return_value=mock_result)
+            mock_spell.return_value = lambda fn: mock_validate
+
+            validator_fn = llm_validator("Must be positive")
+            result = validator_fn(42)
+
+            assert result == 42
+            assert isinstance(result, int)
+
+    def test_dict_converts_to_string_for_validation(self):
+        """Non-string values should be converted to string for LLM validation."""
+        mock_result = ValidationResult(valid=True)
+        captured_calls = []
+
+        with patch("magically.validator.spell") as mock_spell:
+            def make_mock_validate(value):
+                captured_calls.append(value)
+                return mock_result
+
+            mock_validate = MagicMock(side_effect=make_mock_validate)
+            mock_spell.return_value = lambda fn: mock_validate
+
+            validator_fn = llm_validator("Must have 'name' key")
+            input_dict = {"name": "test"}
+            validator_fn(input_dict)
+
+        # The LLM should receive the string representation
+        assert len(captured_calls) == 1
+        assert captured_calls[0] == str(input_dict)
+
+    def test_invalid_dict_raises(self):
+        """Invalid non-string value should raise ValueError."""
+        mock_result = ValidationResult(valid=False, reason="Missing 'name' key")
+
+        with patch("magically.validator.spell") as mock_spell:
+            mock_validate = MagicMock(return_value=mock_result)
+            mock_spell.return_value = lambda fn: mock_validate
+
+            validator_fn = llm_validator("Must have 'name' key")
+
+            with pytest.raises(ValueError, match="Validation failed: Missing 'name' key"):
+                validator_fn({"value": 123})
+
+    def test_invalid_dict_with_fix_returns_string(self):
+        """With on_fail='fix', fixed value is returned as string."""
+        mock_result = ValidationResult(
+            valid=False,
+            reason="Missing 'name' key",
+            fixed_value="{'name': 'unknown', 'value': 123}",
+        )
+
+        with patch("magically.validator.spell") as mock_spell:
+            mock_validate = MagicMock(return_value=mock_result)
+            mock_spell.return_value = lambda fn: mock_validate
+
+            validator_fn = llm_validator("Must have 'name' key", on_fail="fix")
+            result = validator_fn({"value": 123})
+
+            # Fixed value is returned as string from LLM
+            assert result == "{'name': 'unknown', 'value': 123}"
+            assert isinstance(result, str)
+
+    def test_pydantic_model_value(self):
+        """Validator should work with Pydantic model instances."""
+        from pydantic import BaseModel
+
+        class Person(BaseModel):
+            name: str
+            age: int
+
+        mock_result = ValidationResult(valid=True)
+
+        with patch("magically.validator.spell") as mock_spell:
+            mock_validate = MagicMock(return_value=mock_result)
+            mock_spell.return_value = lambda fn: mock_validate
+
+            validator_fn = llm_validator("Must have valid person data")
+            person = Person(name="Alice", age=30)
+            result = validator_fn(person)
+
+            assert result == person
+            assert isinstance(result, Person)
+
+    def test_none_value(self):
+        """Validator should handle None values."""
+        mock_result = ValidationResult(valid=True)
+
+        with patch("magically.validator.spell") as mock_spell:
+            mock_validate = MagicMock(return_value=mock_result)
+            mock_spell.return_value = lambda fn: mock_validate
+
+            validator_fn = llm_validator("Optional field")
+            result = validator_fn(None)
+
+            assert result is None
+
+
 class TestLlmValidatorCacheClearing:
     """Tests for agent cache clearing behavior."""
 
