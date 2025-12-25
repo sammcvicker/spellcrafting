@@ -1065,57 +1065,43 @@ class TestSpellDecoratorInvalidParams:
     errors surface at Agent creation time (call time), not definition time.
     """
 
-    def test_negative_retries_passed_to_agent(self):
-        """Negative retries passed to Agent - PydanticAI handles validation.
+    def test_negative_retries_rejected(self):
+        """Negative retries rejected at definition time (issue #176).
 
-        Note: The spell decorator doesn't validate retries at definition time.
-        The Agent class may or may not validate this.
+        The spell decorator validates retries to prevent cryptic runtime errors.
         """
-        # Decorator accepts negative retries at definition time
-        @spell(retries=-1)
+        # Decorator rejects negative retries at definition time
+        with pytest.raises(ValueError, match="retries must be non-negative"):
+            @spell(retries=-1)
+            def fn(text: str) -> str:
+                """Test."""
+                ...
+
+    def test_zero_retries_accepted(self):
+        """Zero retries is valid (no retries on failure)."""
+        @spell(retries=0)
         def fn(text: str) -> str:
             """Test."""
             ...
 
-        # The value is stored
-        assert fn._retries == -1
+        assert fn._retries == 0
 
-    def test_float_retries_accepted_at_definition(self):
-        """Float retries accepted at definition time, converted to int by Python.
-
-        Note: Python truncates float to int implicitly in some contexts.
-        """
-        @spell(retries=2.7)  # type: ignore
+    def test_positive_retries_accepted(self):
+        """Positive retries values are valid."""
+        @spell(retries=5)
         def fn(text: str) -> str:
             """Test."""
             ...
 
-        # Float is stored as-is; Agent may reject at call time
-        assert fn._retries == 2.7
+        assert fn._retries == 5
 
-    def test_invalid_end_strategy_stored(self):
-        """Invalid end_strategy stored - Agent validates at call time."""
-        @spell(end_strategy="invalid")  # type: ignore
-        def fn(text: str) -> str:
-            """Test."""
-            ...
-
-        # Stored without validation; error would occur at Agent creation
-        mock_result = MagicMock()
-        mock_result.output = "result"
-
-        # Agent would receive the invalid strategy
-        with patch("magically.spell.Agent") as mock_agent_class:
-            mock_agent = MagicMock()
-            mock_agent.run_sync.return_value = mock_result
-            mock_agent_class.return_value = mock_agent
-
-            # Call succeeds because we mocked Agent
-            fn("test")
-
-            # Verify the invalid strategy was passed to Agent
-            call_kwargs = mock_agent_class.call_args[1]
-            assert call_kwargs["end_strategy"] == "invalid"
+    def test_invalid_end_strategy_rejected(self):
+        """Invalid end_strategy rejected at definition time (issue #176)."""
+        with pytest.raises(ValueError, match="Invalid end_strategy"):
+            @spell(end_strategy="invalid")  # type: ignore
+            def fn(text: str) -> str:
+                """Test."""
+                ...
 
     def test_non_callable_tools_stored(self):
         """Non-callable tools stored - Agent validates at call time."""

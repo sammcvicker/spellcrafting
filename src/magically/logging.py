@@ -19,6 +19,7 @@ from __future__ import annotations
 import json
 import logging as stdlib_logging
 import sys
+import warnings
 from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass, field
@@ -552,6 +553,10 @@ _file_logging_config_cache: LoggingConfig | None = None
 # Context variable for capturing logs instead of emitting them (used by with_metadata)
 _capture_log: ContextVar[list[SpellExecutionLog] | None] = ContextVar("capture_log", default=None)
 
+# Track handlers that have already warned about failures (issue #182)
+# This prevents spamming warnings for handlers that consistently fail
+_handler_failure_warned: set[int] = set()
+
 
 def configure_logging(config: LoggingConfig) -> None:
     """Set the logging configuration for the current process.
@@ -1080,8 +1085,16 @@ def _emit_log(log: SpellExecutionLog) -> None:
             handler.handle(log)
         except Exception as e:
             # Intentionally broad: handler failures should never break spell execution
-            # Log at debug level for troubleshooting
+            # Warn once per handler, then log at debug level for troubleshooting
             handler_name = type(handler).__name__
+            handler_id = id(handler)
+            if handler_id not in _handler_failure_warned:
+                _handler_failure_warned.add(handler_id)
+                warnings.warn(
+                    f"Log handler {handler_name} failed: {e}. "
+                    f"Further errors from this handler will be suppressed.",
+                    stacklevel=2,
+                )
             _logger.debug("Log handler %s failed: %s", handler_name, e)
 
 
