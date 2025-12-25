@@ -3,6 +3,20 @@
 > Research compiled: December 2024
 > Focus: Python decorator-based implementation patterns
 
+## Implementation Note
+
+This research document informed the design of magically's guard system. The library now includes:
+
+- `@guard.input(validator_fn)` - Semantic input validation before LLM execution
+- `@guard.output(validator_fn)` - Output validation after LLM execution
+- `@guard.max_length(input=N)` - Input length limits
+
+For structural validation (types, required fields), continue using Pydantic models as function arguments and return types. Guards are intended for semantic validation that requires custom logic.
+
+See the main README and guard.py for usage examples.
+
+---
+
 ## Table of Contents
 
 1. [Prompt Injection Prevention](#1-prompt-injection-prevention)
