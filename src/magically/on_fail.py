@@ -71,13 +71,15 @@ class CustomStrategy(Generic[T]):
     handler: Callable[[Exception, int, dict[str, Any]], T]
 
 
-# Type alias for all strategy types
-OnFailStrategy = RetryStrategy | EscalateStrategy | FallbackStrategy | CustomStrategy
-
-
 @dataclass(frozen=True)
 class RaiseStrategy:
     """Raise an error on failure (used for guards)."""
+
+
+# Type alias for all strategy types (includes RaiseStrategy for guards)
+OnFailStrategy = (
+    RetryStrategy | EscalateStrategy | FallbackStrategy | CustomStrategy | RaiseStrategy
+)
 
 
 class OnFail:
