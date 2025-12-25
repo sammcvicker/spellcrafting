@@ -15,14 +15,15 @@ internal telemetry types where validation overhead is not needed.
 
 from __future__ import annotations
 
+import json
 import os
+import threading
 import tomllib
 import warnings
 from contextvars import ContextVar
 from pathlib import Path
 from typing import Any, Self
 
-import json
 from pydantic import BaseModel, ConfigDict, Field, field_validator, ValidationError as PydanticValidationError
 
 from magically._pydantic_ai import ModelSettings
@@ -41,10 +42,23 @@ ENV_DEFAULT_MAX_TOKENS = "MAGICALLY_DEFAULT_MAX_TOKENS"
 DEFAULT_TIMEOUT = 120.0  # 2 minutes
 
 
+# Thread Safety Notes:
+# --------------------
+# _config_context: Thread-safe via ContextVar (each thread/async context gets its own value)
+#
+# _process_default: NOT thread-safe. set_as_default() should be called during application
+# startup before spawning threads. Concurrent writes from multiple threads could cause
+# race conditions.
+#
+# _file_config_cache, _env_config_cache: Protected by _config_cache_lock. The lock ensures
+# that only one thread initializes the cache at a time. Once initialized, the cached
+# Config objects are immutable and safe to read concurrently.
+
 _config_context: ContextVar[Config | None] = ContextVar("magically_config", default=None)
 _process_default: Config | None = None
 _file_config_cache: Config | None = None
 _env_config_cache: Config | None = None
+_config_cache_lock = threading.Lock()
 
 
 class ModelConfig(BaseModel):
@@ -214,7 +228,13 @@ class Config:
             self._token = None
 
     def set_as_default(self) -> None:
-        """Set as process-level default (below context, above file config)."""
+        """Set as process-level default (below context, above file config).
+
+        Thread Safety:
+            This method is NOT thread-safe. It should be called during
+            application startup before spawning threads. Concurrent calls
+            from multiple threads could result in race conditions.
+        """
         global _process_default
         _process_default = self
 
@@ -379,17 +399,25 @@ class Config:
         2. Process default (from `config.set_as_default()`)
         3. Environment variables (from MAGICALLY_* env vars, cached)
         4. File config (from pyproject.toml, cached)
+
+        Thread Safety:
+            File and environment config caches are protected by a lock to prevent
+            concurrent initialization. Once cached, Config objects are immutable
+            and safe to read from multiple threads.
         """
         global _file_config_cache, _env_config_cache
 
         # Start with file config as base (loaded once and cached)
-        if _file_config_cache is None:
-            _file_config_cache = cls.from_file()
+        # Use lock for thread-safe initialization of caches
+        with _config_cache_lock:
+            if _file_config_cache is None:
+                _file_config_cache = cls.from_file()
+            if _env_config_cache is None:
+                _env_config_cache = cls.from_env()
+
         base = _file_config_cache
 
         # Merge env config on top of file config
-        if _env_config_cache is None:
-            _env_config_cache = cls.from_env()
         if _env_config_cache._models:
             base = base.merge(_env_config_cache)
 
@@ -426,11 +454,16 @@ def clear_config_cache() -> None:
         This does NOT clear programmatic config set via set_as_default()
         or active context managers. Those must be explicitly managed.
 
+    Thread Safety:
+        This function is thread-safe. Uses the same lock as Config.current()
+        to prevent race conditions during cache clearing.
+
     Example:
         # After modifying pyproject.toml:
         clear_config_cache()
         config = Config.current()  # Will reload from file
     """
     global _file_config_cache, _env_config_cache
-    _file_config_cache = None
-    _env_config_cache = None
+    with _config_cache_lock:
+        _file_config_cache = None
+        _env_config_cache = None
