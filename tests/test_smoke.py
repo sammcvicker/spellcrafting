@@ -48,6 +48,7 @@ def test_spell_returns_structured_output():
     assert result.sentiment in ["positive", "negative", "neutral", "mixed"]
 
 
+@pytest.mark.asyncio
 async def test_async_spell_returns_string():
     @spell(model="anthropic:claude-sonnet-4-20250514")
     async def greet_async(name: str) -> str:
@@ -59,6 +60,7 @@ async def test_async_spell_returns_string():
     assert len(result) > 0
 
 
+@pytest.mark.asyncio
 async def test_async_spell_returns_structured_output():
     @spell(model="anthropic:claude-sonnet-4-20250514")
     async def summarize_async(text: str) -> Summary:
@@ -112,6 +114,7 @@ def test_spell_with_tools():
     assert "14" in result.population or "million" in result.population.lower()
 
 
+@pytest.mark.asyncio
 async def test_async_spell_with_tools():
     """Test that async spells can use tools."""
 

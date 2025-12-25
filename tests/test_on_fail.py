@@ -296,6 +296,58 @@ class TestOnFailRetryStrategy:
                 analyze("test input")
 
 
+class TestOnFailAsyncHandlerInSyncContext:
+    """Tests for async on_fail handlers used with sync spells (#137)."""
+
+    def test_sync_spell_with_async_custom_handler_returns_coroutine(self):
+        """Sync spell with async handler returns the coroutine object (not awaited).
+
+        This documents the current behavior: when an async handler is used with
+        a sync spell, the coroutine is returned directly. Users should use sync
+        handlers with sync spells.
+        """
+        import asyncio
+
+        async def async_handler(error, attempt, ctx):
+            return Analysis(summary="async fixed", confidence=0.5)
+
+        @spell(on_fail=OnFail.custom(async_handler))
+        def analyze(text: str) -> Analysis:
+            """Analyze text."""
+            ...
+
+        mock_agent = MagicMock()
+        mock_agent.run_sync.side_effect = UnexpectedModelBehavior("Validation failed")
+
+        with patch("magically.spell.Agent", return_value=mock_agent):
+            result = analyze("test")
+            # Result is a coroutine object, not the actual Analysis
+            # This is the current behavior - async handlers with sync spells
+            # return unawaited coroutines
+            assert asyncio.iscoroutine(result)
+            # Clean up the coroutine to avoid warning
+            result.close()
+
+    def test_sync_spell_with_sync_handler_works(self):
+        """Sync spell with sync handler works correctly."""
+        def sync_handler(error, attempt, ctx):
+            return Analysis(summary="sync fixed", confidence=0.5)
+
+        @spell(on_fail=OnFail.custom(sync_handler))
+        def analyze(text: str) -> Analysis:
+            """Analyze text."""
+            ...
+
+        mock_agent = MagicMock()
+        mock_agent.run_sync.side_effect = UnexpectedModelBehavior("Validation failed")
+
+        with patch("magically.spell.Agent", return_value=mock_agent):
+            result = analyze("test")
+            # Sync handler returns proper Analysis object
+            assert isinstance(result, Analysis)
+            assert result.summary == "sync fixed"
+
+
 class TestOnFailAsync:
     """Tests for on_fail strategies with async spells."""
 
