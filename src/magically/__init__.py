@@ -17,7 +17,16 @@ Import Guidelines:
 
 from importlib.metadata import version, PackageNotFoundError
 
-from magically.config import Config, ModelConfig, ModelConfigDict, current_config, clear_config_cache
+from magically.config import (
+    Config,
+    ModelConfig,
+    ModelConfigDict,
+    RateLimitConfig,
+    current_config,
+    clear_config_cache,
+    configure_rate_limits,
+    get_rate_limit_config,
+)
 from magically.exceptions import (
     MagicallyError,
     MagicallyConfigError,
@@ -103,6 +112,10 @@ __all__ = [
     "ModelConfigDict",
     "current_config",
     "clear_config_cache",
+    # Rate limiting
+    "RateLimitConfig",
+    "configure_rate_limits",
+    "get_rate_limit_config",
     # Exceptions (all inherit from MagicallyError)
     "MagicallyError",
     "MagicallyConfigError",

@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import json
 import logging as stdlib_logging
-import tomllib
+import sys
 from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass, field
@@ -28,6 +28,12 @@ from pathlib import Path
 from collections.abc import Awaitable, Generator
 from typing import Any, Literal, Protocol, TypedDict
 from uuid import uuid4
+
+# Python 3.11+ has tomllib in stdlib; use tomli for 3.10
+if sys.version_info >= (3, 11):
+    import tomllib
+else:
+    import tomli as tomllib
 
 from magically._pyproject import find_pyproject
 
