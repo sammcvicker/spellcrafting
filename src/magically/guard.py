@@ -126,6 +126,38 @@ class OutputGuard(Protocol):
 _GUARD_MARKER = "_magically_guards"
 
 
+@dataclass(frozen=True)
+class GuardContext:
+    """Context passed to guard functions during execution.
+
+    This dataclass provides typed access to execution context, replacing
+    the previous untyped dict interface. Guards receive this context
+    as their second argument.
+
+    Attributes:
+        spell_name: Name of the spell being executed
+        model: Model alias used for the spell (may be None)
+        attempt_number: Current retry attempt (1-based)
+
+    Example:
+        def my_guard(input_args: dict, ctx: GuardContext) -> dict:
+            print(f"Running guard for {ctx.spell_name} on attempt {ctx.attempt_number}")
+            return input_args
+    """
+
+    spell_name: str
+    model: str | None = None
+    attempt_number: int = 1
+
+    def to_dict(self) -> dict[str, Any]:
+        """Convert to dict for backwards compatibility with dict-based guards."""
+        return {
+            "spell_name": self.spell_name,
+            "model": self.model,
+            "attempt_number": self.attempt_number,
+        }
+
+
 @dataclass
 class GuardConfig:
     """Guard configuration attached to decorated functions.
@@ -183,28 +215,37 @@ def _get_or_create_guard_config(func: Callable) -> GuardConfig:
     return getattr(func, _GUARD_MARKER)
 
 
-def _build_context(func: Callable, attempt: int = 1) -> dict[str, Any]:
-    """Build context dict for guard functions."""
-    spell_name = getattr(func, "__name__", "unknown")
-    model_alias = getattr(func, "_model_alias", None)
+def _build_context(func: Callable, attempt: int = 1, model: str | None = None) -> GuardContext:
+    """Build context for guard functions.
 
-    return {
-        "spell_name": spell_name,
-        "model": model_alias,
-        "attempt_number": attempt,
-    }
+    Args:
+        func: The spell function being executed.
+        attempt: Current retry attempt (1-based).
+        model: Model alias override. If None, uses func._model_alias if available.
+    """
+    spell_name = getattr(func, "__name__", "unknown")
+    # Use explicit model if provided, otherwise fall back to function attribute
+    model_alias = model if model is not None else getattr(func, "_model_alias", None)
+
+    return GuardContext(
+        spell_name=spell_name,
+        model=model_alias,
+        attempt_number=attempt,
+    )
 
 
 def _run_input_guards(
     guards: list[tuple[InputGuard, RaiseStrategy]],
     input_args: dict[str, Any],
-    context: dict[str, Any],
+    context: GuardContext,
 ) -> dict[str, Any]:
     """Run input guards in order, transforming input_args."""
+    # Convert to dict for backwards compatibility with dict-based guards
+    context_dict = context.to_dict()
     current_args = input_args
     for guard_fn, _on_fail in guards:
         try:
-            current_args = guard_fn(current_args, context)
+            current_args = guard_fn(current_args, context_dict)
         except Exception as e:
             # Guards only support RaiseStrategy - wrap non-GuardError exceptions
             if isinstance(e, GuardError):
@@ -216,13 +257,15 @@ def _run_input_guards(
 def _run_output_guards(
     guards: list[tuple[OutputGuard, RaiseStrategy]],
     output: T,
-    context: dict[str, Any],
+    context: GuardContext,
 ) -> T:
     """Run output guards in order (outermost first), transforming output."""
+    # Convert to dict for backwards compatibility with dict-based guards
+    context_dict = context.to_dict()
     current_output = output
     for guard_fn, _on_fail in guards:
         try:
-            current_output = guard_fn(current_output, context)
+            current_output = guard_fn(current_output, context_dict)
         except Exception as e:
             # Guards only support RaiseStrategy - wrap non-GuardError exceptions
             if isinstance(e, GuardError):
@@ -234,13 +277,15 @@ def _run_output_guards(
 async def _run_input_guards_async(
     guards: list[tuple[InputGuard, RaiseStrategy]],
     input_args: dict[str, Any],
-    context: dict[str, Any],
+    context: GuardContext,
 ) -> dict[str, Any]:
     """Run input guards in order, supporting async guard functions."""
+    # Convert to dict for backwards compatibility with dict-based guards
+    context_dict = context.to_dict()
     current_args = input_args
     for guard_fn, _on_fail in guards:
         try:
-            result = guard_fn(current_args, context)
+            result = guard_fn(current_args, context_dict)
             if asyncio.iscoroutine(result):
                 current_args = await result
             else:
@@ -256,13 +301,15 @@ async def _run_input_guards_async(
 async def _run_output_guards_async(
     guards: list[tuple[OutputGuard, RaiseStrategy]],
     output: T,
-    context: dict[str, Any],
+    context: GuardContext,
 ) -> T:
     """Run output guards in order, supporting async guard functions."""
+    # Convert to dict for backwards compatibility with dict-based guards
+    context_dict = context.to_dict()
     current_output = output
     for guard_fn, _on_fail in guards:
         try:
-            result = guard_fn(current_output, context)
+            result = guard_fn(current_output, context_dict)
             if asyncio.iscoroutine(result):
                 current_output = await result
             else:
@@ -302,9 +349,11 @@ def _get_guard_name(guard_fn: Callable) -> str:
 def _run_input_guards_tracked(
     guards: list[tuple[InputGuard, RaiseStrategy]],
     input_args: dict[str, Any],
-    context: dict[str, Any],
+    context: GuardContext,
 ) -> GuardRunResult[dict[str, Any]]:
     """Run input guards with tracking. Returns result and guard names that passed/failed."""
+    # Convert to dict for backwards compatibility with dict-based guards
+    context_dict = context.to_dict()
     current_args = input_args
     passed: list[str] = []
     failed: list[str] = []
@@ -312,7 +361,7 @@ def _run_input_guards_tracked(
     for guard_fn, _on_fail in guards:
         guard_name = _get_guard_name(guard_fn)
         try:
-            current_args = guard_fn(current_args, context)
+            current_args = guard_fn(current_args, context_dict)
             passed.append(guard_name)
         except Exception as e:
             failed.append(guard_name)
@@ -327,9 +376,11 @@ def _run_input_guards_tracked(
 def _run_output_guards_tracked(
     guards: list[tuple[OutputGuard, RaiseStrategy]],
     output: T,
-    context: dict[str, Any],
+    context: GuardContext,
 ) -> GuardRunResult[T]:
     """Run output guards with tracking. Returns result and guard names that passed/failed."""
+    # Convert to dict for backwards compatibility with dict-based guards
+    context_dict = context.to_dict()
     current_output = output
     passed: list[str] = []
     failed: list[str] = []
@@ -337,7 +388,7 @@ def _run_output_guards_tracked(
     for guard_fn, _on_fail in guards:
         guard_name = _get_guard_name(guard_fn)
         try:
-            current_output = guard_fn(current_output, context)
+            current_output = guard_fn(current_output, context_dict)
             passed.append(guard_name)
         except Exception as e:
             failed.append(guard_name)
@@ -352,9 +403,11 @@ def _run_output_guards_tracked(
 async def _run_input_guards_tracked_async(
     guards: list[tuple[InputGuard, RaiseStrategy]],
     input_args: dict[str, Any],
-    context: dict[str, Any],
+    context: GuardContext,
 ) -> GuardRunResult[dict[str, Any]]:
     """Run input guards with tracking, supporting async guard functions."""
+    # Convert to dict for backwards compatibility with dict-based guards
+    context_dict = context.to_dict()
     current_args = input_args
     passed: list[str] = []
     failed: list[str] = []
@@ -362,7 +415,7 @@ async def _run_input_guards_tracked_async(
     for guard_fn, _on_fail in guards:
         guard_name = _get_guard_name(guard_fn)
         try:
-            result = guard_fn(current_args, context)
+            result = guard_fn(current_args, context_dict)
             if asyncio.iscoroutine(result):
                 current_args = await result
             else:
@@ -381,9 +434,11 @@ async def _run_input_guards_tracked_async(
 async def _run_output_guards_tracked_async(
     guards: list[tuple[OutputGuard, RaiseStrategy]],
     output: T,
-    context: dict[str, Any],
+    context: GuardContext,
 ) -> GuardRunResult[T]:
     """Run output guards with tracking, supporting async guard functions."""
+    # Convert to dict for backwards compatibility with dict-based guards
+    context_dict = context.to_dict()
     current_output = output
     passed: list[str] = []
     failed: list[str] = []
@@ -391,7 +446,7 @@ async def _run_output_guards_tracked_async(
     for guard_fn, _on_fail in guards:
         guard_name = _get_guard_name(guard_fn)
         try:
-            result = guard_fn(current_output, context)
+            result = guard_fn(current_output, context_dict)
             if asyncio.iscoroutine(result):
                 current_output = await result
             else:
@@ -651,15 +706,21 @@ class GuardExecutor:
         return get_guard_config(func)
 
     @staticmethod
-    def build_context(func: Callable, attempt: int = 1) -> dict[str, Any]:
-        """Build context dict for guard functions."""
-        return _build_context(func, attempt)
+    def build_context(func: Callable, attempt: int = 1, model: str | None = None) -> GuardContext:
+        """Build context for guard functions.
+
+        Args:
+            func: The spell function being executed.
+            attempt: Current retry attempt (1-based).
+            model: Model alias override. If None, uses func._model_alias if available.
+        """
+        return _build_context(func, attempt, model)
 
     @staticmethod
     def run_input_guards(
         guard_config: GuardConfig,
         input_args: dict[str, Any],
-        context: dict[str, Any],
+        context: GuardContext,
     ) -> dict[str, Any]:
         """Run input guards synchronously."""
         return _run_input_guards(guard_config.input_guards, input_args, context)
@@ -668,7 +729,7 @@ class GuardExecutor:
     async def run_input_guards_async(
         guard_config: GuardConfig,
         input_args: dict[str, Any],
-        context: dict[str, Any],
+        context: GuardContext,
     ) -> dict[str, Any]:
         """Run input guards asynchronously."""
         return await _run_input_guards_async(guard_config.input_guards, input_args, context)
@@ -677,7 +738,7 @@ class GuardExecutor:
     def run_input_guards_tracked(
         guard_config: GuardConfig,
         input_args: dict[str, Any],
-        context: dict[str, Any],
+        context: GuardContext,
     ) -> GuardRunResult[dict[str, Any]]:
         """Run input guards with tracking for metrics."""
         return _run_input_guards_tracked(guard_config.input_guards, input_args, context)
@@ -686,7 +747,7 @@ class GuardExecutor:
     async def run_input_guards_tracked_async(
         guard_config: GuardConfig,
         input_args: dict[str, Any],
-        context: dict[str, Any],
+        context: GuardContext,
     ) -> GuardRunResult[dict[str, Any]]:
         """Run input guards asynchronously with tracking."""
         return await _run_input_guards_tracked_async(guard_config.input_guards, input_args, context)
@@ -695,7 +756,7 @@ class GuardExecutor:
     def run_output_guards(
         guard_config: GuardConfig,
         output: T,
-        context: dict[str, Any],
+        context: GuardContext,
     ) -> T:
         """Run output guards synchronously."""
         return _run_output_guards(guard_config.output_guards, output, context)
@@ -704,7 +765,7 @@ class GuardExecutor:
     async def run_output_guards_async(
         guard_config: GuardConfig,
         output: T,
-        context: dict[str, Any],
+        context: GuardContext,
     ) -> T:
         """Run output guards asynchronously."""
         return await _run_output_guards_async(guard_config.output_guards, output, context)
@@ -713,7 +774,7 @@ class GuardExecutor:
     def run_output_guards_tracked(
         guard_config: GuardConfig,
         output: T,
-        context: dict[str, Any],
+        context: GuardContext,
     ) -> GuardRunResult[T]:
         """Run output guards with tracking for metrics."""
         return _run_output_guards_tracked(guard_config.output_guards, output, context)
@@ -722,7 +783,7 @@ class GuardExecutor:
     async def run_output_guards_tracked_async(
         guard_config: GuardConfig,
         output: T,
-        context: dict[str, Any],
+        context: GuardContext,
     ) -> GuardRunResult[T]:
         """Run output guards asynchronously with tracking."""
         return await _run_output_guards_tracked_async(guard_config.output_guards, output, context)
@@ -732,6 +793,7 @@ class GuardExecutor:
 __all__ = [
     "guard",
     "GuardConfig",
+    "GuardContext",
     "get_guard_config",
     "GuardError",
     "GuardExecutor",

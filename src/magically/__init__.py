@@ -27,6 +27,7 @@ from magically.exceptions import (
 from magically.guard import (
     guard,
     GuardConfig,
+    GuardContext,
     get_guard_config,
     InputGuard,
     OutputGuard,
@@ -109,6 +110,7 @@ __all__ = [
     # Guards - validation decorators
     "guard",
     "GuardConfig",
+    "GuardContext",
     "get_guard_config",
     "InputGuard",
     "OutputGuard",
