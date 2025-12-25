@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+from collections.abc import Awaitable
 from dataclasses import dataclass
-from typing import Generic, TypeVar
+from typing import Generic, ParamSpec, Protocol, TypeVar
 
+P = ParamSpec("P")
 T = TypeVar("T")
+T_co = TypeVar("T_co", covariant=True)
 
 
 @dataclass
@@ -61,3 +64,49 @@ class SpellResult(Generic[T]):
     def total_tokens(self) -> int:
         """Total tokens used (input + output)."""
         return self.input_tokens + self.output_tokens
+
+
+class SyncSpell(Protocol[T_co]):
+    """Protocol for synchronous spell-decorated functions.
+
+    This allows proper type hints for functions that accept spell functions:
+
+        def run_spell(spell_fn: SyncSpell[Result]) -> SpellResult[Result]:
+            return spell_fn.with_metadata("input")
+
+    Note: Due to Protocol limitations with ParamSpec, this Protocol captures
+    the essential spell interface (callable + with_metadata) but not the
+    exact parameter signature. Use for type hints when you need to express
+    "any sync spell returning T".
+    """
+
+    def __call__(self, *args: object, **kwargs: object) -> T_co:
+        """Call the spell with arguments."""
+        ...
+
+    def with_metadata(self, *args: object, **kwargs: object) -> SpellResult[T_co]:
+        """Call the spell and return output with execution metadata."""
+        ...
+
+
+class AsyncSpell(Protocol[T_co]):
+    """Protocol for asynchronous spell-decorated functions.
+
+    This allows proper type hints for functions that accept async spell functions:
+
+        async def run_spell(spell_fn: AsyncSpell[Result]) -> SpellResult[Result]:
+            return await spell_fn.with_metadata("input")
+
+    Note: Due to Protocol limitations with ParamSpec, this Protocol captures
+    the essential spell interface (callable + with_metadata) but not the
+    exact parameter signature. Use for type hints when you need to express
+    "any async spell returning T".
+    """
+
+    def __call__(self, *args: object, **kwargs: object) -> Awaitable[T_co]:
+        """Call the spell with arguments."""
+        ...
+
+    def with_metadata(self, *args: object, **kwargs: object) -> Awaitable[SpellResult[T_co]]:
+        """Call the spell and return output with execution metadata."""
+        ...

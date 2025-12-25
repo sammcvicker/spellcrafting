@@ -13,7 +13,8 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from enum import Enum
 from pathlib import Path
-from typing import Any, Protocol
+from collections.abc import Awaitable, Generator
+from typing import Any, Literal, Protocol
 from uuid import uuid4
 
 
@@ -72,17 +73,27 @@ class CostEstimate:
         }
 
 
+# Redacted content marker type
+REDACTED = Literal["[REDACTED]"]
+
+
 @dataclass
 class ToolCallLog:
-    """Log of a single tool invocation during spell execution."""
+    """Log of a single tool invocation during spell execution.
+
+    When content is redacted (via LoggingConfig.redact_content), the
+    `arguments` and `result` fields will contain the literal string
+    "[REDACTED]" instead of their actual values.
+    """
 
     tool_name: str
-    arguments: dict[str, Any] | str = field(default_factory=dict)
-    result: Any | str = None
+    arguments: dict[str, Any] | REDACTED = field(default_factory=dict)
+    result: Any = None
     duration_ms: float = 0.0
     success: bool = True
     error: str | None = None
     timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    redacted: bool = False  # Explicit flag indicating if content was redacted
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -90,6 +101,7 @@ class ToolCallLog:
             "duration_ms": self.duration_ms,
             "success": self.success,
             "error": self.error,
+            "redacted": self.redacted,
         }
 
 
@@ -263,7 +275,9 @@ def current_trace() -> TraceContext | None:
 
 
 @contextmanager
-def trace_context(parent: TraceContext | None = None):
+def trace_context(
+    parent: TraceContext | None = None,
+) -> Generator[TraceContext, None, None]:
     """Context manager for trace context propagation.
 
     Creates a new span within the current trace, or starts a new trace
@@ -279,7 +293,7 @@ def trace_context(parent: TraceContext | None = None):
 
 
 @contextmanager
-def with_trace_id(trace_id: str):
+def with_trace_id(trace_id: str) -> Generator[TraceContext, None, None]:
     """Context manager to set a specific trace ID (for external correlation)."""
     ctx = TraceContext(
         trace_id=trace_id,
@@ -299,7 +313,7 @@ def with_trace_id(trace_id: str):
 
 
 class LogHandler(Protocol):
-    """Protocol for log handlers."""
+    """Protocol for synchronous log handlers."""
 
     def handle(self, log: SpellExecutionLog) -> None:
         """Handle a spell execution log."""
@@ -307,6 +321,31 @@ class LogHandler(Protocol):
 
     def flush(self) -> None:
         """Flush any buffered logs."""
+        ...
+
+
+class AsyncLogHandler(Protocol):
+    """Protocol for asynchronous log handlers.
+
+    Use this protocol when implementing handlers that need async I/O,
+    such as async HTTP transports or async file operations.
+
+    Example:
+        class AsyncHTTPHandler:
+            async def handle(self, log: SpellExecutionLog) -> None:
+                async with aiohttp.ClientSession() as session:
+                    await session.post(self.endpoint, json=log.to_dict())
+
+            async def flush(self) -> None:
+                pass
+    """
+
+    def handle(self, log: SpellExecutionLog) -> Awaitable[None]:
+        """Handle a spell execution log asynchronously."""
+        ...
+
+    def flush(self) -> Awaitable[None]:
+        """Flush any buffered logs asynchronously."""
         ...
 
 
@@ -554,7 +593,7 @@ def get_logging_config() -> LoggingConfig:
 
 
 @contextmanager
-def logging_context(config: LoggingConfig):
+def logging_context(config: LoggingConfig) -> Generator[None, None, None]:
     """Context manager for temporary logging configuration."""
     token = _logging_config.set(config)
     try:

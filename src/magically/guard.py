@@ -80,8 +80,8 @@ _GUARD_MARKER = "_magically_guards"
 class _GuardConfig:
     """Internal configuration for guards on a function."""
 
-    input_guards: list[tuple[InputGuard, OnFail]] = field(default_factory=list)
-    output_guards: list[tuple[OutputGuard, OnFail]] = field(default_factory=list)
+    input_guards: list[tuple[InputGuard, RaiseStrategy]] = field(default_factory=list)
+    output_guards: list[tuple[OutputGuard, RaiseStrategy]] = field(default_factory=list)
 
 
 def _get_or_create_guard_config(func: Callable) -> _GuardConfig:
@@ -337,7 +337,7 @@ class _GuardNamespace:
     def input(
         guard_fn: InputGuard,
         *,
-        on_fail: OnFail = OnFail.RAISE,
+        on_fail: RaiseStrategy = OnFail.RAISE,
     ) -> Callable[[Callable[P, T]], Callable[P, T]]:
         """Add an input guard to a spell.
 
@@ -392,7 +392,7 @@ class _GuardNamespace:
     def output(
         guard_fn: OutputGuard,
         *,
-        on_fail: OnFail = OnFail.RAISE,
+        on_fail: RaiseStrategy = OnFail.RAISE,
     ) -> Callable[[Callable[P, T]], Callable[P, T]]:
         """Add an output guard to a spell.
 
