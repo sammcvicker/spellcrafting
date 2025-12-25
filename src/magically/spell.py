@@ -11,10 +11,13 @@ from collections.abc import Awaitable
 from dataclasses import dataclass, field
 from typing import Any, Callable, ParamSpec, Sequence, TypeVar, overload
 
-from pydantic_ai import Agent
-from pydantic_ai.agent import EndStrategy
-from pydantic_ai.exceptions import UnexpectedModelBehavior
-from pydantic_ai.settings import ModelSettings
+from magically._pydantic_ai import (
+    Agent,
+    EndStrategy,
+    ModelSettings,
+    UnexpectedModelBehavior,
+    ValidationError,
+)
 
 from magically.config import Config, MagicallyConfigError, ModelConfig
 from magically.on_fail import (
@@ -328,8 +331,8 @@ def _handle_on_fail_sync(
 ) -> Any:
     """Handle on_fail strategy for sync execution."""
     if isinstance(on_fail, RetryStrategy):
-        # Default behavior - just re-raise, PydanticAI already handled retries
-        raise error
+        # Default behavior - just re-raise wrapped, PydanticAI already handled retries
+        raise ValidationError(str(error), original_error=error) from error
 
     if isinstance(on_fail, FallbackStrategy):
         # Return the default value
@@ -359,8 +362,8 @@ def _handle_on_fail_sync(
         result = escalated_agent.run_sync(user_prompt)
         return result.output
 
-    # Unknown strategy type - re-raise
-    raise error
+    # Unknown strategy type - re-raise wrapped
+    raise ValidationError(str(error), original_error=error) from error
 
 
 async def _handle_on_fail_async(
@@ -377,8 +380,8 @@ async def _handle_on_fail_async(
 ) -> Any:
     """Handle on_fail strategy for async execution."""
     if isinstance(on_fail, RetryStrategy):
-        # Default behavior - just re-raise, PydanticAI already handled retries
-        raise error
+        # Default behavior - just re-raise wrapped, PydanticAI already handled retries
+        raise ValidationError(str(error), original_error=error) from error
 
     if isinstance(on_fail, FallbackStrategy):
         # Return the default value
@@ -412,8 +415,8 @@ async def _handle_on_fail_async(
         result = await escalated_agent.run(user_prompt)
         return result.output
 
-    # Unknown strategy type - re-raise
-    raise error
+    # Unknown strategy type - re-raise wrapped
+    raise ValidationError(str(error), original_error=error) from error
 
 
 # Overloads for sync functions
@@ -660,7 +663,7 @@ def spell(
                                 model,
                             )
                         else:
-                            raise
+                            raise ValidationError(str(e), original_error=e) from e
 
                     # Run output guards if present
                     if guard_config and guard_config.output_guards:
@@ -722,7 +725,7 @@ def spell(
                                 # Track validation error even when no on_fail strategy
                                 if validation_metrics:
                                     validation_metrics.pydantic_errors.append(str(e))
-                                raise
+                                raise ValidationError(str(e), original_error=e) from e
 
                         # Run output guards if present (with tracking)
                         if guard_config and guard_config.output_guards:
@@ -811,7 +814,7 @@ def spell(
                                 model,
                             )
                         else:
-                            raise
+                            raise ValidationError(str(e), original_error=e) from e
 
                     # Run output guards if present
                     if guard_config and guard_config.output_guards:
@@ -873,7 +876,7 @@ def spell(
                                 # Track validation error even when no on_fail strategy
                                 if validation_metrics:
                                     validation_metrics.pydantic_errors.append(str(e))
-                                raise
+                                raise ValidationError(str(e), original_error=e) from e
 
                         # Run output guards if present (with tracking)
                         if guard_config and guard_config.output_guards:
@@ -970,7 +973,7 @@ def spell(
                         )
                         result = None  # No result object when on_fail handles it
                     else:
-                        raise
+                        raise ValidationError(str(e), original_error=e) from e
 
                 # Run output guards if present
                 if guard_config and guard_config.output_guards:
@@ -1067,7 +1070,7 @@ def spell(
                         )
                         result = None  # No result object when on_fail handles it
                     else:
-                        raise
+                        raise ValidationError(str(e), original_error=e) from e
 
                 # Run output guards if present
                 if guard_config and guard_config.output_guards:
