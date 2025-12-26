@@ -19,8 +19,10 @@ Example:
 from __future__ import annotations
 
 import mimetypes
+import warnings
+from io import BytesIO
 from pathlib import Path
-from typing import Any, Protocol, runtime_checkable
+from typing import Any, Literal, Protocol, runtime_checkable
 
 from pydantic_ai import (
     AudioUrl,
@@ -207,6 +209,113 @@ def _detect_format_from_extension(path: str | Path) -> tuple[str, str] | None:
 
 
 # ---------------------------------------------------------------------------
+# Image optimization
+# ---------------------------------------------------------------------------
+
+# Default optimization parameters (optimal for Anthropic models)
+DEFAULT_MAX_PIXELS = 1_150_000  # Anthropic's recommended max: 1.15 megapixels
+DEFAULT_MAX_DIMENSION = 1568  # Max width or height
+DEFAULT_QUALITY = 85  # JPEG quality (1-100)
+
+# Type for OpenAI detail parameter
+DetailLevel = Literal["auto", "low", "high"]
+
+
+def _check_pillow_available() -> bool:
+    """Check if Pillow is available for image optimization.
+
+    Returns:
+        True if Pillow is installed, False otherwise
+    """
+    try:
+        from PIL import Image as PILImage
+
+        return True
+    except ImportError:
+        return False
+
+
+def _optimize_image(
+    data: bytes,
+    max_pixels: int = DEFAULT_MAX_PIXELS,
+    max_dimension: int = DEFAULT_MAX_DIMENSION,
+    quality: int = DEFAULT_QUALITY,
+) -> tuple[bytes, str]:
+    """Resize and re-encode image for optimal API usage.
+
+    This function resizes large images to fit within API limits and reduce
+    token costs. Images are resized using high-quality Lanczos resampling.
+
+    Args:
+        data: Raw image bytes
+        max_pixels: Maximum total pixels (width * height). Default 1,150,000.
+        max_dimension: Maximum width or height in pixels. Default 1568.
+        quality: JPEG quality for re-encoding (1-100). Default 85.
+
+    Returns:
+        Tuple of (optimized_bytes, media_type)
+
+    Raises:
+        ImportError: If Pillow is not installed
+    """
+    from PIL import Image as PILImage
+
+    img = PILImage.open(BytesIO(data))
+    original_format = img.format
+
+    # Get original dimensions
+    width, height = img.size
+    current_pixels = width * height
+
+    # Calculate resize ratio
+    scale = 1.0
+
+    # Check dimension limits
+    if width > max_dimension:
+        scale = min(scale, max_dimension / width)
+    if height > max_dimension:
+        scale = min(scale, max_dimension / height)
+
+    # Check pixel limits (after dimension scaling)
+    if current_pixels * (scale**2) > max_pixels:
+        scale = min(scale, (max_pixels / current_pixels) ** 0.5)
+
+    # Only resize if needed
+    if scale < 1.0:
+        new_width = int(width * scale)
+        new_height = int(height * scale)
+        # Ensure minimum size of 1x1
+        new_width = max(1, new_width)
+        new_height = max(1, new_height)
+        img = img.resize((new_width, new_height), PILImage.Resampling.LANCZOS)
+
+    # Re-encode the image
+    buffer = BytesIO()
+
+    # Convert RGBA to RGB for JPEG (JPEG doesn't support alpha)
+    if original_format in ("JPEG", "JPG") or (
+        original_format is None and img.mode in ("RGB", "L")
+    ):
+        # Ensure RGB mode for JPEG
+        if img.mode == "RGBA":
+            # Create white background and paste image
+            background = PILImage.new("RGB", img.size, (255, 255, 255))
+            background.paste(img, mask=img.split()[3])  # Use alpha as mask
+            img = background
+        elif img.mode not in ("RGB", "L"):
+            img = img.convert("RGB")
+        img.save(buffer, format="JPEG", quality=quality, optimize=True)
+        return buffer.getvalue(), "image/jpeg"
+    else:
+        # For PNG, GIF, WebP, etc., preserve format or use PNG
+        if img.mode == "P" and "transparency" in img.info:
+            # Preserve palette transparency
+            img = img.convert("RGBA")
+        img.save(buffer, format="PNG", optimize=True)
+        return buffer.getvalue(), "image/png"
+
+
+# ---------------------------------------------------------------------------
 # MediaType Protocol
 # ---------------------------------------------------------------------------
 
@@ -242,24 +351,43 @@ class Image:
     - Image.from_url() - Reference an image URL
     - Image.from_bytes() - Create from raw bytes
 
+    By default, images are automatically optimized to fit within API limits
+    (1.15 megapixels, 1568px max dimension) to reduce token costs and improve
+    reliability. This requires Pillow to be installed (`pip install spellcrafting[images]`).
+
     Example:
-        img = Image.from_path("photo.jpg")
-        img = Image.from_url("https://example.com/image.png")
-        img = Image.from_bytes(raw_bytes)
+        # Auto-optimized for API limits (default)
+        img = Image.from_path("huge_photo.jpg")  # 4000x3000 -> auto-resized
+
+        # Explicit control over optimization
+        img = Image.from_path(
+            "photo.jpg",
+            max_pixels=1_150_000,    # Total pixel budget
+            max_dimension=1568,       # Max width OR height
+            quality=85,               # JPEG quality (1-100)
+        )
+
+        # Disable optimization
+        img = Image.from_path("photo.jpg", optimize=False)
+
+        # OpenAI detail level (passed through to API)
+        img = Image.from_path("photo.jpg", detail="high")
     """
 
-    __slots__ = ("_content", "_media_type", "_identifier")
+    __slots__ = ("_content", "_media_type", "_identifier", "_detail")
 
     def __init__(
         self,
         content: PydanticAIContent,
         media_type: str | None = None,
         identifier: str | None = None,
+        detail: DetailLevel | None = None,
     ) -> None:
         """Internal constructor. Use from_path, from_url, or from_bytes instead."""
         self._content = content
         self._media_type = media_type
         self._identifier = identifier
+        self._detail = detail
 
     @classmethod
     def from_path(
@@ -267,12 +395,26 @@ class Image:
         path: str | Path,
         *,
         media_type: str | None = None,
+        optimize: bool = True,
+        max_pixels: int = DEFAULT_MAX_PIXELS,
+        max_dimension: int = DEFAULT_MAX_DIMENSION,
+        quality: int = DEFAULT_QUALITY,
+        detail: DetailLevel | None = None,
     ) -> Image:
         """Create an Image from a local file path.
+
+        By default, images are automatically optimized to fit within API limits.
+        This requires Pillow to be installed. If Pillow is not available, a warning
+        is issued and the original image is used.
 
         Args:
             path: Path to the image file
             media_type: Optional media type override (auto-detected if not provided)
+            optimize: Whether to optimize the image for API limits. Default True.
+            max_pixels: Maximum total pixels (width * height). Default 1,150,000.
+            max_dimension: Maximum width or height in pixels. Default 1568.
+            quality: JPEG quality for re-encoding (1-100). Default 85.
+            detail: OpenAI detail level ("auto", "low", "high"). Passed through to API.
 
         Returns:
             Image instance
@@ -285,20 +427,49 @@ class Image:
         if not path.exists():
             raise FileNotFoundError(f"Image file not found: {path}")
 
-        # Use pydantic_ai's from_path which handles format detection
-        content = BinaryContent.from_path(path)
+        # Read raw bytes for optimization
+        data = path.read_bytes()
 
-        # Determine media type
+        # Attempt optimization if enabled
+        if optimize:
+            if _check_pillow_available():
+                try:
+                    data, detected_media_type = _optimize_image(
+                        data,
+                        max_pixels=max_pixels,
+                        max_dimension=max_dimension,
+                        quality=quality,
+                    )
+                    if media_type is None:
+                        media_type = detected_media_type
+                except Exception as e:
+                    # If optimization fails, fall back to original
+                    warnings.warn(
+                        f"Image optimization failed: {e}. Using original image.",
+                        UserWarning,
+                        stacklevel=2,
+                    )
+            else:
+                warnings.warn(
+                    "Pillow not installed. Install with: pip install spellcrafting[images] "
+                    "for automatic image optimization. Sending original image.",
+                    UserWarning,
+                    stacklevel=2,
+                )
+
+        # Determine media type if not set
         if media_type is None:
-            if hasattr(content, "media_type"):
-                media_type = content.media_type
+            result = _detect_format_from_bytes(data)
+            if result:
+                media_type = result[0]
             else:
                 # Fallback to extension-based detection
                 result = _detect_format_from_extension(path)
                 if result:
                     media_type = result[0]
 
-        return cls(content, media_type=media_type, identifier=str(path))
+        content = BinaryContent(data=data, media_type=media_type, identifier=str(path))
+        return cls(content, media_type=media_type, identifier=str(path), detail=detail)
 
     @classmethod
     def from_url(
@@ -307,19 +478,25 @@ class Image:
         *,
         media_type: str | None = None,
         force_download: bool = False,
+        detail: DetailLevel | None = None,
     ) -> Image:
         """Create an Image from a URL.
+
+        Note: URL-based images are not optimized locally. The image is sent
+        as-is to the API, which handles any resizing. Use `force_download=True`
+        if you need local processing.
 
         Args:
             url: URL of the image
             media_type: Optional media type override
             force_download: If True, download the image before sending to API
+            detail: OpenAI detail level ("auto", "low", "high"). Passed through to API.
 
         Returns:
             Image instance
         """
         content = ImageUrl(url=url, media_type=media_type, force_download=force_download)
-        return cls(content, media_type=media_type, identifier=url)
+        return cls(content, media_type=media_type, identifier=url, detail=detail)
 
     @classmethod
     def from_bytes(
@@ -328,13 +505,27 @@ class Image:
         *,
         media_type: str | None = None,
         identifier: str | None = None,
+        optimize: bool = True,
+        max_pixels: int = DEFAULT_MAX_PIXELS,
+        max_dimension: int = DEFAULT_MAX_DIMENSION,
+        quality: int = DEFAULT_QUALITY,
+        detail: DetailLevel | None = None,
     ) -> Image:
         """Create an Image from raw bytes.
+
+        By default, images are automatically optimized to fit within API limits.
+        This requires Pillow to be installed. If Pillow is not available, a warning
+        is issued and the original image is used.
 
         Args:
             data: Raw image bytes
             media_type: Media type (auto-detected if not provided)
             identifier: Optional identifier for the image
+            optimize: Whether to optimize the image for API limits. Default True.
+            max_pixels: Maximum total pixels (width * height). Default 1,150,000.
+            max_dimension: Maximum width or height in pixels. Default 1568.
+            quality: JPEG quality for re-encoding (1-100). Default 85.
+            detail: OpenAI detail level ("auto", "low", "high"). Passed through to API.
 
         Returns:
             Image instance
@@ -342,6 +533,34 @@ class Image:
         Raises:
             ValueError: If media_type is not provided and cannot be detected
         """
+        # Attempt optimization if enabled
+        if optimize:
+            if _check_pillow_available():
+                try:
+                    data, detected_media_type = _optimize_image(
+                        data,
+                        max_pixels=max_pixels,
+                        max_dimension=max_dimension,
+                        quality=quality,
+                    )
+                    if media_type is None:
+                        media_type = detected_media_type
+                except Exception as e:
+                    # If optimization fails, fall back to original
+                    warnings.warn(
+                        f"Image optimization failed: {e}. Using original image.",
+                        UserWarning,
+                        stacklevel=2,
+                    )
+            else:
+                warnings.warn(
+                    "Pillow not installed. Install with: pip install spellcrafting[images] "
+                    "for automatic image optimization. Sending original image.",
+                    UserWarning,
+                    stacklevel=2,
+                )
+
+        # Determine media type if not set
         if media_type is None:
             result = _detect_format_from_bytes(data)
             if result:
@@ -353,7 +572,7 @@ class Image:
                 )
 
         content = BinaryContent(data=data, media_type=media_type, identifier=identifier)
-        return cls(content, media_type=media_type, identifier=identifier)
+        return cls(content, media_type=media_type, identifier=identifier, detail=detail)
 
     def to_pydantic_ai(self) -> PydanticAIContent:
         """Convert to pydantic_ai content type.
@@ -372,6 +591,11 @@ class Image:
     def identifier(self) -> str | None:
         """Optional identifier (file path or URL)."""
         return self._identifier
+
+    @property
+    def detail(self) -> DetailLevel | None:
+        """OpenAI detail level (auto, low, high)."""
+        return self._detail
 
     def __repr__(self) -> str:
         if self._identifier:
@@ -860,4 +1084,9 @@ __all__ = [
     "Video",
     # Helper
     "is_media_type",
+    # Image optimization constants
+    "DEFAULT_MAX_PIXELS",
+    "DEFAULT_MAX_DIMENSION",
+    "DEFAULT_QUALITY",
+    "DetailLevel",
 ]

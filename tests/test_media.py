@@ -286,6 +286,349 @@ class TestImage:
 
 
 # ---------------------------------------------------------------------------
+# Image optimization tests
+# ---------------------------------------------------------------------------
+
+
+class TestImageOptimization:
+    """Tests for automatic image optimization."""
+
+    @pytest.fixture
+    def large_png_bytes(self):
+        """Create a large PNG image (2000x1500) using Pillow."""
+        from PIL import Image as PILImage
+        from io import BytesIO
+
+        # Create a 2000x1500 RGB image (3 megapixels)
+        img = PILImage.new("RGB", (2000, 1500), color="red")
+        buffer = BytesIO()
+        img.save(buffer, format="PNG")
+        return buffer.getvalue()
+
+    @pytest.fixture
+    def large_jpeg_bytes(self):
+        """Create a large JPEG image (2000x1500) using Pillow."""
+        from PIL import Image as PILImage
+        from io import BytesIO
+
+        # Create a 2000x1500 RGB image
+        img = PILImage.new("RGB", (2000, 1500), color="blue")
+        buffer = BytesIO()
+        img.save(buffer, format="JPEG", quality=95)
+        return buffer.getvalue()
+
+    @pytest.fixture
+    def small_png_bytes(self):
+        """Create a small PNG image (100x100) using Pillow."""
+        from PIL import Image as PILImage
+        from io import BytesIO
+
+        img = PILImage.new("RGB", (100, 100), color="green")
+        buffer = BytesIO()
+        img.save(buffer, format="PNG")
+        return buffer.getvalue()
+
+    @pytest.fixture
+    def rgba_png_bytes(self):
+        """Create a PNG image with alpha channel."""
+        from PIL import Image as PILImage
+        from io import BytesIO
+
+        img = PILImage.new("RGBA", (200, 200), color=(255, 0, 0, 128))
+        buffer = BytesIO()
+        img.save(buffer, format="PNG")
+        return buffer.getvalue()
+
+    def test_optimize_image_resizes_large_image(self, large_png_bytes):
+        """Test that large images are resized."""
+        from spellcrafting.media import _optimize_image
+        from PIL import Image as PILImage
+        from io import BytesIO
+
+        optimized_data, media_type = _optimize_image(large_png_bytes)
+
+        # Load the optimized image
+        optimized_img = PILImage.open(BytesIO(optimized_data))
+        width, height = optimized_img.size
+
+        # Check that the image was resized
+        assert width <= 1568, f"Width {width} exceeds max dimension 1568"
+        assert height <= 1568, f"Height {height} exceeds max dimension 1568"
+        assert width * height <= 1_150_000, "Pixel count exceeds max"
+
+    def test_optimize_image_preserves_small_image(self, small_png_bytes):
+        """Test that small images are not resized."""
+        from spellcrafting.media import _optimize_image
+        from PIL import Image as PILImage
+        from io import BytesIO
+
+        optimized_data, media_type = _optimize_image(small_png_bytes)
+
+        # Load both images
+        original_img = PILImage.open(BytesIO(small_png_bytes))
+        optimized_img = PILImage.open(BytesIO(optimized_data))
+
+        # Size should be the same (no resize needed)
+        assert optimized_img.size == original_img.size
+
+    def test_optimize_image_respects_max_dimension(self):
+        """Test that max_dimension parameter is respected."""
+        from spellcrafting.media import _optimize_image
+        from PIL import Image as PILImage
+        from io import BytesIO
+
+        # Create a wide image (1000x500)
+        img = PILImage.new("RGB", (1000, 500), color="purple")
+        buffer = BytesIO()
+        img.save(buffer, format="PNG")
+        original_bytes = buffer.getvalue()
+
+        # Optimize with max_dimension=400
+        optimized_data, _ = _optimize_image(original_bytes, max_dimension=400)
+
+        optimized_img = PILImage.open(BytesIO(optimized_data))
+        width, height = optimized_img.size
+
+        assert width <= 400
+        assert height <= 400
+
+    def test_optimize_image_respects_max_pixels(self):
+        """Test that max_pixels parameter is respected."""
+        from spellcrafting.media import _optimize_image
+        from PIL import Image as PILImage
+        from io import BytesIO
+
+        # Create a 1000x1000 image (1 megapixel)
+        img = PILImage.new("RGB", (1000, 1000), color="orange")
+        buffer = BytesIO()
+        img.save(buffer, format="PNG")
+        original_bytes = buffer.getvalue()
+
+        # Optimize with max_pixels=250000 (500x500)
+        optimized_data, _ = _optimize_image(
+            original_bytes,
+            max_pixels=250_000,
+            max_dimension=10000,  # High to not interfere
+        )
+
+        optimized_img = PILImage.open(BytesIO(optimized_data))
+        width, height = optimized_img.size
+
+        assert width * height <= 250_000
+
+    def test_optimize_image_jpeg_quality(self, large_jpeg_bytes):
+        """Test that JPEG quality parameter affects file size."""
+        from spellcrafting.media import _optimize_image
+
+        high_quality, _ = _optimize_image(large_jpeg_bytes, quality=95)
+        low_quality, _ = _optimize_image(large_jpeg_bytes, quality=50)
+
+        # Low quality should be smaller
+        assert len(low_quality) < len(high_quality)
+
+    def test_optimize_image_returns_jpeg_for_jpeg_input(self, large_jpeg_bytes):
+        """Test that JPEG input returns JPEG output."""
+        from spellcrafting.media import _optimize_image
+
+        _, media_type = _optimize_image(large_jpeg_bytes)
+        assert media_type == "image/jpeg"
+
+    def test_optimize_image_returns_png_for_png_input(self, large_png_bytes):
+        """Test that PNG input returns PNG output."""
+        from spellcrafting.media import _optimize_image
+
+        _, media_type = _optimize_image(large_png_bytes)
+        assert media_type == "image/png"
+
+    def test_from_path_with_optimization(self, large_png_bytes, tmp_path):
+        """Test Image.from_path with optimization enabled."""
+        from PIL import Image as PILImage
+        from io import BytesIO
+
+        img_path = tmp_path / "large.png"
+        img_path.write_bytes(large_png_bytes)
+
+        img = Image.from_path(img_path, optimize=True)
+        content = img.to_pydantic_ai()
+
+        # Get the optimized data
+        optimized_data = content.data
+        optimized_img = PILImage.open(BytesIO(optimized_data))
+        width, height = optimized_img.size
+
+        # Should be resized
+        assert width <= 1568
+        assert height <= 1568
+
+    def test_from_path_without_optimization(self, large_png_bytes, tmp_path):
+        """Test Image.from_path with optimization disabled."""
+        from PIL import Image as PILImage
+        from io import BytesIO
+
+        img_path = tmp_path / "large.png"
+        img_path.write_bytes(large_png_bytes)
+
+        img = Image.from_path(img_path, optimize=False)
+        content = img.to_pydantic_ai()
+
+        # Get the data
+        data = content.data
+        result_img = PILImage.open(BytesIO(data))
+        width, height = result_img.size
+
+        # Should NOT be resized (original is 2000x1500)
+        assert width == 2000
+        assert height == 1500
+
+    def test_from_bytes_with_optimization(self, large_png_bytes):
+        """Test Image.from_bytes with optimization enabled."""
+        from PIL import Image as PILImage
+        from io import BytesIO
+
+        img = Image.from_bytes(large_png_bytes, optimize=True)
+        content = img.to_pydantic_ai()
+
+        optimized_data = content.data
+        optimized_img = PILImage.open(BytesIO(optimized_data))
+        width, height = optimized_img.size
+
+        # Should be resized
+        assert width <= 1568
+        assert height <= 1568
+
+    def test_from_bytes_without_optimization(self, large_png_bytes):
+        """Test Image.from_bytes with optimization disabled."""
+        from PIL import Image as PILImage
+        from io import BytesIO
+
+        img = Image.from_bytes(large_png_bytes, optimize=False)
+        content = img.to_pydantic_ai()
+
+        data = content.data
+        result_img = PILImage.open(BytesIO(data))
+        width, height = result_img.size
+
+        # Should NOT be resized
+        assert width == 2000
+        assert height == 1500
+
+    def test_from_path_custom_parameters(self, large_png_bytes, tmp_path):
+        """Test Image.from_path with custom optimization parameters."""
+        from PIL import Image as PILImage
+        from io import BytesIO
+
+        img_path = tmp_path / "large.png"
+        img_path.write_bytes(large_png_bytes)
+
+        img = Image.from_path(
+            img_path,
+            optimize=True,
+            max_dimension=500,
+            max_pixels=200_000,
+        )
+        content = img.to_pydantic_ai()
+
+        optimized_data = content.data
+        optimized_img = PILImage.open(BytesIO(optimized_data))
+        width, height = optimized_img.size
+
+        assert width <= 500
+        assert height <= 500
+        assert width * height <= 200_000
+
+    def test_from_bytes_custom_parameters(self, large_png_bytes):
+        """Test Image.from_bytes with custom optimization parameters."""
+        from PIL import Image as PILImage
+        from io import BytesIO
+
+        img = Image.from_bytes(
+            large_png_bytes,
+            optimize=True,
+            max_dimension=400,
+            max_pixels=100_000,
+        )
+        content = img.to_pydantic_ai()
+
+        optimized_data = content.data
+        optimized_img = PILImage.open(BytesIO(optimized_data))
+        width, height = optimized_img.size
+
+        assert width <= 400
+        assert height <= 400
+        assert width * height <= 100_000
+
+    def test_detail_parameter_from_path(self, small_png_bytes, tmp_path):
+        """Test that detail parameter is set correctly from from_path."""
+        img_path = tmp_path / "small.png"
+        img_path.write_bytes(small_png_bytes)
+
+        img = Image.from_path(img_path, detail="high")
+        assert img.detail == "high"
+
+        img_auto = Image.from_path(img_path, detail="auto")
+        assert img_auto.detail == "auto"
+
+        img_low = Image.from_path(img_path, detail="low")
+        assert img_low.detail == "low"
+
+    def test_detail_parameter_from_bytes(self, small_png_bytes):
+        """Test that detail parameter is set correctly from from_bytes."""
+        img = Image.from_bytes(small_png_bytes, detail="high")
+        assert img.detail == "high"
+
+    def test_detail_parameter_from_url(self):
+        """Test that detail parameter is set correctly from from_url."""
+        img = Image.from_url("https://example.com/image.jpg", detail="low")
+        assert img.detail == "low"
+
+    def test_detail_parameter_default_none(self, small_png_bytes):
+        """Test that detail parameter defaults to None."""
+        img = Image.from_bytes(small_png_bytes)
+        assert img.detail is None
+
+    def test_optimization_with_pillow_not_installed(self, png_bytes, tmp_path):
+        """Test graceful degradation when Pillow is not installed."""
+        img_path = tmp_path / "test.png"
+        img_path.write_bytes(png_bytes)
+
+        # Mock _check_pillow_available to return False
+        with patch("spellcrafting.media._check_pillow_available", return_value=False):
+            with pytest.warns(
+                UserWarning, match="Pillow not installed"
+            ):
+                img = Image.from_path(img_path, optimize=True)
+
+            # Should still create an Image with original data
+            assert isinstance(img, Image)
+
+    def test_optimization_fallback_on_error(self, tmp_path):
+        """Test that optimization falls back on error."""
+        # Write some invalid image data
+        img_path = tmp_path / "invalid.png"
+        img_path.write_bytes(b"\x89PNG\r\n\x1a\n" + b"corrupted data")
+
+        with pytest.warns(UserWarning, match="Image optimization failed"):
+            # Should warn but not raise
+            img = Image.from_path(img_path, optimize=True)
+
+        # Should still create an Image
+        assert isinstance(img, Image)
+
+    def test_constants_are_exported(self):
+        """Test that optimization constants are exported."""
+        from spellcrafting.media import (
+            DEFAULT_MAX_PIXELS,
+            DEFAULT_MAX_DIMENSION,
+            DEFAULT_QUALITY,
+            DetailLevel,
+        )
+
+        assert DEFAULT_MAX_PIXELS == 1_150_000
+        assert DEFAULT_MAX_DIMENSION == 1568
+        assert DEFAULT_QUALITY == 85
+
+
+# ---------------------------------------------------------------------------
 # Audio tests
 # ---------------------------------------------------------------------------
 
