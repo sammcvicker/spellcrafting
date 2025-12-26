@@ -64,6 +64,27 @@ class LogLevel(str, Enum):
     ERROR = "error"
 
 
+# Numeric values for LogLevel ordering: DEBUG < INFO < WARNING < ERROR
+_LOG_LEVEL_VALUES: dict[LogLevel, int] = {
+    LogLevel.DEBUG: 0,
+    LogLevel.INFO: 1,
+    LogLevel.WARNING: 2,
+    LogLevel.ERROR: 3,
+}
+
+
+def _level_value(level: LogLevel) -> int:
+    """Get numeric value for a log level (for comparison).
+
+    Args:
+        level: The LogLevel to get the value for.
+
+    Returns:
+        Numeric value where DEBUG=0 < INFO=1 < WARNING=2 < ERROR=3.
+    """
+    return _LOG_LEVEL_VALUES.get(level, 1)  # Default to INFO if unknown
+
+
 # ---------------------------------------------------------------------------
 # Core Types
 # ---------------------------------------------------------------------------
@@ -180,6 +201,56 @@ class ValidationMetrics:
             "on_fail_triggered": self.on_fail_triggered,
             "escalated_to_model": self.escalated_to_model,
         }
+
+
+@dataclass
+class SpellEvent:
+    """Lightweight event emitted during spell execution.
+
+    SpellEvents provide visibility into intermediate execution steps like
+    guard checks, retries, escalation, and on_fail strategy activation.
+    They are emitted in real-time (not batched like SpellExecutionLog).
+
+    Event types follow a hierarchical naming convention:
+    - guard.input.start, guard.input.pass, guard.input.fail
+    - guard.output.start, guard.output.pass, guard.output.fail
+    - escalate.trigger
+    - on_fail.fallback, on_fail.custom
+    - retry.attempt
+
+    Attributes:
+        event_type: Hierarchical event identifier (e.g., "guard.input.pass")
+        spell_name: Name of the spell being executed
+        trace_id: W3C trace ID for correlation (32 hex chars)
+        span_id: W3C span ID for this execution (16 hex chars)
+        timestamp: When the event occurred (UTC)
+        level: Log level for filtering (DEBUG, INFO, WARNING, ERROR)
+        details: Additional event-specific data
+    """
+
+    event_type: str
+    spell_name: str
+    trace_id: str
+    span_id: str
+    timestamp: datetime
+    level: LogLevel
+    details: dict[str, Any] = field(default_factory=dict)
+
+    def to_dict(self) -> dict[str, Any]:
+        """Convert to dictionary for JSON serialization."""
+        return {
+            "event_type": self.event_type,
+            "spell_name": self.spell_name,
+            "trace_id": self.trace_id,
+            "span_id": self.span_id,
+            "timestamp": self.timestamp.isoformat(),
+            "level": self.level.value,
+            "details": self.details,
+        }
+
+    def to_json(self) -> str:
+        """Serialize to JSON string."""
+        return json.dumps(self.to_dict())
 
 
 @dataclass
@@ -1096,6 +1167,61 @@ def _emit_log(log: SpellExecutionLog) -> None:
                     stacklevel=2,
                 )
             _logger.debug("Log handler %s failed: %s", handler_name, e)
+
+
+def _emit_event(event: SpellEvent) -> None:
+    """Emit an intermediate event to all configured handlers.
+
+    This function is used to emit lightweight events during spell execution.
+    Events are only emitted if:
+    1. Logging is enabled
+    2. Event level >= configured level (LogLevel ordering applies)
+
+    Args:
+        event: The SpellEvent to emit.
+
+    Note:
+        This function is designed to never raise exceptions - handler failures
+        are logged at debug level but do not interrupt spell execution.
+
+        Unlike _emit_log() which handles SpellExecutionLog (complete execution
+        records), this emits SpellEvent for intermediate visibility into
+        guards, retries, escalation, etc.
+    """
+    config = get_logging_config()
+    if not config.enabled:
+        return
+
+    # Filter by log level: only emit if event level >= configured level
+    if _level_value(event.level) < _level_value(config.level):
+        return
+
+    # Emit to all handlers using Python logging
+    # Note: Handlers implement LogHandler protocol for SpellExecutionLog,
+    # so we use stdlib logging for SpellEvent until EventHandler protocol exists
+    for handler in config.handlers:
+        try:
+            if isinstance(handler, PythonLoggingHandler):
+                # Map our LogLevel to stdlib logging level
+                level_map = {
+                    LogLevel.DEBUG: stdlib_logging.DEBUG,
+                    LogLevel.INFO: stdlib_logging.INFO,
+                    LogLevel.WARNING: stdlib_logging.WARNING,
+                    LogLevel.ERROR: stdlib_logging.ERROR,
+                }
+                stdlib_level = level_map.get(event.level, stdlib_logging.INFO)
+                handler.logger.log(stdlib_level, event.to_json())
+            elif isinstance(handler, JSONFileHandler):
+                # Write event as JSON line (unbuffered for real-time visibility)
+                handler.path.parent.mkdir(parents=True, exist_ok=True)
+                with handler.path.open("a") as f:
+                    f.write(event.to_json() + "\n")
+            # OpenTelemetryHandler: events could be spans, but for now skip
+            # Future: Add EventHandler protocol for richer event handling
+        except Exception as e:
+            # Intentionally broad: handler failures should never break spell execution
+            handler_name = type(handler).__name__
+            _logger.debug("Event handler %s failed for event %s: %s", handler_name, event.event_type, e)
 
 
 @dataclass

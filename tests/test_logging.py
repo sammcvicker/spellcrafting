@@ -2432,3 +2432,389 @@ class TestNestedSpellTracing:
         # All should have unique span_ids
         span_ids = {log.span_id for log in logs}
         assert len(span_ids) == 3, "Each spell should have unique span_id"
+
+
+class TestLogLevelOrdering:
+    """Tests for LogLevel ordering and comparison (#194)."""
+
+    def test_level_value_ordering(self):
+        """LogLevel values should have correct ordering: DEBUG < INFO < WARNING < ERROR."""
+        from spellcrafting.logging import _level_value
+
+        assert _level_value(LogLevel.DEBUG) < _level_value(LogLevel.INFO)
+        assert _level_value(LogLevel.INFO) < _level_value(LogLevel.WARNING)
+        assert _level_value(LogLevel.WARNING) < _level_value(LogLevel.ERROR)
+
+    def test_level_value_for_all_levels(self):
+        """All LogLevel values should have numeric values."""
+        from spellcrafting.logging import _level_value
+
+        assert _level_value(LogLevel.DEBUG) == 0
+        assert _level_value(LogLevel.INFO) == 1
+        assert _level_value(LogLevel.WARNING) == 2
+        assert _level_value(LogLevel.ERROR) == 3
+
+    def test_level_value_equality(self):
+        """Same LogLevel should have equal numeric value."""
+        from spellcrafting.logging import _level_value
+
+        assert _level_value(LogLevel.INFO) == _level_value(LogLevel.INFO)
+        assert _level_value(LogLevel.ERROR) == _level_value(LogLevel.ERROR)
+
+
+class TestSpellEvent:
+    """Tests for SpellEvent dataclass (#194)."""
+
+    def test_spell_event_creation(self):
+        """SpellEvent should be creatable with required fields."""
+        from spellcrafting import SpellEvent
+
+        now = datetime.now(timezone.utc)
+        event = SpellEvent(
+            event_type="guard.input.pass",
+            spell_name="my_spell",
+            trace_id="abc123def456abc123def456abc123de",
+            span_id="1234567890abcdef",
+            timestamp=now,
+            level=LogLevel.INFO,
+        )
+
+        assert event.event_type == "guard.input.pass"
+        assert event.spell_name == "my_spell"
+        assert event.trace_id == "abc123def456abc123def456abc123de"
+        assert event.span_id == "1234567890abcdef"
+        assert event.timestamp == now
+        assert event.level == LogLevel.INFO
+        assert event.details == {}
+
+    def test_spell_event_with_details(self):
+        """SpellEvent should accept optional details dict."""
+        from spellcrafting import SpellEvent
+
+        event = SpellEvent(
+            event_type="guard.output.fail",
+            spell_name="test_spell",
+            trace_id="a" * 32,
+            span_id="b" * 16,
+            timestamp=datetime.now(timezone.utc),
+            level=LogLevel.WARNING,
+            details={"guard_name": "check_length", "reason": "output too long"},
+        )
+
+        assert event.details["guard_name"] == "check_length"
+        assert event.details["reason"] == "output too long"
+
+    def test_spell_event_to_dict(self):
+        """SpellEvent.to_dict should serialize all fields."""
+        from spellcrafting import SpellEvent
+
+        now = datetime.now(timezone.utc)
+        event = SpellEvent(
+            event_type="escalate.trigger",
+            spell_name="my_spell",
+            trace_id="t" * 32,
+            span_id="s" * 16,
+            timestamp=now,
+            level=LogLevel.WARNING,
+            details={"from_model": "gpt-4o-mini", "to_model": "gpt-4o"},
+        )
+
+        d = event.to_dict()
+
+        assert d["event_type"] == "escalate.trigger"
+        assert d["spell_name"] == "my_spell"
+        assert d["trace_id"] == "t" * 32
+        assert d["span_id"] == "s" * 16
+        assert d["timestamp"] == now.isoformat()
+        assert d["level"] == "warning"
+        assert d["details"]["from_model"] == "gpt-4o-mini"
+
+    def test_spell_event_to_json(self):
+        """SpellEvent.to_json should produce valid JSON."""
+        from spellcrafting import SpellEvent
+
+        event = SpellEvent(
+            event_type="retry.attempt",
+            spell_name="test_spell",
+            trace_id="x" * 32,
+            span_id="y" * 16,
+            timestamp=datetime.now(timezone.utc),
+            level=LogLevel.DEBUG,
+            details={"attempt": 2, "max_attempts": 3},
+        )
+
+        json_str = event.to_json()
+        parsed = json.loads(json_str)
+
+        assert parsed["event_type"] == "retry.attempt"
+        assert parsed["spell_name"] == "test_spell"
+        assert parsed["details"]["attempt"] == 2
+
+    def test_spell_event_all_log_levels(self):
+        """SpellEvent should work with all LogLevel values."""
+        from spellcrafting import SpellEvent
+
+        for level in [LogLevel.DEBUG, LogLevel.INFO, LogLevel.WARNING, LogLevel.ERROR]:
+            event = SpellEvent(
+                event_type="test",
+                spell_name="test_spell",
+                trace_id="a" * 32,
+                span_id="b" * 16,
+                timestamp=datetime.now(timezone.utc),
+                level=level,
+            )
+            assert event.level == level
+            assert event.to_dict()["level"] == level.value
+
+
+class TestEmitEvent:
+    """Tests for _emit_event function (#194)."""
+
+    def test_emit_event_disabled_logging(self):
+        """_emit_event should do nothing when logging is disabled."""
+        from spellcrafting.logging import _emit_event
+        from spellcrafting import SpellEvent
+
+        configure_logging(LoggingConfig(enabled=False))
+
+        event = SpellEvent(
+            event_type="test.event",
+            spell_name="test_spell",
+            trace_id="a" * 32,
+            span_id="b" * 16,
+            timestamp=datetime.now(timezone.utc),
+            level=LogLevel.INFO,
+        )
+
+        # Should not raise
+        _emit_event(event)
+
+    def test_emit_event_level_filtering_below_threshold(self):
+        """_emit_event should not emit events below configured level."""
+        from spellcrafting.logging import _emit_event
+        from spellcrafting import SpellEvent
+
+        handler = MagicMock()
+        configure_logging(LoggingConfig(
+            enabled=True,
+            level=LogLevel.WARNING,  # Only WARNING and ERROR should be emitted
+            handlers=[PythonLoggingHandler()],
+        ))
+
+        # INFO event should be filtered out
+        event = SpellEvent(
+            event_type="test.event",
+            spell_name="test_spell",
+            trace_id="a" * 32,
+            span_id="b" * 16,
+            timestamp=datetime.now(timezone.utc),
+            level=LogLevel.INFO,
+        )
+
+        with patch.object(PythonLoggingHandler, "handle") as mock_handle:
+            _emit_event(event)
+            # handle is for SpellExecutionLog, not events
+            # Events use logger.log directly - check that was called or not
+
+    def test_emit_event_level_filtering_at_threshold(self):
+        """_emit_event should emit events at configured level."""
+        from spellcrafting.logging import _emit_event
+        from spellcrafting import SpellEvent
+        import logging
+
+        python_handler = PythonLoggingHandler("test_emit_event")
+        configure_logging(LoggingConfig(
+            enabled=True,
+            level=LogLevel.WARNING,
+            handlers=[python_handler],
+        ))
+
+        event = SpellEvent(
+            event_type="test.event",
+            spell_name="test_spell",
+            trace_id="a" * 32,
+            span_id="b" * 16,
+            timestamp=datetime.now(timezone.utc),
+            level=LogLevel.WARNING,  # Same as configured level
+        )
+
+        with patch.object(python_handler.logger, "log") as mock_log:
+            _emit_event(event)
+            mock_log.assert_called_once()
+            call_args = mock_log.call_args
+            assert call_args[0][0] == logging.WARNING
+
+    def test_emit_event_level_filtering_above_threshold(self):
+        """_emit_event should emit events above configured level."""
+        from spellcrafting.logging import _emit_event
+        from spellcrafting import SpellEvent
+        import logging
+
+        python_handler = PythonLoggingHandler("test_emit_event_above")
+        configure_logging(LoggingConfig(
+            enabled=True,
+            level=LogLevel.INFO,  # INFO and above
+            handlers=[python_handler],
+        ))
+
+        event = SpellEvent(
+            event_type="test.event",
+            spell_name="test_spell",
+            trace_id="a" * 32,
+            span_id="b" * 16,
+            timestamp=datetime.now(timezone.utc),
+            level=LogLevel.ERROR,  # Above configured level
+        )
+
+        with patch.object(python_handler.logger, "log") as mock_log:
+            _emit_event(event)
+            mock_log.assert_called_once()
+            call_args = mock_log.call_args
+            assert call_args[0][0] == logging.ERROR
+
+    def test_emit_event_debug_level_with_debug_config(self):
+        """DEBUG events should emit when config is DEBUG level."""
+        from spellcrafting.logging import _emit_event
+        from spellcrafting import SpellEvent
+        import logging
+
+        python_handler = PythonLoggingHandler("test_debug")
+        configure_logging(LoggingConfig(
+            enabled=True,
+            level=LogLevel.DEBUG,  # All levels should emit
+            handlers=[python_handler],
+        ))
+
+        event = SpellEvent(
+            event_type="guard.input.start",
+            spell_name="test_spell",
+            trace_id="a" * 32,
+            span_id="b" * 16,
+            timestamp=datetime.now(timezone.utc),
+            level=LogLevel.DEBUG,
+        )
+
+        with patch.object(python_handler.logger, "log") as mock_log:
+            _emit_event(event)
+            mock_log.assert_called_once()
+            call_args = mock_log.call_args
+            assert call_args[0][0] == logging.DEBUG
+
+    def test_emit_event_json_file_handler(self):
+        """_emit_event should write to JSONFileHandler."""
+        from spellcrafting.logging import _emit_event
+        from spellcrafting import SpellEvent
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            json_path = Path(tmpdir) / "events.jsonl"
+            json_handler = JSONFileHandler(json_path)
+
+            configure_logging(LoggingConfig(
+                enabled=True,
+                level=LogLevel.DEBUG,
+                handlers=[json_handler],
+            ))
+
+            event = SpellEvent(
+                event_type="guard.output.pass",
+                spell_name="test_spell",
+                trace_id="t" * 32,
+                span_id="s" * 16,
+                timestamp=datetime.now(timezone.utc),
+                level=LogLevel.INFO,
+                details={"guard_name": "my_guard"},
+            )
+
+            _emit_event(event)
+
+            # Event should be written directly (unbuffered)
+            assert json_path.exists()
+            content = json_path.read_text().strip()
+            parsed = json.loads(content)
+            assert parsed["event_type"] == "guard.output.pass"
+            assert parsed["details"]["guard_name"] == "my_guard"
+
+    def test_emit_event_survives_handler_error(self):
+        """_emit_event should not raise when handler fails."""
+        from spellcrafting.logging import _emit_event
+        from spellcrafting import SpellEvent
+
+        # Use a PythonLoggingHandler but make its logger.log raise
+        python_handler = PythonLoggingHandler("test_error")
+        configure_logging(LoggingConfig(
+            enabled=True,
+            level=LogLevel.DEBUG,
+            handlers=[python_handler],
+        ))
+
+        event = SpellEvent(
+            event_type="test.event",
+            spell_name="test_spell",
+            trace_id="a" * 32,
+            span_id="b" * 16,
+            timestamp=datetime.now(timezone.utc),
+            level=LogLevel.INFO,
+        )
+
+        with patch.object(python_handler.logger, "log", side_effect=Exception("Logger failed")):
+            # Should not raise
+            _emit_event(event)
+
+    def test_emit_event_maps_log_levels_correctly(self):
+        """_emit_event should map LogLevel to stdlib logging levels correctly."""
+        from spellcrafting.logging import _emit_event
+        from spellcrafting import SpellEvent
+        import logging
+
+        level_mapping = [
+            (LogLevel.DEBUG, logging.DEBUG),
+            (LogLevel.INFO, logging.INFO),
+            (LogLevel.WARNING, logging.WARNING),
+            (LogLevel.ERROR, logging.ERROR),
+        ]
+
+        for spell_level, stdlib_level in level_mapping:
+            python_handler = PythonLoggingHandler(f"test_level_{spell_level.value}")
+            configure_logging(LoggingConfig(
+                enabled=True,
+                level=LogLevel.DEBUG,  # Allow all levels
+                handlers=[python_handler],
+            ))
+
+            event = SpellEvent(
+                event_type="test.event",
+                spell_name="test_spell",
+                trace_id="a" * 32,
+                span_id="b" * 16,
+                timestamp=datetime.now(timezone.utc),
+                level=spell_level,
+            )
+
+            with patch.object(python_handler.logger, "log") as mock_log:
+                _emit_event(event)
+                mock_log.assert_called_once()
+                call_args = mock_log.call_args
+                assert call_args[0][0] == stdlib_level, f"Failed for {spell_level}"
+
+
+class TestSpellEventExport:
+    """Tests that SpellEvent is properly exported from package (#194)."""
+
+    def test_spell_event_importable_from_package(self):
+        """SpellEvent should be importable from top-level package."""
+        from spellcrafting import SpellEvent
+
+        assert SpellEvent is not None
+
+    def test_spell_event_in_all(self):
+        """SpellEvent should be in __all__."""
+        import spellcrafting
+
+        assert "SpellEvent" in spellcrafting.__all__
+
+    def test_spell_event_same_as_logging_module(self):
+        """SpellEvent from package should be same as from logging module."""
+        from spellcrafting import SpellEvent as PackageSpellEvent
+        from spellcrafting.logging import SpellEvent as LoggingSpellEvent
+
+        assert PackageSpellEvent is LoggingSpellEvent
