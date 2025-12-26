@@ -1038,6 +1038,30 @@ def setup_logging(
         redact_content: Redact input/output content
         json_file: Path to JSON log file (optional)
     """
+    # Map spellcrafting LogLevel to stdlib logging level
+    stdlib_level_map = {
+        LogLevel.DEBUG: stdlib_logging.DEBUG,
+        LogLevel.INFO: stdlib_logging.INFO,
+        LogLevel.WARNING: stdlib_logging.WARNING,
+        LogLevel.ERROR: stdlib_logging.ERROR,
+    }
+    stdlib_level = stdlib_level_map.get(level, stdlib_logging.INFO)
+
+    # Configure the stdlib "spellcrafting" logger so events aren't filtered out
+    logger = stdlib_logging.getLogger("spellcrafting")
+    logger.setLevel(stdlib_level)
+
+    # Add a StreamHandler if the logger has no handlers
+    # Use a simple formatter that just outputs the message (JSON is already formatted)
+    if not logger.handlers:
+        handler = stdlib_logging.StreamHandler()
+        handler.setFormatter(stdlib_logging.Formatter("%(message)s"))
+        handler.setLevel(stdlib_level)
+        logger.addHandler(handler)
+
+    # Prevent propagation to root logger to avoid duplicate output
+    logger.propagate = False
+
     handlers: list[LogHandler] = [PythonLoggingHandler()]
 
     if json_file:
