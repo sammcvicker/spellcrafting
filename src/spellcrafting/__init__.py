@@ -76,6 +76,7 @@ from spellcrafting.logging import (
     OpenTelemetryHandler,
     # Types (for custom handlers)
     SpellExecutionLog,
+    SpellEvent,
     TokenUsage,
     CostEstimate,
     ToolCallLog,
@@ -173,6 +174,7 @@ __all__ = [
     "OpenTelemetryHandler",
     # Telemetry types (for custom handlers)
     "SpellExecutionLog",
+    "SpellEvent",
     "TokenUsage",
     "CostEstimate",
     "ToolCallLog",
