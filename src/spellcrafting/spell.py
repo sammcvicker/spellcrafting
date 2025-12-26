@@ -1080,16 +1080,6 @@ def spell(
                 f"Spells must return a value. Use -> str or a Pydantic model."
             )
 
-        # Definition-time warning: check if alias exists in file config
-        if model is not None and not _is_literal_model(model):
-            file_config = Config.from_file()
-            if model not in file_config.models:
-                warnings.warn(
-                    f"Model alias '{model}' not found in pyproject.toml. "
-                    f"It must be provided via Config context or set_as_default().",
-                    stacklevel=3,
-                )
-
         # Create spell configuration object to reduce closure nesting (issue #135)
         # This moves methods out of nested closures into a class, improving debuggability
         spell_config = _SpellConfig(

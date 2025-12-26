@@ -251,20 +251,6 @@ max_tokens = 2048
         with pytest.raises(SpellcraftingConfigError, match="nonexistent"):
             fn._resolve_model_and_settings()
 
-    def test_definition_time_warning_for_missing_alias(self, tmp_path, monkeypatch):
-        pyproject = tmp_path / "pyproject.toml"
-        pyproject.write_text("""
-[project]
-name = "test"
-""")
-        monkeypatch.chdir(tmp_path)
-
-        with pytest.warns(UserWarning, match="Model alias 'missing'"):
-            @spell(model="missing")
-            def fn(text: str) -> str:
-                """Test."""
-                ...
-
     def test_no_warning_for_literal_model(self, tmp_path, monkeypatch):
         pyproject = tmp_path / "pyproject.toml"
         pyproject.write_text("""
