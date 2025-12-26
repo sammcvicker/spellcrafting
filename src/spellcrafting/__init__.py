@@ -94,6 +94,14 @@ from spellcrafting.spell import (
     CacheStats,
 )
 from spellcrafting.result import SpellResult, SyncSpell, AsyncSpell
+from spellcrafting.media import (
+    Image,
+    Audio,
+    Document,
+    Video,
+    MediaType,
+    is_media_type,
+)
 
 # Package metadata
 try:
@@ -183,4 +191,11 @@ __all__ = [
     "ModelPricing",
     "register_model_pricing",
     "get_model_pricing",
+    # Multi-modal support
+    "Image",
+    "Audio",
+    "Document",
+    "Video",
+    "MediaType",
+    "is_media_type",
 ]

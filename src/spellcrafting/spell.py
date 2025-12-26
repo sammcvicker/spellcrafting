@@ -50,6 +50,10 @@ from spellcrafting.logging import (
     trace_context,
 )
 from spellcrafting.result import SpellResult
+from spellcrafting.media import MediaType, is_media_type
+
+# Type alias for user prompts - can be string or list of content parts
+UserPrompt = str | list[Any]
 
 P = ParamSpec("P")
 T = TypeVar("T")
@@ -365,17 +369,42 @@ def _build_user_prompt(
     func: Callable[..., Any],
     args: tuple[Any, ...],
     kwargs: dict[str, Any],
-) -> str:
-    """Build user prompt from function arguments."""
+) -> UserPrompt:
+    """Build user prompt from function arguments.
+
+    For regular arguments, builds a string like "arg1: 'value1'\narg2: 'value2'".
+    For multi-modal arguments (Image, Audio, Document, Video), returns a list
+    that includes both text descriptions and the media content for pydantic_ai.
+
+    Returns:
+        Either a string (for text-only arguments) or a list of content parts
+        (when media types are present).
+    """
     sig = inspect.signature(func)
     bound = sig.bind(*args, **kwargs)
     bound.apply_defaults()
 
-    parts = []
-    for name, value in bound.arguments.items():
-        parts.append(f"{name}: {value!r}")
+    # Check if any arguments are media types
+    has_media = any(is_media_type(v) for v in bound.arguments.values())
 
-    return "\n".join(parts)
+    if not has_media:
+        # Fast path: all text, return string
+        parts = []
+        for name, value in bound.arguments.items():
+            parts.append(f"{name}: {value!r}")
+        return "\n".join(parts)
+
+    # Multi-modal path: build a list of content parts
+    content_parts: list[Any] = []
+    for name, value in bound.arguments.items():
+        if is_media_type(value):
+            # Add a text label, then the media content
+            content_parts.append(f"{name}:")
+            content_parts.append(value.to_pydantic_ai())
+        else:
+            content_parts.append(f"{name}: {value!r}")
+
+    return content_parts
 
 
 def _extract_input_args(
@@ -388,6 +417,34 @@ def _extract_input_args(
     bound = sig.bind(*args, **kwargs)
     bound.apply_defaults()
     return dict(bound.arguments)
+
+
+def _rebuild_user_prompt_from_args(input_args: dict[str, Any]) -> UserPrompt:
+    """Rebuild user prompt from input_args dictionary.
+
+    This is used when input guards may have transformed arguments.
+    Preserves media types in the output.
+
+    Args:
+        input_args: Dictionary of argument names to values
+
+    Returns:
+        String for text-only arguments, or list for multimodal
+    """
+    has_media = any(is_media_type(v) for v in input_args.values())
+
+    if not has_media:
+        return "\n".join(f"{k}: {v!r}" for k, v in input_args.items())
+
+    content_parts: list[Any] = []
+    for name, value in input_args.items():
+        if is_media_type(value):
+            content_parts.append(f"{name}:")
+            content_parts.append(value.to_pydantic_ai())
+        else:
+            content_parts.append(f"{name}: {value!r}")
+
+    return content_parts
 
 
 def _extract_token_usage(result: Any) -> TokenUsage:
@@ -564,8 +621,8 @@ class OnFailContext:
     """The error that triggered the on_fail strategy."""
     on_fail: OnFailStrategy
     """The on_fail strategy to execute."""
-    user_prompt: str
-    """The user prompt that was sent to the LLM."""
+    user_prompt: UserPrompt
+    """The user prompt that was sent to the LLM (string or list for multimodal)."""
     output_type: type[Any]
     """The expected output type for the spell."""
     system_prompt: str
@@ -836,7 +893,7 @@ class _SpellConfig:
     def create_on_fail_context(
         self,
         error: Exception,
-        user_prompt: str,
+        user_prompt: UserPrompt,
         input_args: dict[str, Any],
     ) -> OnFailContext:
         """Create an OnFailContext for handling validation failures."""
@@ -1224,7 +1281,7 @@ def spell(
                             guard_config, input_args, guard_context
                         )
                     # Rebuild user prompt with potentially transformed args
-                    user_prompt = "\n".join(f"{k}: {v!r}" for k, v in input_args.items())
+                    user_prompt = _rebuild_user_prompt_from_args(input_args)
                 else:
                     user_prompt = _build_user_prompt(fn, args, kwargs)
 
@@ -1338,7 +1395,7 @@ def spell(
                             guard_config, input_args, guard_context
                         )
                     # Rebuild user prompt with potentially transformed args
-                    user_prompt = "\n".join(f"{k}: {v!r}" for k, v in input_args.items())
+                    user_prompt = _rebuild_user_prompt_from_args(input_args)
                 else:
                     user_prompt = _build_user_prompt(fn, args, kwargs)
 
