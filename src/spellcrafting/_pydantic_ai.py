@@ -14,7 +14,7 @@ from __future__ import annotations
 from pydantic_ai import Agent
 
 # Import ValidationError from our exception hierarchy
-from magically.exceptions import ValidationError
+from spellcrafting.exceptions import ValidationError
 
 # Import internal modules with fallback handling
 try:

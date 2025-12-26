@@ -1,5 +1,5 @@
 [project]
-name = "magically"
+name = "spellcrafting"
 version = "0.1.0"
 description = "LLMs as a Python language feature"
 readme = "README.md"
@@ -26,9 +26,9 @@ dependencies = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/sammcvicker/magically"
-Documentation = "https://github.com/sammcvicker/magically"
-Repository = "https://github.com/sammcvicker/magically"
+Homepage = "https://github.com/sammcvicker/spellcrafting"
+Documentation = "https://github.com/sammcvicker/spellcrafting"
+Repository = "https://github.com/sammcvicker/spellcrafting"
 
 [project.optional-dependencies]
 otel = [
@@ -57,7 +57,7 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/magically"]
+packages = ["src/spellcrafting"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

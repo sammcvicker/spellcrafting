@@ -3,8 +3,8 @@
 import pytest
 from pydantic import ValidationError
 
-import magically.config as config_module
-from magically.config import Config, MagicallyConfigError, ModelConfig, current_config
+import spellcrafting.config as config_module
+from spellcrafting.config import Config, SpellcraftingConfigError, ModelConfig, current_config
 
 
 class TestModelConfig:
@@ -71,19 +71,19 @@ class TestModelConfig:
         assert hash(config1) != hash(config3)
 
 
-class TestMagicallyConfigError:
-    """Tests for MagicallyConfigError."""
+class TestSpellcraftingConfigError:
+    """Tests for SpellcraftingConfigError."""
 
     def test_is_exception(self):
-        assert issubclass(MagicallyConfigError, Exception)
+        assert issubclass(SpellcraftingConfigError, Exception)
 
     def test_can_raise_with_message(self):
-        with pytest.raises(MagicallyConfigError, match="test message"):
-            raise MagicallyConfigError("test message")
+        with pytest.raises(SpellcraftingConfigError, match="test message"):
+            raise SpellcraftingConfigError("test message")
 
     def test_can_include_available_aliases(self):
         available = ["fast", "reasoning", "default"]
-        error = MagicallyConfigError(
+        error = SpellcraftingConfigError(
             f"Unknown model alias 'typo'. Available: {available}"
         )
         assert "typo" in str(error)
@@ -134,7 +134,7 @@ class TestConfigResolve:
         config = Config(models={
             "fast": ModelConfig(model="test"),
         })
-        with pytest.raises(MagicallyConfigError, match="Unknown model alias 'missing'"):
+        with pytest.raises(SpellcraftingConfigError, match="Unknown model alias 'missing'"):
             config.resolve("missing")
 
     def test_resolve_error_shows_available(self):
@@ -142,7 +142,7 @@ class TestConfigResolve:
             "fast": ModelConfig(model="test"),
             "reasoning": ModelConfig(model="test2"),
         })
-        with pytest.raises(MagicallyConfigError, match="fast"):
+        with pytest.raises(SpellcraftingConfigError, match="fast"):
             config.resolve("typo")
 
 
@@ -316,10 +316,10 @@ class TestConfigFromFile:
     def test_load_from_pyproject(self, tmp_path):
         pyproject = tmp_path / "pyproject.toml"
         pyproject.write_text("""
-[tool.magically.models.fast]
+[tool.spellcrafting.models.fast]
 model = "anthropic:claude-haiku"
 
-[tool.magically.models.reasoning]
+[tool.spellcrafting.models.reasoning]
 model = "anthropic:claude-opus-4"
 temperature = 0.7
 """)
@@ -332,7 +332,7 @@ temperature = 0.7
     def test_load_all_model_settings(self, tmp_path):
         pyproject = tmp_path / "pyproject.toml"
         pyproject.write_text("""
-[tool.magically.models.full]
+[tool.spellcrafting.models.full]
 model = "openai:gpt-4o"
 temperature = 0.5
 max_tokens = 4096
@@ -360,7 +360,7 @@ retries = 3
         config = Config.from_file(pyproject)
         assert config.models == {}
 
-    def test_no_magically_section_returns_empty(self, tmp_path):
+    def test_no_spellcrafting_section_returns_empty(self, tmp_path):
         pyproject = tmp_path / "pyproject.toml"
         pyproject.write_text("""
 [project]
@@ -372,7 +372,7 @@ name = "myproject"
     def test_no_models_section_returns_empty(self, tmp_path):
         pyproject = tmp_path / "pyproject.toml"
         pyproject.write_text("""
-[tool.magically]
+[tool.spellcrafting]
 some_other_setting = true
 """)
         config = Config.from_file(pyproject)
@@ -381,7 +381,7 @@ some_other_setting = true
     def test_warns_on_unknown_fields(self, tmp_path):
         pyproject = tmp_path / "pyproject.toml"
         pyproject.write_text("""
-[tool.magically.models.test]
+[tool.spellcrafting.models.test]
 model = "test:model"
 unknown_field = "value"
 another_unknown = 123
@@ -393,13 +393,13 @@ another_unknown = 123
         """Non-dict model entries should raise a helpful error."""
         pyproject = tmp_path / "pyproject.toml"
         pyproject.write_text("""
-[tool.magically.models]
+[tool.spellcrafting.models]
 valid = { model = "test:model" }
 invalid = "not a dict"
 """)
         with pytest.raises(
-            MagicallyConfigError,
-            match=r"Invalid config for \[tool\.magically\.models\.invalid\].*expected a table/dict"
+            SpellcraftingConfigError,
+            match=r"Invalid config for \[tool\.spellcrafting\.models\.invalid\].*expected a table/dict"
         ):
             Config.from_file(pyproject)
 
@@ -407,13 +407,13 @@ invalid = "not a dict"
         """Invalid types for fields should raise a helpful error."""
         pyproject = tmp_path / "pyproject.toml"
         pyproject.write_text("""
-[tool.magically.models.bad]
+[tool.spellcrafting.models.bad]
 model = "test:model"
 temperature = "hot"
 """)
         with pytest.raises(
-            MagicallyConfigError,
-            match=r"Invalid config for \[tool\.magically\.models\.bad\]"
+            SpellcraftingConfigError,
+            match=r"Invalid config for \[tool\.spellcrafting\.models\.bad\]"
         ):
             Config.from_file(pyproject)
 
@@ -421,12 +421,12 @@ temperature = "hot"
         """Missing required 'model' field should raise a helpful error."""
         pyproject = tmp_path / "pyproject.toml"
         pyproject.write_text("""
-[tool.magically.models.incomplete]
+[tool.spellcrafting.models.incomplete]
 temperature = 0.7
 """)
         with pytest.raises(
-            MagicallyConfigError,
-            match=r"Invalid config for \[tool\.magically\.models\.incomplete\]"
+            SpellcraftingConfigError,
+            match=r"Invalid config for \[tool\.spellcrafting\.models\.incomplete\]"
         ):
             Config.from_file(pyproject)
 
@@ -437,7 +437,7 @@ class TestConfigCurrentWithFile:
     def test_current_falls_back_to_file(self, tmp_path, monkeypatch):
         pyproject = tmp_path / "pyproject.toml"
         pyproject.write_text("""
-[tool.magically.models.file_alias]
+[tool.spellcrafting.models.file_alias]
 model = "anthropic:claude-sonnet"
 """)
         monkeypatch.chdir(tmp_path)
@@ -448,7 +448,7 @@ model = "anthropic:claude-sonnet"
     def test_file_config_is_cached(self, tmp_path, monkeypatch):
         pyproject = tmp_path / "pyproject.toml"
         pyproject.write_text("""
-[tool.magically.models.cached]
+[tool.spellcrafting.models.cached]
 model = "test:model"
 """)
         monkeypatch.chdir(tmp_path)
@@ -461,7 +461,7 @@ model = "test:model"
         """Context config merges with file config, not replaces."""
         pyproject = tmp_path / "pyproject.toml"
         pyproject.write_text("""
-[tool.magically.models.file_alias]
+[tool.spellcrafting.models.file_alias]
 model = "file:model"
 """)
         monkeypatch.chdir(tmp_path)
@@ -479,7 +479,7 @@ model = "file:model"
         """Process default merges with file config, not replaces."""
         pyproject = tmp_path / "pyproject.toml"
         pyproject.write_text("""
-[tool.magically.models.file_alias]
+[tool.spellcrafting.models.file_alias]
 model = "file:model"
 """)
         monkeypatch.chdir(tmp_path)
@@ -541,10 +541,10 @@ class TestConfigMerge:
         """Context config should merge with file config (issue #96)."""
         pyproject = tmp_path / "pyproject.toml"
         pyproject.write_text("""
-[tool.magically.models.fast]
+[tool.spellcrafting.models.fast]
 model = "file:fast-model"
 
-[tool.magically.models.reasoning]
+[tool.spellcrafting.models.reasoning]
 model = "file:reasoning-model"
 """)
         monkeypatch.chdir(tmp_path)
@@ -572,7 +572,7 @@ model = "file:reasoning-model"
         """All three config sources should merge correctly."""
         pyproject = tmp_path / "pyproject.toml"
         pyproject.write_text("""
-[tool.magically.models.file_only]
+[tool.spellcrafting.models.file_only]
 model = "file:model"
 """)
         monkeypatch.chdir(tmp_path)
@@ -622,7 +622,7 @@ model = "file:model"
         """Process default should take precedence over file for same alias."""
         pyproject = tmp_path / "pyproject.toml"
         pyproject.write_text("""
-[tool.magically.models.fast]
+[tool.spellcrafting.models.fast]
 model = "file:fast"
 """)
         monkeypatch.chdir(tmp_path)
@@ -757,7 +757,7 @@ class TestTOMLParseWarning:
         pyproject = tmp_path / "pyproject.toml"
         pyproject.write_text("this is [not valid toml")
 
-        with pytest.warns(UserWarning, match="Failed to parse.*Magically configuration will be ignored"):
+        with pytest.warns(UserWarning, match="Failed to parse.*Spellcrafting configuration will be ignored"):
             Config.from_file(pyproject)
 
     def test_warning_includes_file_path(self, tmp_path):
@@ -780,7 +780,7 @@ class TestFindPyprojectTraversal:
 
         pyproject = tmp_path / "pyproject.toml"
         pyproject.write_text('''
-[tool.magically.models.parent]
+[tool.spellcrafting.models.parent]
 model = "test:model"
 ''')
 
@@ -801,14 +801,14 @@ model = "test:model"
         # Parent pyproject
         parent_pyproject = tmp_path / "pyproject.toml"
         parent_pyproject.write_text('''
-[tool.magically.models.parent]
+[tool.spellcrafting.models.parent]
 model = "parent:model"
 ''')
 
         # Child pyproject (closer)
         child_pyproject = child / "pyproject.toml"
         child_pyproject.write_text('''
-[tool.magically.models.child]
+[tool.spellcrafting.models.child]
 model = "child:model"
 ''')
 
@@ -843,7 +843,7 @@ model = "child:model"
 
         pyproject = tmp_path / "pyproject.toml"
         pyproject.write_text('''
-[tool.magically.models.root]
+[tool.spellcrafting.models.root]
 model = "root:model"
 ''')
 
@@ -863,17 +863,17 @@ class TestConfigFromFileEdgeCases:
         """Empty model dict should raise helpful error (missing 'model' field)."""
         pyproject = tmp_path / "pyproject.toml"
         pyproject.write_text('''
-[tool.magically.models.empty]
+[tool.spellcrafting.models.empty]
 # No model field - empty table
 ''')
-        with pytest.raises(MagicallyConfigError, match="Invalid config.*empty"):
+        with pytest.raises(SpellcraftingConfigError, match="Invalid config.*empty"):
             Config.from_file(pyproject)
 
     def test_unicode_model_alias(self, tmp_path):
         """Unicode characters in model alias should work."""
         pyproject = tmp_path / "pyproject.toml"
         pyproject.write_text('''
-[tool.magically.models."fast-模型"]
+[tool.spellcrafting.models."fast-模型"]
 model = "test:model"
 ''')
         config = Config.from_file(pyproject)
@@ -883,7 +883,7 @@ model = "test:model"
         """Model config with only 'model' field should work."""
         pyproject = tmp_path / "pyproject.toml"
         pyproject.write_text('''
-[tool.magically.models.minimal]
+[tool.spellcrafting.models.minimal]
 model = "test:model"
 ''')
         config = Config.from_file(pyproject)
@@ -895,7 +895,7 @@ model = "test:model"
         """Model names with special characters should work."""
         pyproject = tmp_path / "pyproject.toml"
         pyproject.write_text('''
-[tool.magically.models."my-special_model.v2"]
+[tool.spellcrafting.models."my-special_model.v2"]
 model = "test:model"
 ''')
         config = Config.from_file(pyproject)
@@ -905,26 +905,26 @@ model = "test:model"
         """Unicode in model string value should work."""
         pyproject = tmp_path / "pyproject.toml"
         pyproject.write_text('''
-[tool.magically.models.test]
+[tool.spellcrafting.models.test]
 model = "provider:model-名前"
 ''')
         config = Config.from_file(pyproject)
         assert config.models["test"].model == "provider:model-名前"
 
-    def test_empty_tool_magically_section(self, tmp_path):
-        """Empty [tool.magically] section should return empty config."""
+    def test_empty_tool_spellcrafting_section(self, tmp_path):
+        """Empty [tool.spellcrafting] section should return empty config."""
         pyproject = tmp_path / "pyproject.toml"
         pyproject.write_text('''
-[tool.magically]
+[tool.spellcrafting]
 ''')
         config = Config.from_file(pyproject)
         assert config.models == {}
 
     def test_empty_models_section(self, tmp_path):
-        """Empty [tool.magically.models] section should return empty config."""
+        """Empty [tool.spellcrafting.models] section should return empty config."""
         pyproject = tmp_path / "pyproject.toml"
         pyproject.write_text('''
-[tool.magically.models]
+[tool.spellcrafting.models]
 ''')
         config = Config.from_file(pyproject)
         assert config.models == {}
@@ -933,7 +933,7 @@ model = "provider:model-名前"
         """Model with all optional fields set should load correctly."""
         pyproject = tmp_path / "pyproject.toml"
         pyproject.write_text('''
-[tool.magically.models.full]
+[tool.spellcrafting.models.full]
 model = "test:model"
 temperature = 0.5
 max_tokens = 1000

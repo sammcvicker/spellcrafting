@@ -5,9 +5,9 @@ from unittest.mock import MagicMock, patch
 import pytest
 from pydantic import BaseModel
 
-from magically import spell, OnFail, Config, ModelConfig, ValidationError
-from magically._pydantic_ai import UnexpectedModelBehavior
-from magically.on_fail import (
+from spellcrafting import spell, OnFail, Config, ModelConfig, ValidationError
+from spellcrafting._pydantic_ai import UnexpectedModelBehavior
+from spellcrafting.on_fail import (
     RetryStrategy,
     EscalateStrategy,
     FallbackStrategy,
@@ -92,7 +92,7 @@ class TestOnFailFallbackStrategy:
         mock_agent = MagicMock()
         mock_agent.run_sync.side_effect = UnexpectedModelBehavior("Validation failed")
 
-        with patch("magically.spell.Agent", return_value=mock_agent):
+        with patch("spellcrafting.spell.Agent", return_value=mock_agent):
             result = analyze("test input")
 
             assert result == default
@@ -112,7 +112,7 @@ class TestOnFailFallbackStrategy:
         mock_agent = MagicMock()
         mock_agent.run_sync.return_value = mock_result
 
-        with patch("magically.spell.Agent", return_value=mock_agent):
+        with patch("spellcrafting.spell.Agent", return_value=mock_agent):
             result = analyze("test input")
 
             assert result == expected
@@ -139,7 +139,7 @@ class TestOnFailCustomStrategy:
         validation_error = UnexpectedModelBehavior("Validation failed")
         mock_agent.run_sync.side_effect = validation_error
 
-        with patch("magically.spell.Agent", return_value=mock_agent):
+        with patch("spellcrafting.spell.Agent", return_value=mock_agent):
             analyze("test input")
 
             assert received["error"] is validation_error
@@ -160,7 +160,7 @@ class TestOnFailCustomStrategy:
         mock_agent = MagicMock()
         mock_agent.run_sync.side_effect = UnexpectedModelBehavior("Validation failed")
 
-        with patch("magically.spell.Agent", return_value=mock_agent):
+        with patch("spellcrafting.spell.Agent", return_value=mock_agent):
             result = analyze("test input")
 
             assert result.summary == "fixed"
@@ -178,7 +178,7 @@ class TestOnFailCustomStrategy:
         mock_agent = MagicMock()
         mock_agent.run_sync.side_effect = UnexpectedModelBehavior("Validation failed")
 
-        with patch("magically.spell.Agent", return_value=mock_agent):
+        with patch("spellcrafting.spell.Agent", return_value=mock_agent):
             # Custom handler re-raises the original error, so we get the original exception
             with pytest.raises(UnexpectedModelBehavior):
                 analyze("test input")
@@ -218,7 +218,7 @@ class TestOnFailEscalateStrategy:
             return agent
 
         with config:
-            with patch("magically.spell.Agent", side_effect=create_agent):
+            with patch("spellcrafting.spell.Agent", side_effect=create_agent):
                 result = analyze("test input")
 
                 assert result.summary == "escalated"
@@ -247,7 +247,7 @@ class TestOnFailEscalateStrategy:
             agents_created.append(kwargs.get("model"))
             return agent
 
-        with patch("magically.spell.Agent", side_effect=create_agent):
+        with patch("spellcrafting.spell.Agent", side_effect=create_agent):
             result = analyze("test input")
 
             assert agents_created[1] == "anthropic:claude-sonnet"
@@ -272,7 +272,7 @@ class TestOnFailEscalateStrategy:
             agents_created.append(kwargs)
             return agent
 
-        with patch("magically.spell.Agent", side_effect=create_agent):
+        with patch("spellcrafting.spell.Agent", side_effect=create_agent):
             analyze("test input")
 
             # Escalated agent should have retries=3
@@ -291,7 +291,7 @@ class TestOnFailRetryStrategy:
         mock_agent = MagicMock()
         mock_agent.run_sync.side_effect = UnexpectedModelBehavior("Validation failed")
 
-        with patch("magically.spell.Agent", return_value=mock_agent):
+        with patch("spellcrafting.spell.Agent", return_value=mock_agent):
             with pytest.raises(ValidationError):
                 analyze("test input")
 
@@ -319,7 +319,7 @@ class TestOnFailAsyncHandlerInSyncContext:
         mock_agent = MagicMock()
         mock_agent.run_sync.side_effect = UnexpectedModelBehavior("Validation failed")
 
-        with patch("magically.spell.Agent", return_value=mock_agent):
+        with patch("spellcrafting.spell.Agent", return_value=mock_agent):
             result = analyze("test")
             # Result is a coroutine object, not the actual Analysis
             # This is the current behavior - async handlers with sync spells
@@ -341,7 +341,7 @@ class TestOnFailAsyncHandlerInSyncContext:
         mock_agent = MagicMock()
         mock_agent.run_sync.side_effect = UnexpectedModelBehavior("Validation failed")
 
-        with patch("magically.spell.Agent", return_value=mock_agent):
+        with patch("spellcrafting.spell.Agent", return_value=mock_agent):
             result = analyze("test")
             # Sync handler returns proper Analysis object
             assert isinstance(result, Analysis)
@@ -367,7 +367,7 @@ class TestOnFailAsync:
 
         mock_agent.run = mock_run
 
-        with patch("magically.spell.Agent", return_value=mock_agent):
+        with patch("spellcrafting.spell.Agent", return_value=mock_agent):
             result = await analyze("test input")
 
             assert result == default
@@ -389,7 +389,7 @@ class TestOnFailAsync:
 
         mock_agent.run = mock_run
 
-        with patch("magically.spell.Agent", return_value=mock_agent):
+        with patch("spellcrafting.spell.Agent", return_value=mock_agent):
             result = await analyze("test input")
 
             assert result.summary == "fixed"
@@ -411,7 +411,7 @@ class TestOnFailAsync:
 
         mock_agent.run = mock_run
 
-        with patch("magically.spell.Agent", return_value=mock_agent):
+        with patch("spellcrafting.spell.Agent", return_value=mock_agent):
             result = await analyze("test input")
 
             assert result.summary == "async fixed"
@@ -440,7 +440,7 @@ class TestOnFailAsync:
             agents_created.append(kwargs.get("model"))
             return agent
 
-        with patch("magically.spell.Agent", side_effect=create_agent):
+        with patch("spellcrafting.spell.Agent", side_effect=create_agent):
             result = await analyze("test input")
 
             assert result.summary == "escalated"
@@ -459,7 +459,7 @@ class TestOnFailNoStrategyProvided:
         mock_agent = MagicMock()
         mock_agent.run_sync.side_effect = UnexpectedModelBehavior("Validation failed")
 
-        with patch("magically.spell.Agent", return_value=mock_agent):
+        with patch("spellcrafting.spell.Agent", return_value=mock_agent):
             with pytest.raises(ValidationError):
                 analyze("test input")
 
@@ -474,7 +474,7 @@ class TestOnFailNoStrategyProvided:
         original_error = UnexpectedModelBehavior("Validation failed")
         mock_agent.run_sync.side_effect = original_error
 
-        with patch("magically.spell.Agent", return_value=mock_agent):
+        with patch("spellcrafting.spell.Agent", return_value=mock_agent):
             with pytest.raises(ValidationError) as exc_info:
                 analyze("test input")
 
@@ -495,7 +495,7 @@ class TestOnFailNoStrategyProvided:
         mock_agent = MagicMock()
         mock_agent.run_sync.return_value = mock_result
 
-        with patch("magically.spell.Agent", return_value=mock_agent):
+        with patch("spellcrafting.spell.Agent", return_value=mock_agent):
             result = analyze("test input")
 
             assert result == expected
@@ -596,7 +596,7 @@ class TestResolveEscalationModel:
 
     def test_literal_model_returned_as_is(self):
         """Literal model (with colon) should be returned unchanged."""
-        from magically.spell import _resolve_escalation_model
+        from spellcrafting.spell import _resolve_escalation_model
 
         model, settings = _resolve_escalation_model("openai:gpt-4o")
         assert model == "openai:gpt-4o"
@@ -604,7 +604,7 @@ class TestResolveEscalationModel:
 
     def test_literal_model_with_provider_prefix(self):
         """Various literal model formats should work."""
-        from magically.spell import _resolve_escalation_model
+        from spellcrafting.spell import _resolve_escalation_model
 
         # Anthropic model
         model, settings = _resolve_escalation_model("anthropic:claude-sonnet-4-20250514")
@@ -618,8 +618,8 @@ class TestResolveEscalationModel:
 
     def test_alias_resolved_from_config_context(self):
         """Alias should be resolved from Config context."""
-        from magically.spell import _resolve_escalation_model
-        from magically.config import Config, ModelConfig
+        from spellcrafting.spell import _resolve_escalation_model
+        from spellcrafting.config import Config, ModelConfig
 
         config = Config(
             models={
@@ -640,8 +640,8 @@ class TestResolveEscalationModel:
 
     def test_alias_resolved_from_process_default(self):
         """Alias should be resolved from process-level default config."""
-        from magically.spell import _resolve_escalation_model
-        from magically.config import Config, ModelConfig
+        from spellcrafting.spell import _resolve_escalation_model
+        from spellcrafting.config import Config, ModelConfig
 
         config = Config(
             models={
@@ -663,25 +663,25 @@ class TestResolveEscalationModel:
             Config(models={}).set_as_default()
 
     def test_unknown_alias_raises_config_error(self):
-        """Unknown alias should raise MagicallyConfigError with helpful message."""
-        from magically.spell import _resolve_escalation_model
-        from magically.config import MagicallyConfigError
+        """Unknown alias should raise SpellcraftingConfigError with helpful message."""
+        from spellcrafting.spell import _resolve_escalation_model
+        from spellcrafting.config import SpellcraftingConfigError
 
-        with pytest.raises(MagicallyConfigError, match="could not be resolved"):
+        with pytest.raises(SpellcraftingConfigError, match="could not be resolved"):
             _resolve_escalation_model("unknown_alias")
 
     def test_unknown_alias_error_mentions_alias_name(self):
         """Error message should include the alias name that couldn't be resolved."""
-        from magically.spell import _resolve_escalation_model
-        from magically.config import MagicallyConfigError
+        from spellcrafting.spell import _resolve_escalation_model
+        from spellcrafting.config import SpellcraftingConfigError
 
-        with pytest.raises(MagicallyConfigError, match="my_custom_model"):
+        with pytest.raises(SpellcraftingConfigError, match="my_custom_model"):
             _resolve_escalation_model("my_custom_model")
 
     def test_settings_extraction_from_model_config(self):
         """Settings should be extracted from ModelConfig correctly."""
-        from magically.spell import _resolve_escalation_model
-        from magically.config import Config, ModelConfig
+        from spellcrafting.spell import _resolve_escalation_model
+        from spellcrafting.config import Config, ModelConfig
 
         config = Config(
             models={
@@ -704,8 +704,8 @@ class TestResolveEscalationModel:
 
     def test_model_config_without_optional_settings(self):
         """ModelConfig with only required fields should return None settings."""
-        from magically.spell import _resolve_escalation_model
-        from magically.config import Config, ModelConfig
+        from spellcrafting.spell import _resolve_escalation_model
+        from spellcrafting.config import Config, ModelConfig
 
         config = Config(
             models={

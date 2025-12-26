@@ -9,8 +9,8 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-import magically.logging as logging_module
-from magically import (
+import spellcrafting.logging as logging_module
+from spellcrafting import (
     CostEstimate,
     JSONFileHandler,
     LoggingConfig,
@@ -31,7 +31,7 @@ from magically import (
     trace_context,
     with_trace_id,
 )
-from magically.config import Config, ModelConfig
+from spellcrafting.config import Config, ModelConfig
 
 
 class TestTokenUsage:
@@ -479,7 +479,7 @@ class TestCostEstimation:
     """Tests for cost estimation."""
 
     def test_estimate_known_model(self):
-        from magically.logging import estimate_cost
+        from spellcrafting.logging import estimate_cost
 
         usage = TokenUsage(input_tokens=1000, output_tokens=500)
         cost = estimate_cost("claude-sonnet-4-20250514", usage)
@@ -490,7 +490,7 @@ class TestCostEstimation:
         assert cost.total_cost == cost.input_cost + cost.output_cost
 
     def test_estimate_with_provider_prefix(self):
-        from magically.logging import estimate_cost
+        from spellcrafting.logging import estimate_cost
 
         usage = TokenUsage(input_tokens=1000, output_tokens=500)
         cost = estimate_cost("anthropic:claude-sonnet-4-20250514", usage)
@@ -499,7 +499,7 @@ class TestCostEstimation:
         assert cost.model == "claude-sonnet-4-20250514"
 
     def test_estimate_unknown_model(self):
-        from magically.logging import estimate_cost
+        from spellcrafting.logging import estimate_cost
 
         usage = TokenUsage(input_tokens=1000, output_tokens=500)
         cost = estimate_cost("unknown:model", usage)
@@ -511,7 +511,7 @@ class TestLogEmission:
     """Tests for log emission."""
 
     def test_emit_log_when_disabled(self):
-        from magically.logging import _emit_log
+        from spellcrafting.logging import _emit_log
 
         log = SpellExecutionLog(
             spell_name="test",
@@ -524,7 +524,7 @@ class TestLogEmission:
         _emit_log(log)
 
     def test_emit_log_with_redaction(self):
-        from magically.logging import _emit_log
+        from spellcrafting.logging import _emit_log
 
         handler = MagicMock()
         configure_logging(LoggingConfig(
@@ -551,7 +551,7 @@ class TestLogEmission:
         assert emitted_log.output == "[REDACTED]"
 
     def test_emit_log_with_default_tags(self):
-        from magically.logging import _emit_log
+        from spellcrafting.logging import _emit_log
 
         handler = MagicMock()
         configure_logging(LoggingConfig(
@@ -593,8 +593,8 @@ class TestSpellLoggingIntegration:
         mock_agent = MagicMock()
         mock_agent.run_sync.return_value = mock_result
 
-        with patch("magically.spell.Agent", return_value=mock_agent):
-            with patch("magically.spell.trace_context") as mock_trace:
+        with patch("spellcrafting.spell.Agent", return_value=mock_agent):
+            with patch("spellcrafting.spell.trace_context") as mock_trace:
                 result = test_spell("hello")
                 # trace_context should not be called when logging disabled
                 mock_trace.assert_not_called()
@@ -618,7 +618,7 @@ class TestSpellLoggingIntegration:
         mock_agent = MagicMock()
         mock_agent.run_sync.return_value = mock_result
 
-        with patch("magically.spell.Agent", return_value=mock_agent):
+        with patch("spellcrafting.spell.Agent", return_value=mock_agent):
             result = test_spell("hello")
 
         # Handler should have been called with a log
@@ -650,7 +650,7 @@ class TestSpellLoggingIntegration:
         mock_agent = MagicMock()
         mock_agent.run_sync.return_value = mock_result
 
-        with patch("magically.spell.Agent", return_value=mock_agent):
+        with patch("spellcrafting.spell.Agent", return_value=mock_agent):
             test_spell("hello")
 
         log = handler.handle.call_args[0][0]
@@ -670,7 +670,7 @@ class TestSpellLoggingIntegration:
         mock_agent = MagicMock()
         mock_agent.run_sync.side_effect = ValueError("API error")
 
-        with patch("magically.spell.Agent", return_value=mock_agent):
+        with patch("spellcrafting.spell.Agent", return_value=mock_agent):
             with pytest.raises(ValueError, match="API error"):
                 test_spell("hello")
 
@@ -697,7 +697,7 @@ class TestSpellLoggingIntegration:
         mock_agent = MagicMock()
         mock_agent.run_sync.return_value = mock_result
 
-        with patch("magically.spell.Agent", return_value=mock_agent):
+        with patch("spellcrafting.spell.Agent", return_value=mock_agent):
             test_spell("hello", count=10)
 
         log = handler.handle.call_args[0][0]
@@ -726,7 +726,7 @@ class TestSpellLoggingIntegration:
         mock_agent.run_sync.return_value = mock_result
 
         with config:
-            with patch("magically.spell.Agent", return_value=mock_agent):
+            with patch("spellcrafting.spell.Agent", return_value=mock_agent):
                 test_spell("hello")
 
         log = handler.handle.call_args[0][0]
@@ -754,7 +754,7 @@ class TestSpellLoggingIntegration:
             return mock_result
         mock_agent.run = mock_run
 
-        with patch("magically.spell.Agent", return_value=mock_agent):
+        with patch("spellcrafting.spell.Agent", return_value=mock_agent):
             result = await test_async_spell("hello")
 
         assert result == "async result"
@@ -771,15 +771,15 @@ class TestPyprojectLogging:
         """Test loading logging config from pyproject.toml."""
         pyproject = tmp_path / "pyproject.toml"
         pyproject.write_text("""
-[tool.magically.logging]
+[tool.spellcrafting.logging]
 enabled = true
 level = "debug"
 redact_content = true
 
-[tool.magically.logging.default_tags]
+[tool.spellcrafting.logging.default_tags]
 env = "test"
 
-[tool.magically.logging.handlers.python]
+[tool.spellcrafting.logging.handlers.python]
 type = "python"
 logger_name = "custom_logger"
 """)
@@ -799,12 +799,12 @@ logger_name = "custom_logger"
         """Test loading JSON file handler from pyproject.toml."""
         pyproject = tmp_path / "pyproject.toml"
         pyproject.write_text("""
-[tool.magically.logging]
+[tool.spellcrafting.logging]
 enabled = true
 
-[tool.magically.logging.handlers.json]
+[tool.spellcrafting.logging.handlers.json]
 type = "json_file"
-path = "logs/magically.jsonl"
+path = "logs/spellcrafting.jsonl"
 """)
         monkeypatch.chdir(tmp_path)
 
@@ -834,7 +834,7 @@ name = "test"
         """Test that disabled logging doesn't add handlers."""
         pyproject = tmp_path / "pyproject.toml"
         pyproject.write_text("""
-[tool.magically.logging]
+[tool.spellcrafting.logging]
 enabled = false
 """)
         monkeypatch.chdir(tmp_path)
@@ -849,10 +849,10 @@ enabled = false
         """Test that unknown handler types are silently skipped."""
         pyproject = tmp_path / "pyproject.toml"
         pyproject.write_text('''
-[tool.magically.logging]
+[tool.spellcrafting.logging]
 enabled = true
 
-[tool.magically.logging.handlers.custom]
+[tool.spellcrafting.logging.handlers.custom]
 type = "unknown_type"
 ''')
         monkeypatch.chdir(tmp_path)
@@ -870,10 +870,10 @@ type = "unknown_type"
         """Test that json_file handler without path is skipped."""
         pyproject = tmp_path / "pyproject.toml"
         pyproject.write_text('''
-[tool.magically.logging]
+[tool.spellcrafting.logging]
 enabled = true
 
-[tool.magically.logging.handlers.json]
+[tool.spellcrafting.logging.handlers.json]
 type = "json_file"
 # Missing path - should be skipped
 ''')
@@ -892,14 +892,14 @@ type = "json_file"
         """Test multiple handlers of same type."""
         pyproject = tmp_path / "pyproject.toml"
         pyproject.write_text('''
-[tool.magically.logging]
+[tool.spellcrafting.logging]
 enabled = true
 
-[tool.magically.logging.handlers.python1]
+[tool.spellcrafting.logging.handlers.python1]
 type = "python"
 logger_name = "logger1"
 
-[tool.magically.logging.handlers.python2]
+[tool.spellcrafting.logging.handlers.python2]
 type = "python"
 logger_name = "logger2"
 ''')
@@ -920,10 +920,10 @@ logger_name = "logger2"
         """Test handler config with extra unknown fields is still processed."""
         pyproject = tmp_path / "pyproject.toml"
         pyproject.write_text('''
-[tool.magically.logging]
+[tool.spellcrafting.logging]
 enabled = true
 
-[tool.magically.logging.handlers.python]
+[tool.spellcrafting.logging.handlers.python]
 type = "python"
 logger_name = "test_logger"
 unknown_field = "ignored"
@@ -943,10 +943,10 @@ another_unknown = 123
         """Test handler config that is not a dict is skipped."""
         pyproject = tmp_path / "pyproject.toml"
         pyproject.write_text('''
-[tool.magically.logging]
+[tool.spellcrafting.logging]
 enabled = true
 
-[tool.magically.logging.handlers]
+[tool.spellcrafting.logging.handlers]
 invalid = "not a dict"
 ''')
         monkeypatch.chdir(tmp_path)
@@ -963,10 +963,10 @@ invalid = "not a dict"
         """Test OpenTelemetry handler can be configured via pyproject."""
         pyproject = tmp_path / "pyproject.toml"
         pyproject.write_text('''
-[tool.magically.logging]
+[tool.spellcrafting.logging]
 enabled = true
 
-[tool.magically.logging.handlers.otel]
+[tool.spellcrafting.logging.handlers.otel]
 type = "otel"
 ''')
         monkeypatch.chdir(tmp_path)
@@ -982,10 +982,10 @@ type = "otel"
         """Test OpenTelemetry handler with 'opentelemetry' type alias."""
         pyproject = tmp_path / "pyproject.toml"
         pyproject.write_text('''
-[tool.magically.logging]
+[tool.spellcrafting.logging]
 enabled = true
 
-[tool.magically.logging.handlers.tracing]
+[tool.spellcrafting.logging.handlers.tracing]
 type = "opentelemetry"
 ''')
         monkeypatch.chdir(tmp_path)
@@ -1185,7 +1185,7 @@ class TestValidationMetricsIntegration:
         mock_agent = MagicMock()
         mock_agent.run_sync.return_value = mock_result
 
-        with patch("magically.spell.Agent", return_value=mock_agent):
+        with patch("spellcrafting.spell.Agent", return_value=mock_agent):
             test_spell("hello")
 
         handler.handle.assert_called_once()
@@ -1214,7 +1214,7 @@ class TestValidationMetricsIntegration:
         mock_agent = MagicMock()
         mock_agent.run_sync.return_value = mock_result
 
-        with patch("magically.spell.Agent", return_value=mock_agent):
+        with patch("spellcrafting.spell.Agent", return_value=mock_agent):
             test_spell("hello")
 
         log = handler.handle.call_args[0][0]
@@ -1242,7 +1242,7 @@ class TestValidationMetricsIntegration:
         mock_agent = MagicMock()
         mock_agent.run_sync.return_value = mock_result
 
-        with patch("magically.spell.Agent", return_value=mock_agent):
+        with patch("spellcrafting.spell.Agent", return_value=mock_agent):
             test_spell("hello")
 
         log = handler.handle.call_args[0][0]
@@ -1265,7 +1265,7 @@ class TestValidationMetricsIntegration:
         mock_agent.run_sync.return_value = mock_result
 
         # This should work without any issues (fast path)
-        with patch("magically.spell.Agent", return_value=mock_agent):
+        with patch("spellcrafting.spell.Agent", return_value=mock_agent):
             result = test_spell("hello")
             assert result == "result"
 
@@ -1294,7 +1294,7 @@ class TestValidationMetricsIntegration:
             return mock_result
         mock_agent.run = mock_run
 
-        with patch("magically.spell.Agent", return_value=mock_agent):
+        with patch("spellcrafting.spell.Agent", return_value=mock_agent):
             result = await test_async_spell("hello")
 
         assert result == "async result"
@@ -1329,14 +1329,14 @@ class TestToolCallLogging:
 
         # We need to capture the Agent instantiation to verify tools are wrapped
         captured_agents = []
-        original_agent_class = sys.modules["magically.spell"].Agent
+        original_agent_class = sys.modules["spellcrafting.spell"].Agent
 
         def capture_agent(*args, **kwargs):
             agent = original_agent_class(*args, **kwargs)
             captured_agents.append(kwargs)
             return mock_agent
 
-        with patch("magically.spell.Agent", side_effect=capture_agent):
+        with patch("spellcrafting.spell.Agent", side_effect=capture_agent):
             test_spell("hello")
 
         # Should have been called twice: once for cache (unwrapped), once for logging (wrapped)
@@ -1349,7 +1349,7 @@ class TestToolCallLogging:
 
     def test_tool_call_success_logged(self):
         """Successful tool calls should be logged with arguments and result."""
-        from magically.spell import _wrap_tool, SpellExecutionLog
+        from spellcrafting.spell import _wrap_tool, SpellExecutionLog
 
         log = SpellExecutionLog(
             spell_name="test",
@@ -1377,7 +1377,7 @@ class TestToolCallLogging:
 
     def test_tool_call_failure_logged(self):
         """Failed tool calls should be logged with error."""
-        from magically.spell import _wrap_tool, SpellExecutionLog
+        from spellcrafting.spell import _wrap_tool, SpellExecutionLog
 
         log = SpellExecutionLog(
             spell_name="test",
@@ -1406,7 +1406,7 @@ class TestToolCallLogging:
     @pytest.mark.asyncio
     async def test_async_tool_call_logged(self):
         """Async tool calls should be logged correctly."""
-        from magically.spell import _wrap_tool_async, SpellExecutionLog
+        from spellcrafting.spell import _wrap_tool_async, SpellExecutionLog
 
         log = SpellExecutionLog(
             spell_name="test",
@@ -1433,7 +1433,7 @@ class TestToolCallLogging:
     @pytest.mark.asyncio
     async def test_async_tool_call_failure_logged(self):
         """Failed async tool calls should be logged with error."""
-        from magically.spell import _wrap_tool_async, SpellExecutionLog
+        from spellcrafting.spell import _wrap_tool_async, SpellExecutionLog
 
         log = SpellExecutionLog(
             spell_name="test",
@@ -1459,7 +1459,7 @@ class TestToolCallLogging:
 
     def test_wrap_tools_for_logging(self):
         """_wrap_tools_for_logging should wrap all tools correctly."""
-        from magically.spell import _wrap_tools_for_logging, SpellExecutionLog
+        from spellcrafting.spell import _wrap_tools_for_logging, SpellExecutionLog
 
         log = SpellExecutionLog(
             spell_name="test",
@@ -1485,7 +1485,7 @@ class TestToolCallLogging:
 
     def test_multiple_tool_calls_logged(self):
         """Multiple tool calls in a single execution should all be logged."""
-        from magically.spell import _wrap_tool, SpellExecutionLog
+        from spellcrafting.spell import _wrap_tool, SpellExecutionLog
 
         log = SpellExecutionLog(
             spell_name="test",
@@ -1517,7 +1517,7 @@ class TestToolCallLogging:
 
     def test_tool_logging_preserves_function_metadata(self):
         """Wrapped tools should preserve original function metadata."""
-        from magically.spell import _wrap_tool, SpellExecutionLog
+        from spellcrafting.spell import _wrap_tool, SpellExecutionLog
 
         log = SpellExecutionLog(
             spell_name="test",
@@ -1552,7 +1552,7 @@ class TestToolCallLogging:
         mock_agent = MagicMock()
         mock_agent.run_sync.return_value = mock_result
 
-        with patch("magically.spell.Agent", return_value=mock_agent):
+        with patch("spellcrafting.spell.Agent", return_value=mock_agent):
             test_spell_no_tools("hello")
 
         handler.handle.assert_called_once()
@@ -1582,7 +1582,7 @@ class TestSetupHelpers:
 
     def test_setup_logfire_enables_logging(self):
         """setup_logfire should enable logging with OTel handler."""
-        from magically import setup_logfire
+        from spellcrafting import setup_logfire
 
         setup_logfire()
         config = get_logging_config()
@@ -1594,7 +1594,7 @@ class TestSetupHelpers:
 
     def test_setup_logfire_with_redaction(self):
         """setup_logfire should support redact_content parameter."""
-        from magically import setup_logfire
+        from spellcrafting import setup_logfire
 
         setup_logfire(redact_content=True)
         config = get_logging_config()
@@ -1604,7 +1604,7 @@ class TestSetupHelpers:
 
     def test_setup_datadog_enables_logging(self):
         """setup_datadog should enable logging with OTel handler."""
-        from magically import setup_datadog
+        from spellcrafting import setup_datadog
 
         setup_datadog()
         config = get_logging_config()
@@ -1616,7 +1616,7 @@ class TestSetupHelpers:
 
     def test_setup_datadog_with_redaction(self):
         """setup_datadog should support redact_content parameter."""
-        from magically import setup_datadog
+        from spellcrafting import setup_datadog
 
         setup_datadog(redact_content=True)
         config = get_logging_config()
@@ -1626,7 +1626,7 @@ class TestSetupHelpers:
 
     def test_setup_helpers_have_docstrings(self):
         """Both setup helpers should have documentation."""
-        from magically import setup_logfire, setup_datadog
+        from spellcrafting import setup_logfire, setup_datadog
 
         assert setup_logfire.__doc__ is not None
         assert setup_datadog.__doc__ is not None
@@ -1676,7 +1676,7 @@ class TestLogLevelEnum:
         ]:
             pyproject = tmp_path / "pyproject.toml"
             pyproject.write_text(f"""
-[tool.magically.logging]
+[tool.spellcrafting.logging]
 enabled = true
 level = "{level_str}"
 """)
@@ -1692,7 +1692,7 @@ class TestPricingDictCoverage:
 
     def test_all_pricing_models_have_required_keys(self):
         """All models in PRICING should have input and output keys."""
-        from magically.logging import PRICING
+        from spellcrafting.logging import PRICING
 
         for model_name, prices in PRICING.items():
             assert "input" in prices, f"{model_name} missing input price"
@@ -1705,7 +1705,7 @@ class TestPricingDictCoverage:
 
     def test_cost_estimation_for_all_pricing_models(self):
         """Every model in PRICING should return valid cost estimate."""
-        from magically.logging import PRICING, estimate_cost
+        from spellcrafting.logging import PRICING, estimate_cost
 
         usage = TokenUsage(input_tokens=1000, output_tokens=500)
 
@@ -1721,28 +1721,28 @@ class TestPricingDictCoverage:
 
     def test_anthropic_models_in_pricing(self):
         """Anthropic models should be in PRICING dict."""
-        from magically.logging import PRICING
+        from spellcrafting.logging import PRICING
 
         anthropic_models = [m for m in PRICING.keys() if "claude" in m]
         assert len(anthropic_models) >= 4, "Expected at least 4 Claude models"
 
     def test_openai_models_in_pricing(self):
         """OpenAI models should be in PRICING dict."""
-        from magically.logging import PRICING
+        from spellcrafting.logging import PRICING
 
         openai_models = [m for m in PRICING.keys() if "gpt" in m]
         assert len(openai_models) >= 4, "Expected at least 4 GPT models"
 
     def test_google_models_in_pricing(self):
         """Google models should be in PRICING dict."""
-        from magically.logging import PRICING
+        from spellcrafting.logging import PRICING
 
         google_models = [m for m in PRICING.keys() if "gemini" in m]
         assert len(google_models) >= 2, "Expected at least 2 Gemini models"
 
     def test_pricing_values_are_reasonable(self):
         """Pricing values should be in reasonable ranges (per 1M tokens)."""
-        from magically.logging import PRICING
+        from spellcrafting.logging import PRICING
 
         for model_name, prices in PRICING.items():
             # Input price should be between $0 (free/experimental) and $100 per 1M tokens
@@ -1758,7 +1758,7 @@ class TestExtensiblePricing:
 
     def test_model_pricing_type(self):
         """ModelPricing TypedDict should have correct structure."""
-        from magically import ModelPricing
+        from spellcrafting import ModelPricing
 
         # Create a valid ModelPricing
         pricing: ModelPricing = {"input": 1.0, "output": 2.0}
@@ -1767,8 +1767,8 @@ class TestExtensiblePricing:
 
     def test_register_model_pricing_new_model(self):
         """register_model_pricing should add new model pricing."""
-        from magically import register_model_pricing, get_model_pricing
-        from magically.logging import _custom_pricing
+        from spellcrafting import register_model_pricing, get_model_pricing
+        from spellcrafting.logging import _custom_pricing
 
         # Register a new model
         register_model_pricing("my-custom-model-149", 5.0, 15.0)
@@ -1783,8 +1783,8 @@ class TestExtensiblePricing:
 
     def test_register_model_pricing_override_default(self):
         """register_model_pricing should allow overriding default pricing."""
-        from magically import register_model_pricing, get_model_pricing
-        from magically.logging import _custom_pricing, _DEFAULT_PRICING
+        from spellcrafting import register_model_pricing, get_model_pricing
+        from spellcrafting.logging import _custom_pricing, _DEFAULT_PRICING
 
         # Get original pricing
         original = _DEFAULT_PRICING.get("gpt-4o")
@@ -1810,7 +1810,7 @@ class TestExtensiblePricing:
 
     def test_get_model_pricing_with_provider_prefix(self):
         """get_model_pricing should strip provider prefix."""
-        from magically import get_model_pricing
+        from spellcrafting import get_model_pricing
 
         pricing = get_model_pricing("anthropic:claude-sonnet-4-20250514")
         assert pricing is not None
@@ -1819,15 +1819,15 @@ class TestExtensiblePricing:
 
     def test_get_model_pricing_unknown_model(self):
         """get_model_pricing should return None for unknown models."""
-        from magically import get_model_pricing
+        from spellcrafting import get_model_pricing
 
         pricing = get_model_pricing("totally-unknown-model-xyz")
         assert pricing is None
 
     def test_get_model_pricing_default_models(self):
         """get_model_pricing should work for all default models."""
-        from magically import get_model_pricing
-        from magically.logging import PRICING
+        from spellcrafting import get_model_pricing
+        from spellcrafting.logging import PRICING
 
         for model_name in PRICING.keys():
             pricing = get_model_pricing(model_name)
@@ -1837,8 +1837,8 @@ class TestExtensiblePricing:
 
     def test_estimate_cost_uses_custom_pricing(self):
         """estimate_cost should use custom pricing when registered."""
-        from magically import register_model_pricing
-        from magically.logging import estimate_cost, _custom_pricing
+        from spellcrafting import register_model_pricing
+        from spellcrafting.logging import estimate_cost, _custom_pricing
 
         # Register custom pricing for a new model
         register_model_pricing("my-test-model-149", 10.0, 20.0)
@@ -1858,7 +1858,7 @@ class TestExtensiblePricing:
         """Pricing should be loadable from pyproject.toml."""
         pyproject = tmp_path / "pyproject.toml"
         pyproject.write_text('''
-[tool.magically.pricing."my-pyproject-model"]
+[tool.spellcrafting.pricing."my-pyproject-model"]
 input = 7.5
 output = 22.5
 ''')
@@ -1867,7 +1867,7 @@ output = 22.5
         # Reset cache to force reload
         logging_module._file_pricing_cache = None
 
-        from magically import get_model_pricing
+        from spellcrafting import get_model_pricing
 
         pricing = get_model_pricing("my-pyproject-model")
         assert pricing is not None
@@ -1879,12 +1879,12 @@ output = 22.5
 
     def test_pricing_priority_custom_over_file(self, tmp_path, monkeypatch):
         """Custom pricing should take precedence over file pricing."""
-        from magically import register_model_pricing, get_model_pricing
-        from magically.logging import _custom_pricing
+        from spellcrafting import register_model_pricing, get_model_pricing
+        from spellcrafting.logging import _custom_pricing
 
         pyproject = tmp_path / "pyproject.toml"
         pyproject.write_text('''
-[tool.magically.pricing."priority-test-model"]
+[tool.spellcrafting.pricing."priority-test-model"]
 input = 1.0
 output = 2.0
 ''')
@@ -1905,11 +1905,11 @@ output = 2.0
 
     def test_pricing_priority_file_over_default(self, tmp_path, monkeypatch):
         """File pricing should take precedence over default pricing."""
-        from magically import get_model_pricing
+        from spellcrafting import get_model_pricing
 
         pyproject = tmp_path / "pyproject.toml"
         pyproject.write_text('''
-[tool.magically.pricing."gpt-4o"]
+[tool.spellcrafting.pricing."gpt-4o"]
 input = 999.0
 output = 1999.0
 ''')
@@ -1928,18 +1928,18 @@ output = 1999.0
         """Invalid pricing values in pyproject.toml should be skipped."""
         pyproject = tmp_path / "pyproject.toml"
         pyproject.write_text('''
-[tool.magically.pricing."invalid-model"]
+[tool.spellcrafting.pricing."invalid-model"]
 input = "not a number"
 output = 2.0
 
-[tool.magically.pricing."valid-model"]
+[tool.spellcrafting.pricing."valid-model"]
 input = 1.0
 output = 2.0
 ''')
         monkeypatch.chdir(tmp_path)
         logging_module._file_pricing_cache = None
 
-        from magically import get_model_pricing
+        from spellcrafting import get_model_pricing
 
         # Invalid model should be skipped
         pricing = get_model_pricing("invalid-model")
@@ -1955,7 +1955,7 @@ output = 2.0
 
     def test_pricing_exported_from_package(self):
         """ModelPricing, register_model_pricing, get_model_pricing should be exported."""
-        from magically import ModelPricing, register_model_pricing, get_model_pricing
+        from spellcrafting import ModelPricing, register_model_pricing, get_model_pricing
 
         assert ModelPricing is not None
         assert callable(register_model_pricing)
@@ -1963,7 +1963,7 @@ output = 2.0
 
     def test_backwards_compatibility_pricing_dict(self):
         """PRICING dict should still be accessible for backwards compatibility."""
-        from magically.logging import PRICING
+        from spellcrafting.logging import PRICING
 
         assert isinstance(PRICING, dict)
         assert "gpt-4o" in PRICING
@@ -1979,7 +1979,7 @@ class TestEmitLogHandlerErrors:
 
     def test_emit_log_survives_handler_exception(self):
         """Handler exceptions should not break spell execution."""
-        from magically.logging import _emit_log
+        from spellcrafting.logging import _emit_log
 
         failing_handler = MagicMock()
         failing_handler.handle.side_effect = Exception("Handler error")
@@ -2008,7 +2008,7 @@ class TestEmitLogHandlerErrors:
 
     def test_emit_log_all_handlers_fail(self):
         """Even if all handlers fail, no exception should propagate."""
-        from magically.logging import _emit_log
+        from spellcrafting.logging import _emit_log
 
         failing_handler1 = MagicMock()
         failing_handler1.handle.side_effect = Exception("Error 1")
@@ -2037,7 +2037,7 @@ class TestEmitLogHandlerErrors:
 
     def test_emit_log_handler_exception_doesnt_affect_log_data(self):
         """Handler exception should not corrupt log data for subsequent handlers."""
-        from magically.logging import _emit_log
+        from spellcrafting.logging import _emit_log
 
         captured_logs = []
 
@@ -2071,7 +2071,7 @@ class TestEmitLogHandlerErrors:
 
     def test_emit_log_handler_runtime_error(self):
         """RuntimeError from handler should be caught."""
-        from magically.logging import _emit_log
+        from spellcrafting.logging import _emit_log
 
         handler = MagicMock()
         handler.handle.side_effect = RuntimeError("Runtime error")
@@ -2091,7 +2091,7 @@ class TestEmitLogHandlerErrors:
 
     def test_emit_log_handler_type_error(self):
         """TypeError from handler should be caught."""
-        from magically.logging import _emit_log
+        from spellcrafting.logging import _emit_log
 
         handler = MagicMock()
         handler.handle.side_effect = TypeError("Type error")
@@ -2134,7 +2134,7 @@ class TestExtractTokenUsageErrorHandling:
         mock_agent = MagicMock()
         mock_agent.run_sync.return_value = mock_result
 
-        with patch("magically.spell.Agent", return_value=mock_agent):
+        with patch("spellcrafting.spell.Agent", return_value=mock_agent):
             result = test_spell("hello")
 
         assert result == "result"
@@ -2159,7 +2159,7 @@ class TestExtractTokenUsageErrorHandling:
         mock_agent = MagicMock()
         mock_agent.run_sync.return_value = mock_result
 
-        with patch("magically.spell.Agent", return_value=mock_agent):
+        with patch("spellcrafting.spell.Agent", return_value=mock_agent):
             result = test_spell("hello")
 
         assert result == "result"
@@ -2188,7 +2188,7 @@ class TestExtractTokenUsageErrorHandling:
         mock_agent = MagicMock()
         mock_agent.run_sync.return_value = mock_result
 
-        with patch("magically.spell.Agent", return_value=mock_agent):
+        with patch("spellcrafting.spell.Agent", return_value=mock_agent):
             result = test_spell("hello")
 
         assert result == "result"
@@ -2218,7 +2218,7 @@ class TestExtractTokenUsageErrorHandling:
             return mock_result
         mock_agent.run = mock_run
 
-        with patch("magically.spell.Agent", return_value=mock_agent):
+        with patch("spellcrafting.spell.Agent", return_value=mock_agent):
             result = await test_async_spell("hello")
 
         assert result == "async result"
@@ -2247,7 +2247,7 @@ class TestExtractTokenUsageErrorHandling:
             return mock_result
         mock_agent.run = mock_run
 
-        with patch("magically.spell.Agent", return_value=mock_agent):
+        with patch("spellcrafting.spell.Agent", return_value=mock_agent):
             result = await test_async_spell("hello")
 
         assert result == "async result"
@@ -2308,7 +2308,7 @@ class TestNestedSpellTracing:
             agent.run_sync = run_sync
             return agent
 
-        with patch("magically.spell.Agent", side_effect=create_mock_agent):
+        with patch("spellcrafting.spell.Agent", side_effect=create_mock_agent):
             outer_spell("test")
 
         # Should have logged both spells
@@ -2360,7 +2360,7 @@ class TestNestedSpellTracing:
             agent.run_sync = run_sync
             return agent
 
-        with patch("magically.spell.Agent", side_effect=create_mock_agent):
+        with patch("spellcrafting.spell.Agent", side_effect=create_mock_agent):
             outer_spell("test")
 
         assert handler.handle.call_count == 2
@@ -2419,7 +2419,7 @@ class TestNestedSpellTracing:
             agent.run_sync = run_sync
             return agent
 
-        with patch("magically.spell.Agent", side_effect=create_mock_agent):
+        with patch("spellcrafting.spell.Agent", side_effect=create_mock_agent):
             level1_spell("test")
 
         assert handler.handle.call_count == 3

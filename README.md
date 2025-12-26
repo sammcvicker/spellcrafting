@@ -1,11 +1,11 @@
-# Magically
+# Spellcrafting
 
 **LLMs as a Python language feature.**
 
-Magically lets you write Python functions that are powered by LLMs using a simple decorator. Your docstring becomes the prompt, your type hints become the schema, and structured outputs just work.
+Spellcrafting lets you write Python functions that are powered by LLMs using a simple decorator. Your docstring becomes the prompt, your type hints become the schema, and structured outputs just work.
 
 ```python
-from magically import spell
+from spellcrafting import spell
 from pydantic import BaseModel
 
 class Analysis(BaseModel):
@@ -25,7 +25,7 @@ result = analyze("Python is fantastic for AI development!")
 ## Installation
 
 ```bash
-pip install magically
+pip install spellcrafting
 ```
 
 Requires Python 3.10+.
@@ -34,19 +34,19 @@ Requires Python 3.10+.
 
 ```bash
 # For .env file support (loading API keys from .env)
-pip install magically[dotenv]
+pip install spellcrafting[dotenv]
 
 # For OpenTelemetry tracing
-pip install magically[otel]
+pip install spellcrafting[otel]
 
 # For Logfire integration
-pip install magically[logfire]
+pip install spellcrafting[logfire]
 
 # For Datadog integration
-pip install magically[datadog]
+pip install spellcrafting[datadog]
 
 # Install all optional dependencies
-pip install magically[all]
+pip install spellcrafting[all]
 ```
 
 ## Quick Start
@@ -54,7 +54,7 @@ pip install magically[all]
 ### Basic Usage
 
 ```python
-from magically import spell
+from spellcrafting import spell
 
 @spell(model="anthropic:claude-sonnet-4-20250514")
 def summarize(text: str) -> str:
@@ -162,12 +162,12 @@ Define reusable model configurations:
 
 ```toml
 # pyproject.toml
-[tool.magically.models.fast]
+[tool.spellcrafting.models.fast]
 model = "anthropic:claude-3-5-haiku-latest"
 temperature = 0.2
 max_tokens = 1024
 
-[tool.magically.models.reasoning]
+[tool.spellcrafting.models.reasoning]
 model = "anthropic:claude-sonnet-4-20250514"
 temperature = 0.7
 max_tokens = 8192
@@ -189,7 +189,7 @@ def quick_task(text: str) -> str:
 Override configuration at runtime:
 
 ```python
-from magically import Config, ModelConfig
+from spellcrafting import Config, ModelConfig
 
 config = Config(models={
     "fast": ModelConfig(
@@ -226,7 +226,7 @@ def creative_writing(prompt: str) -> str:
 Use `llm_validator` to create Pydantic validators powered by natural language rules:
 
 ```python
-from magically import llm_validator
+from spellcrafting import llm_validator
 from pydantic import BaseModel, BeforeValidator
 from typing import Annotated
 
@@ -261,7 +261,7 @@ The `on_fail` parameter controls behavior when validation fails:
 Use `@guard` decorators to add input/output validation around your spells:
 
 ```python
-from magically import spell, guard, GuardError
+from spellcrafting import spell, guard, GuardError
 
 def validate_not_empty(input_args: dict, context: dict) -> dict:
     """Validate that input text is not empty."""
@@ -330,7 +330,7 @@ async def my_async_spell(text: str) -> str:
 The `on_fail` parameter controls what happens when the LLM output fails Pydantic validation after all retries are exhausted:
 
 ```python
-from magically import spell, OnFail
+from spellcrafting import spell, OnFail
 
 # Escalate to a more capable model on failure
 @spell(model="fast", on_fail=OnFail.escalate("reasoning"))
@@ -370,7 +370,7 @@ def extract_dates(text: str) -> Dates:
 Use `.with_metadata()` to get detailed execution information alongside the spell output:
 
 ```python
-from magically import spell
+from spellcrafting import spell
 
 @spell(model="fast")
 def classify(text: str) -> Category:
@@ -411,12 +411,12 @@ print(result.trace_id)      # "abc123..." (for log correlation)
 
 ## Observability
 
-Magically provides comprehensive logging, tracing, and cost tracking.
+Spellcrafting provides comprehensive logging, tracing, and cost tracking.
 
 ### Quick Setup
 
 ```python
-from magically import setup_logging, LogLevel
+from spellcrafting import setup_logging, LogLevel
 
 # Enable logging with default settings
 setup_logging(level=LogLevel.INFO)
@@ -434,12 +434,12 @@ setup_logging(level=LogLevel.INFO, redact_content=True)
 ### Provider Integrations
 
 ```python
-from magically import setup_logfire, setup_datadog
+from spellcrafting import setup_logfire, setup_datadog
 
-# Logfire (requires: pip install magically[logfire])
+# Logfire (requires: pip install spellcrafting[logfire])
 setup_logfire()
 
-# Datadog (requires: pip install magically[datadog])
+# Datadog (requires: pip install spellcrafting[datadog])
 setup_datadog()
 ```
 
@@ -448,7 +448,7 @@ setup_datadog()
 Propagate trace context across spell calls:
 
 ```python
-from magically import with_trace_id
+from spellcrafting import with_trace_id
 
 # Correlate with external request trace
 with with_trace_id(request.headers["X-Trace-ID"]):
@@ -458,16 +458,16 @@ with with_trace_id(request.headers["X-Trace-ID"]):
 ### Configuration via pyproject.toml
 
 ```toml
-[tool.magically.logging]
+[tool.spellcrafting.logging]
 enabled = true
 level = "info"
 redact_content = false
 
-[tool.magically.logging.handlers.python]
+[tool.spellcrafting.logging.handlers.python]
 type = "python"
-logger_name = "magically"
+logger_name = "spellcrafting"
 
-[tool.magically.logging.handlers.file]
+[tool.spellcrafting.logging.handlers.file]
 type = "json_file"
 path = "logs/spells.jsonl"
 ```
@@ -481,7 +481,7 @@ path = "logs/spells.jsonl"
 
 ## Supported Providers
 
-Magically uses [PydanticAI](https://ai.pydantic.dev/) under the hood, supporting:
+Spellcrafting uses [PydanticAI](https://ai.pydantic.dev/) under the hood, supporting:
 
 - Anthropic (`anthropic:claude-*`)
 - OpenAI (`openai:gpt-*`)

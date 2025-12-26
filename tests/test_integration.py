@@ -13,8 +13,8 @@ from unittest.mock import MagicMock, patch
 import pytest
 from pydantic import BaseModel
 
-from magically import spell, guard, OnFail, Config, ModelConfig
-from magically import configure_logging, LoggingConfig
+from spellcrafting import spell, guard, OnFail, Config, ModelConfig
+from spellcrafting import configure_logging, LoggingConfig
 
 
 class Result(BaseModel):
@@ -54,7 +54,7 @@ class TestFullPipelineIntegration:
         mock_agent = MagicMock()
         mock_agent.run_sync.return_value = mock_result
 
-        with patch("magically.spell.Agent", return_value=mock_agent):
+        with patch("spellcrafting.spell.Agent", return_value=mock_agent):
             result = process("hello")
 
         # Verify execution order
@@ -98,7 +98,7 @@ class TestFullPipelineIntegration:
         mock_agent.run_sync.return_value = mock_result
 
         with config:
-            with patch("magically.spell.Agent", return_value=mock_agent):
+            with patch("spellcrafting.spell.Agent", return_value=mock_agent):
                 result = summarize("hello world")
 
         assert result == "summary"
@@ -113,7 +113,7 @@ class TestFullPipelineIntegration:
         handler = MagicMock()
         configure_logging(LoggingConfig(enabled=True, handlers=[handler]))
 
-        from magically._pydantic_ai import UnexpectedModelBehavior
+        from spellcrafting._pydantic_ai import UnexpectedModelBehavior
 
         @spell(on_fail=OnFail.fallback("default result"))
         def risky_spell(text: str) -> str:
@@ -123,7 +123,7 @@ class TestFullPipelineIntegration:
         mock_agent = MagicMock()
         mock_agent.run_sync.side_effect = UnexpectedModelBehavior("Model failed")
 
-        with patch("magically.spell.Agent", return_value=mock_agent):
+        with patch("spellcrafting.spell.Agent", return_value=mock_agent):
             result = risky_spell("test")
 
         # Should return fallback value
@@ -161,7 +161,7 @@ class TestFullPipelineIntegration:
         mock_agent = MagicMock()
         mock_agent.run_sync.return_value = mock_result
 
-        with patch("magically.spell.Agent", return_value=mock_agent):
+        with patch("spellcrafting.spell.Agent", return_value=mock_agent):
             result = analyze("test input")
 
         assert isinstance(result, Result)
@@ -189,7 +189,7 @@ class TestFullPipelineIntegration:
         mock_agent = MagicMock()
         mock_agent.run_sync.return_value = mock_result
 
-        with patch("magically.spell.Agent", return_value=mock_agent):
+        with patch("spellcrafting.spell.Agent", return_value=mock_agent):
             result = process.with_metadata("test")
 
         # Verify SpellResult
@@ -236,7 +236,7 @@ class TestFullPipelineIntegration:
         mock_agent.run = mock_run
 
         with config:
-            with patch("magically.spell.Agent", return_value=mock_agent):
+            with patch("spellcrafting.spell.Agent", return_value=mock_agent):
                 result = await async_process("HELLO")
 
         # Output should be transformed by guards
@@ -289,7 +289,7 @@ class TestFullPipelineIntegration:
         mock_agent = MagicMock()
         mock_agent.run_sync.return_value = mock_result
 
-        with patch("magically.spell.Agent", return_value=mock_agent):
+        with patch("spellcrafting.spell.Agent", return_value=mock_agent):
             result = multi_guard_spell("hello")
 
         # Verify transform order
@@ -320,7 +320,7 @@ class TestFullPipelineIntegration:
 
         mock_agent = MagicMock()
 
-        with patch("magically.spell.Agent", return_value=mock_agent):
+        with patch("spellcrafting.spell.Agent", return_value=mock_agent):
             with pytest.raises(Exception, match="Guard validation failed"):
                 guarded_spell("test")
 
@@ -347,7 +347,7 @@ class TestFullPipelineIntegration:
         mock_agent = MagicMock()
         mock_agent.run_sync.return_value = mock_result
 
-        with patch("magically.spell.Agent", return_value=mock_agent):
+        with patch("spellcrafting.spell.Agent", return_value=mock_agent):
             result = priced_spell.with_metadata("test")
 
         # Cost estimate should be populated
@@ -379,7 +379,7 @@ class TestEdgeCaseIntegration:
 
         mock_agent = MagicMock()
 
-        with patch("magically.spell.Agent", return_value=mock_agent):
+        with patch("spellcrafting.spell.Agent", return_value=mock_agent):
             with pytest.raises(Exception, match="Input cannot be empty"):
                 non_empty_spell("")
 
@@ -413,14 +413,14 @@ class TestEdgeCaseIntegration:
         mock_agent.run_sync.return_value = mock_result
 
         with config:
-            with patch("magically.spell.Agent", return_value=mock_agent):
+            with patch("spellcrafting.spell.Agent", return_value=mock_agent):
                 result = no_logging_spell("test")
 
         assert result == "result"
 
     def test_trace_context_with_guards_and_metadata(self):
         """Test trace context propagation with guards and with_metadata."""
-        from magically.logging import trace_context
+        from spellcrafting.logging import trace_context
 
         handler = MagicMock()
         configure_logging(LoggingConfig(enabled=True, handlers=[handler]))
@@ -443,7 +443,7 @@ class TestEdgeCaseIntegration:
         mock_agent = MagicMock()
         mock_agent.run_sync.return_value = mock_result
 
-        with patch("magically.spell.Agent", return_value=mock_agent):
+        with patch("spellcrafting.spell.Agent", return_value=mock_agent):
             with trace_context() as ctx:
                 result = traced_spell.with_metadata("test")
 

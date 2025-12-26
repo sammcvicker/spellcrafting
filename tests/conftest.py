@@ -20,8 +20,8 @@ from contextvars import ContextVar
 import pytest
 from dotenv import load_dotenv
 
-import magically.config as config_module
-import magically.logging as logging_module
+import spellcrafting.config as config_module
+import spellcrafting.logging as logging_module
 
 load_dotenv()
 
@@ -29,12 +29,12 @@ load_dotenv()
 def _get_spell_module():
     """Get the spell module from sys.modules.
 
-    We need to use sys.modules because `import magically.spell` would get
+    We need to use sys.modules because `import spellcrafting.spell` would get
     the spell function from __init__.py rather than the module itself.
     """
     # Ensure module is imported
-    import magically.spell  # noqa: F401
-    return sys.modules["magically.spell"]
+    import spellcrafting.spell  # noqa: F401
+    return sys.modules["spellcrafting.spell"]
 
 
 @pytest.fixture(autouse=True)

@@ -5,9 +5,9 @@ from unittest.mock import MagicMock, patch
 import pytest
 from pydantic import BaseModel
 
-from magically import spell
-from magically.config import Config, MagicallyConfigError, ModelConfig
-from magically.spell import _build_user_prompt, _extract_input_args, _is_literal_model, _settings_hash
+from spellcrafting import spell
+from spellcrafting.config import Config, SpellcraftingConfigError, ModelConfig
+from spellcrafting.spell import _build_user_prompt, _extract_input_args, _is_literal_model, _settings_hash
 
 
 class Summary(BaseModel):
@@ -146,7 +146,7 @@ class TestSpellExecution:
         mock_agent = MagicMock()
         mock_agent.run_sync.return_value = mock_result
 
-        with patch("magically.spell.Agent", return_value=mock_agent):
+        with patch("spellcrafting.spell.Agent", return_value=mock_agent):
             result = summarize("Hello world")
 
             mock_agent.run_sync.assert_called_once()
@@ -165,7 +165,7 @@ class TestSpellExecution:
         mock_agent = MagicMock()
         mock_agent.run_sync.return_value = mock_result
 
-        with patch("magically.spell.Agent", return_value=mock_agent):
+        with patch("spellcrafting.spell.Agent", return_value=mock_agent):
             result = analyze("Test text")
             assert result == expected
             assert isinstance(result, Summary)
@@ -227,7 +227,7 @@ class TestSpellConfigIntegration:
     def test_alias_resolves_via_file_config(self, tmp_path, monkeypatch):
         pyproject = tmp_path / "pyproject.toml"
         pyproject.write_text("""
-[tool.magically.models.fast]
+[tool.spellcrafting.models.fast]
 model = "file:model"
 max_tokens = 2048
 """)
@@ -248,7 +248,7 @@ max_tokens = 2048
             """Test."""
             ...
 
-        with pytest.raises(MagicallyConfigError, match="nonexistent"):
+        with pytest.raises(SpellcraftingConfigError, match="nonexistent"):
             fn._resolve_model_and_settings()
 
     def test_definition_time_warning_for_missing_alias(self, tmp_path, monkeypatch):
@@ -347,7 +347,7 @@ class TestAgentCaching:
         mock_agent.run_sync.return_value = mock_result
 
         with config:
-            with patch("magically.spell.Agent", return_value=mock_agent) as mock_agent_class:
+            with patch("spellcrafting.spell.Agent", return_value=mock_agent) as mock_agent_class:
                 # First call creates agent
                 fn("hello")
                 assert mock_agent_class.call_count == 1
@@ -377,7 +377,7 @@ class TestAgentCaching:
         mock_agent = MagicMock()
         mock_agent.run_sync.return_value = mock_result
 
-        with patch("magically.spell.Agent", return_value=mock_agent) as mock_agent_class:
+        with patch("spellcrafting.spell.Agent", return_value=mock_agent) as mock_agent_class:
             # Call with first config
             with config1:
                 fn("hello")
@@ -409,7 +409,7 @@ class TestAgentCaching:
         mock_agent.run_sync.return_value = mock_result
 
         with config:
-            with patch("magically.spell.Agent", return_value=mock_agent) as mock_agent_class:
+            with patch("spellcrafting.spell.Agent", return_value=mock_agent) as mock_agent_class:
                 fn1("hello")
                 assert mock_agent_class.call_count == 1
 
@@ -428,7 +428,7 @@ class TestAgentCaching:
         mock_agent = MagicMock()
         mock_agent.run_sync.return_value = mock_result
 
-        with patch("magically.spell.Agent", return_value=mock_agent) as mock_agent_class:
+        with patch("spellcrafting.spell.Agent", return_value=mock_agent) as mock_agent_class:
             fn("hello")
             fn("world")
             # Same literal model reuses agent
@@ -449,7 +449,7 @@ class TestAgentCaching:
         mock_agent = MagicMock()
         mock_agent.run_sync.return_value = mock_result
 
-        with patch("magically.spell.Agent", return_value=mock_agent) as mock_agent_class:
+        with patch("spellcrafting.spell.Agent", return_value=mock_agent) as mock_agent_class:
             with config:
                 fn("hello")
             assert mock_agent_class.call_count == 1
@@ -535,7 +535,7 @@ class TestAsyncSpell:
             return mock_result
         mock_agent.run = mock_run
 
-        with patch("magically.spell.Agent", return_value=mock_agent):
+        with patch("spellcrafting.spell.Agent", return_value=mock_agent):
             result = await summarize("Hello world")
             assert result == "Async mocked summary"
 
@@ -555,7 +555,7 @@ class TestAsyncSpell:
             return mock_result
         mock_agent.run = mock_run
 
-        with patch("magically.spell.Agent", return_value=mock_agent):
+        with patch("spellcrafting.spell.Agent", return_value=mock_agent):
             result = await analyze("Test text")
             assert result == expected
             assert isinstance(result, Summary)
@@ -580,7 +580,7 @@ class TestAsyncSpell:
         mock_agent.run = mock_run
 
         with config:
-            with patch("magically.spell.Agent", return_value=mock_agent) as mock_agent_class:
+            with patch("spellcrafting.spell.Agent", return_value=mock_agent) as mock_agent_class:
                 # First call creates agent
                 await fn("hello")
                 assert mock_agent_class.call_count == 1
@@ -594,7 +594,7 @@ class TestCacheManagement:
     """Tests for cache management API."""
 
     def test_clear_agent_cache(self):
-        from magically import clear_agent_cache, get_cache_stats
+        from spellcrafting import clear_agent_cache, get_cache_stats
 
         @spell(model="openai:gpt-4o")
         def fn(text: str) -> str:
@@ -606,7 +606,7 @@ class TestCacheManagement:
         mock_agent = MagicMock()
         mock_agent.run_sync.return_value = mock_result
 
-        with patch("magically.spell.Agent", return_value=mock_agent):
+        with patch("spellcrafting.spell.Agent", return_value=mock_agent):
             fn("hello")
 
         # Cache should have 1 agent
@@ -621,7 +621,7 @@ class TestCacheManagement:
         assert stats.size == 0
 
     def test_get_cache_stats_returns_correct_values(self):
-        from magically import clear_agent_cache, get_cache_stats
+        from spellcrafting import clear_agent_cache, get_cache_stats
 
         # Start fresh
         clear_agent_cache()
@@ -636,7 +636,7 @@ class TestCacheManagement:
         mock_agent = MagicMock()
         mock_agent.run_sync.return_value = mock_result
 
-        with patch("magically.spell.Agent", return_value=mock_agent):
+        with patch("spellcrafting.spell.Agent", return_value=mock_agent):
             # First call - cache miss
             fn("hello")
 
@@ -650,7 +650,7 @@ class TestCacheManagement:
         assert stats.hits >= 1
 
     def test_set_cache_max_size(self):
-        from magically import set_cache_max_size, get_cache_stats, clear_agent_cache
+        from spellcrafting import set_cache_max_size, get_cache_stats, clear_agent_cache
 
         # Start fresh
         clear_agent_cache()
@@ -679,7 +679,7 @@ class TestCacheManagement:
             """Test 3."""
             ...
 
-        with patch("magically.spell.Agent", return_value=mock_agent):
+        with patch("spellcrafting.spell.Agent", return_value=mock_agent):
             fn1("a")
             fn2("b")
             fn3("c")
@@ -694,13 +694,13 @@ class TestCacheManagement:
         set_cache_max_size(100)
 
     def test_set_cache_max_size_negative_raises(self):
-        from magically import set_cache_max_size
+        from spellcrafting import set_cache_max_size
 
         with pytest.raises(ValueError, match="non-negative"):
             set_cache_max_size(-1)
 
     def test_lru_eviction_order(self):
-        from magically import set_cache_max_size, clear_agent_cache, get_cache_stats
+        from spellcrafting import set_cache_max_size, clear_agent_cache, get_cache_stats
 
         # Start fresh
         clear_agent_cache()
@@ -728,7 +728,7 @@ class TestCacheManagement:
             """Test 3."""
             ...
 
-        with patch("magically.spell.Agent", return_value=mock_agent) as mock_agent_class:
+        with patch("spellcrafting.spell.Agent", return_value=mock_agent) as mock_agent_class:
             # Fill cache with fn1, fn2
             fn1("a")  # Creates agent 1
             fn2("b")  # Creates agent 2
@@ -753,7 +753,7 @@ class TestCacheManagement:
         set_cache_max_size(100)
 
     def test_cache_stats_dataclass(self):
-        from magically import CacheStats
+        from spellcrafting import CacheStats
 
         stats = CacheStats(size=5, max_size=100, hits=10, misses=3, evictions=2)
         assert stats.size == 5
@@ -763,7 +763,7 @@ class TestCacheManagement:
         assert stats.evictions == 2
 
     def test_disable_caching_with_zero_max_size(self):
-        from magically import set_cache_max_size, get_cache_stats, clear_agent_cache
+        from spellcrafting import set_cache_max_size, get_cache_stats, clear_agent_cache
 
         # Start fresh
         clear_agent_cache()
@@ -781,7 +781,7 @@ class TestCacheManagement:
             """Test."""
             ...
 
-        with patch("magically.spell.Agent", return_value=mock_agent) as mock_agent_class:
+        with patch("spellcrafting.spell.Agent", return_value=mock_agent) as mock_agent_class:
             fn("a")
             fn("b")
             fn("c")
@@ -835,7 +835,7 @@ class TestConcurrentSpellExecution:
                 with lock:
                     errors.append(e)
 
-        with patch("magically.spell.Agent", side_effect=create_agent):
+        with patch("spellcrafting.spell.Agent", side_effect=create_agent):
             threads = [
                 threading.Thread(target=run_spell)
                 for _ in range(10)
@@ -884,7 +884,7 @@ class TestConcurrentSpellExecution:
         def run_spell2():
             results.append(("s2", spell2("test")))
 
-        with patch("magically.spell.Agent", side_effect=create_agent):
+        with patch("spellcrafting.spell.Agent", side_effect=create_agent):
             threads = []
             for _ in range(5):
                 threads.append(threading.Thread(target=run_spell1))
@@ -921,7 +921,7 @@ class TestConcurrentSpellExecution:
             agent.run = mock_run
             return agent
 
-        with patch("magically.spell.Agent", side_effect=create_agent):
+        with patch("spellcrafting.spell.Agent", side_effect=create_agent):
             tasks = [fn("test") for _ in range(10)]
             results = await asyncio.gather(*tasks)
 
@@ -933,7 +933,7 @@ class TestConcurrentSpellExecution:
     def test_cache_thread_safety_during_eviction(self):
         """Cache should be thread-safe during LRU eviction."""
         import threading
-        from magically import set_cache_max_size, clear_agent_cache
+        from spellcrafting import set_cache_max_size, clear_agent_cache
 
         clear_agent_cache()
         set_cache_max_size(2)
@@ -971,7 +971,7 @@ class TestConcurrentSpellExecution:
             except Exception as e:
                 errors.append(e)
 
-        with patch("magically.spell.Agent", side_effect=create_agent):
+        with patch("spellcrafting.spell.Agent", side_effect=create_agent):
             threads = [threading.Thread(target=run_spells) for _ in range(5)]
             for t in threads:
                 t.start()
@@ -1114,7 +1114,7 @@ class TestSpellDecoratorInvalidParams:
         mock_result = MagicMock()
         mock_result.output = "result"
 
-        with patch("magically.spell.Agent") as mock_agent_class:
+        with patch("spellcrafting.spell.Agent") as mock_agent_class:
             mock_agent = MagicMock()
             mock_agent.run_sync.return_value = mock_result
             mock_agent_class.return_value = mock_agent
@@ -1159,7 +1159,7 @@ class TestSpellDecoratorInvalidParams:
         mock_result = MagicMock()
         mock_result.output = "result"
 
-        with patch("magically.spell.Agent") as mock_agent_class:
+        with patch("spellcrafting.spell.Agent") as mock_agent_class:
             mock_agent = MagicMock()
             mock_agent.run_sync.return_value = mock_result
             mock_agent_class.return_value = mock_agent
@@ -1188,7 +1188,7 @@ class TestSpellDecoratorInvalidParams:
         mock_result = MagicMock()
         mock_result.output = "result"
 
-        with patch("magically.spell.Agent") as mock_agent_class:
+        with patch("spellcrafting.spell.Agent") as mock_agent_class:
             mock_agent = MagicMock()
             mock_agent.run_sync.return_value = mock_result
             mock_agent_class.return_value = mock_agent
@@ -1208,7 +1208,7 @@ class TestSpellDecoratorInvalidParams:
         mock_result = MagicMock()
         mock_result.output = "result"
 
-        with patch("magically.spell.Agent") as mock_agent_class:
+        with patch("spellcrafting.spell.Agent") as mock_agent_class:
             mock_agent = MagicMock()
             mock_agent.run_sync.return_value = mock_result
             mock_agent_class.return_value = mock_agent
@@ -1228,7 +1228,7 @@ class TestSpellDecoratorInvalidParams:
         mock_result = MagicMock()
         mock_result.output = "result"
 
-        with patch("magically.spell.Agent") as mock_agent_class:
+        with patch("spellcrafting.spell.Agent") as mock_agent_class:
             mock_agent = MagicMock()
             mock_agent.run_sync.return_value = mock_result
             mock_agent_class.return_value = mock_agent
@@ -1252,7 +1252,7 @@ class TestSpellDecoratorInvalidParams:
         mock_result = MagicMock()
         mock_result.output = "result"
 
-        with patch("magically.spell.Agent") as mock_agent_class:
+        with patch("spellcrafting.spell.Agent") as mock_agent_class:
             mock_agent = MagicMock()
             mock_agent.run_sync.return_value = mock_result
             mock_agent_class.return_value = mock_agent

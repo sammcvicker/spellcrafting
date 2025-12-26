@@ -11,7 +11,7 @@ ValidationResult uses Pydantic BaseModel because:
 - This is consistent with how @spell uses Pydantic for return type parsing
 
 Example:
-    from magically import spell, llm_validator, OnFail
+    from spellcrafting import spell, llm_validator, OnFail
     from pydantic import BaseModel, BeforeValidator
     from typing import Annotated
 
@@ -43,8 +43,8 @@ from typing import Any, Callable, TypeVar
 
 from pydantic import BaseModel
 
-from magically.on_fail import OnFail, RaiseStrategy, FixStrategy, ValidatorOnFailStrategy
-from magically.spell import spell
+from spellcrafting.on_fail import OnFail, RaiseStrategy, FixStrategy, ValidatorOnFailStrategy
+from spellcrafting.spell import spell
 
 T = TypeVar("T")
 
@@ -94,7 +94,7 @@ def llm_validator(
     Example:
         from pydantic import BaseModel, BeforeValidator
         from typing import Annotated
-        from magically import llm_validator, OnFail
+        from spellcrafting import llm_validator, OnFail
 
         professional = llm_validator(
             "Must be professional and appropriate for business communication",

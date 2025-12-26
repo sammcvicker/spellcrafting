@@ -4,7 +4,7 @@ This document analyzes four major guardrails/validation libraries for LLMs, focu
 
 ## Implementation Status
 
-This research document informed the design of magically's guard and validation systems. Key decisions:
+This research document informed the design of spellcrafting's guard and validation systems. Key decisions:
 
 **Implemented:**
 - `@guard.input()` and `@guard.output()` decorators (Guardrails AI-inspired composable pattern)
@@ -537,7 +537,7 @@ Based on this research, here are patterns that could inform a decorator-based sp
 ### 1. Simple Decorator Pattern (Instructor-Inspired)
 
 ```python
-from magically import spell
+from spellcrafting import spell
 from pydantic import BaseModel
 
 class Summary(BaseModel):
@@ -555,8 +555,8 @@ def summarize(text: str) -> Summary:
 ### 2. Composable Guardrails (Guardrails AI-Inspired)
 
 ```python
-from magically import spell, guard
-from magically.guards import no_pii, max_length, semantic
+from spellcrafting import spell, guard
+from spellcrafting.guards import no_pii, max_length, semantic
 
 @spell
 @guard(no_pii(entities=["EMAIL", "PHONE"]))
@@ -572,7 +572,7 @@ def generate_email(topic: str) -> str:
 ### 3. On-Fail Strategies (Guardrails AI Pattern)
 
 ```python
-from magically import spell, OnFail
+from spellcrafting import spell, OnFail
 
 @spell(
     on_fail=OnFail.RETRY,      # retry with error context
@@ -604,7 +604,7 @@ result = answer_question(
 ### 5. Semantic Validation (Instructor Pattern)
 
 ```python
-from magically import spell, validate
+from spellcrafting import spell, validate
 
 @spell
 @validate.semantic("Response must not contain medical advice")
@@ -646,7 +646,7 @@ NeMo's Colang is powerful but adds significant complexity. For a decorator-based
 ### Recommended Minimal API
 
 ```python
-from magically import spell
+from spellcrafting import spell
 from pydantic import BaseModel, Field
 
 class Output(BaseModel):

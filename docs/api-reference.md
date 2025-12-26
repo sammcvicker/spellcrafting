@@ -1,6 +1,6 @@
 # API Reference
 
-This document provides a reference for all public exports from the `magically` package.
+This document provides a reference for all public exports from the `spellcrafting` package.
 
 ## Core
 
@@ -9,7 +9,7 @@ This document provides a reference for all public exports from the `magically` p
 The main decorator for creating LLM-powered functions.
 
 ```python
-from magically import spell
+from spellcrafting import spell
 
 @spell(model="anthropic:claude-sonnet-4-20250514")
 def summarize(text: str) -> str:
@@ -32,7 +32,7 @@ def summarize(text: str) -> str:
 Result wrapper that includes execution metadata alongside the output.
 
 ```python
-from magically import spell, SpellResult
+from spellcrafting import spell, SpellResult
 
 @spell(model="fast")
 def classify(text: str) -> str:
@@ -67,7 +67,7 @@ print(result.trace_id)      # For log correlation
 Protocol types for type-hinting spell functions.
 
 ```python
-from magically import SyncSpell, AsyncSpell, SpellResult
+from spellcrafting import SyncSpell, AsyncSpell, SpellResult
 
 def run_sync(spell_fn: SyncSpell[str]) -> SpellResult[str]:
     return spell_fn.with_metadata("input")
@@ -85,7 +85,7 @@ async def run_async(spell_fn: AsyncSpell[str]) -> SpellResult[str]:
 Context manager for runtime configuration.
 
 ```python
-from magically import Config, ModelConfig
+from spellcrafting import Config, ModelConfig
 
 # Define model aliases
 config = Config(models={
@@ -112,7 +112,7 @@ config.set_as_default()
 Configuration for a model alias.
 
 ```python
-from magically import ModelConfig
+from spellcrafting import ModelConfig
 
 config = ModelConfig(
     model="anthropic:claude-sonnet-4-20250514",
@@ -131,7 +131,7 @@ config = ModelConfig(
 Get the currently active configuration.
 
 ```python
-from magically import current_config
+from spellcrafting import current_config
 
 config = current_config()
 ```
@@ -147,7 +147,7 @@ Namespace for guard decorators. Guards provide validation that runs before (inpu
 **Important:** Guards must be applied INSIDE the `@spell` decorator:
 
 ```python
-from magically import spell, guard
+from spellcrafting import spell, guard
 
 @spell(model="fast")           # <-- Outermost
 @guard.input(validate_input)   # <-- Inside
@@ -221,7 +221,7 @@ Configuration attached to functions with guards. Access via `get_guard_config()`
 Get the guard configuration for a decorated function.
 
 ```python
-from magically import get_guard_config
+from spellcrafting import get_guard_config
 
 config = get_guard_config(my_spell)
 if config:
@@ -234,7 +234,7 @@ if config:
 Protocol types for guard functions.
 
 ```python
-from magically import InputGuard, OutputGuard
+from spellcrafting import InputGuard, OutputGuard
 
 def my_input_guard(input_args: dict, context: dict) -> dict:
     # Validate/transform inputs
@@ -250,7 +250,7 @@ def my_output_guard(output: T, context: dict) -> T:
 Exception raised when a guard fails.
 
 ```python
-from magically import GuardError
+from spellcrafting import GuardError
 
 try:
     result = my_spell("invalid input")
@@ -267,7 +267,7 @@ except GuardError as e:
 Factory for on_fail strategies.
 
 ```python
-from magically import spell, OnFail
+from spellcrafting import spell, OnFail
 
 # Escalate to a better model on failure
 @spell(model="fast", on_fail=OnFail.escalate("reasoning"))
@@ -306,7 +306,7 @@ def with_custom_handling(text: str) -> Result:
 Create a Pydantic validator from a natural language rule.
 
 ```python
-from magically import llm_validator
+from spellcrafting import llm_validator
 from pydantic import BaseModel, BeforeValidator
 from typing import Annotated
 
@@ -331,7 +331,7 @@ class Email(BaseModel):
 Result from LLM validation check.
 
 ```python
-from magically import ValidationResult
+from spellcrafting import ValidationResult
 
 # Returned by internal validation spells
 result = ValidationResult(
@@ -352,10 +352,10 @@ result = ValidationResult(
 
 ### `LoggingConfig`
 
-Configuration for magically logging.
+Configuration for spellcrafting logging.
 
 ```python
-from magically import LoggingConfig, LogLevel, configure_logging
+from spellcrafting import LoggingConfig, LogLevel, configure_logging
 
 configure_logging(LoggingConfig(
     enabled=True,
@@ -381,7 +381,7 @@ configure_logging(LoggingConfig(
 Log levels enumeration.
 
 ```python
-from magically import LogLevel
+from spellcrafting import LogLevel
 
 LogLevel.DEBUG
 LogLevel.INFO
@@ -394,7 +394,7 @@ LogLevel.ERROR
 Set the logging configuration for the current process.
 
 ```python
-from magically import configure_logging, LoggingConfig
+from spellcrafting import configure_logging, LoggingConfig
 
 configure_logging(LoggingConfig(enabled=True))
 ```
@@ -404,7 +404,7 @@ configure_logging(LoggingConfig(enabled=True))
 Get the current logging configuration.
 
 ```python
-from magically import get_logging_config
+from spellcrafting import get_logging_config
 
 config = get_logging_config()
 ```
@@ -414,7 +414,7 @@ config = get_logging_config()
 Quick setup for logging.
 
 ```python
-from magically import setup_logging, LogLevel
+from spellcrafting import setup_logging, LogLevel
 
 # Development
 setup_logging(level=LogLevel.DEBUG)
@@ -446,7 +446,7 @@ Convenience aliases for `setup_logging(otel=True)`.
 W3C Trace Context compatible correlation IDs.
 
 ```python
-from magically import TraceContext
+from spellcrafting import TraceContext
 
 ctx = TraceContext.new()
 print(ctx.trace_id)   # 32 hex chars
@@ -459,7 +459,7 @@ print(ctx.to_w3c_traceparent())  # "00-{trace_id}-{span_id}-01"
 Context manager for trace context propagation.
 
 ```python
-from magically import trace_context
+from spellcrafting import trace_context
 
 with trace_context() as ctx:
     # All spell calls share this trace
@@ -472,7 +472,7 @@ with trace_context() as ctx:
 Get the current trace context.
 
 ```python
-from magically import current_trace
+from spellcrafting import current_trace
 
 ctx = current_trace()
 if ctx:
@@ -484,7 +484,7 @@ if ctx:
 Context manager to set a specific trace ID for external correlation.
 
 ```python
-from magically import with_trace_id
+from spellcrafting import with_trace_id
 
 # Correlate with incoming HTTP request
 trace_id = request.headers.get("X-Trace-ID")
@@ -501,7 +501,7 @@ with with_trace_id(trace_id):
 Protocol for synchronous log handlers.
 
 ```python
-from magically import LogHandler, SpellExecutionLog
+from spellcrafting import LogHandler, SpellExecutionLog
 
 class MyHandler:
     def handle(self, log: SpellExecutionLog) -> None:
@@ -516,7 +516,7 @@ class MyHandler:
 Protocol for asynchronous log handlers.
 
 ```python
-from magically import AsyncLogHandler, SpellExecutionLog
+from spellcrafting import AsyncLogHandler, SpellExecutionLog
 
 class MyAsyncHandler:
     async def handle(self, log: SpellExecutionLog) -> None:
@@ -531,9 +531,9 @@ class MyAsyncHandler:
 Handler that emits logs to Python's stdlib logging.
 
 ```python
-from magically import PythonLoggingHandler
+from spellcrafting import PythonLoggingHandler
 
-handler = PythonLoggingHandler(logger_name="magically")
+handler = PythonLoggingHandler(logger_name="spellcrafting")
 ```
 
 ### `JSONFileHandler`
@@ -541,9 +541,9 @@ handler = PythonLoggingHandler(logger_name="magically")
 Handler that writes JSON logs to a file.
 
 ```python
-from magically import JSONFileHandler
+from spellcrafting import JSONFileHandler
 
-handler = JSONFileHandler("/var/log/magically.jsonl", buffer_size=100)
+handler = JSONFileHandler("/var/log/spellcrafting.jsonl", buffer_size=100)
 ```
 
 ### `OpenTelemetryHandler`
@@ -551,7 +551,7 @@ handler = JSONFileHandler("/var/log/magically.jsonl", buffer_size=100)
 Handler that exports to OpenTelemetry.
 
 ```python
-from magically import OpenTelemetryHandler
+from spellcrafting import OpenTelemetryHandler
 
 handler = OpenTelemetryHandler(service_name="my-app")
 ```
@@ -567,7 +567,7 @@ Requires `opentelemetry-api` and `opentelemetry-sdk` packages.
 Complete log of a spell execution.
 
 ```python
-from magically import SpellExecutionLog
+from spellcrafting import SpellExecutionLog
 
 # Access log data
 log.spell_name      # Function name
@@ -599,7 +599,7 @@ log.to_json()       # JSON string
 Token usage metrics.
 
 ```python
-from magically import TokenUsage
+from spellcrafting import TokenUsage
 
 usage = TokenUsage(
     input_tokens=100,
@@ -615,7 +615,7 @@ print(usage.total_tokens)  # 150
 Estimated cost of execution.
 
 ```python
-from magically import CostEstimate
+from spellcrafting import CostEstimate
 
 cost = CostEstimate(
     input_cost=0.0003,
@@ -631,7 +631,7 @@ cost = CostEstimate(
 Log of a single tool invocation.
 
 ```python
-from magically import ToolCallLog
+from spellcrafting import ToolCallLog
 
 tool_log = ToolCallLog(
     tool_name="get_weather",
@@ -647,7 +647,7 @@ tool_log = ToolCallLog(
 Metrics about validation during spell execution.
 
 ```python
-from magically import ValidationMetrics
+from spellcrafting import ValidationMetrics
 
 metrics = ValidationMetrics(
     attempt_count=2,
@@ -663,13 +663,13 @@ metrics = ValidationMetrics(
 
 ## Exceptions
 
-All exceptions inherit from `MagicallyError`.
+All exceptions inherit from `SpellcraftingError`.
 
-### `MagicallyError`
+### `SpellcraftingError`
 
-Base exception for all magically errors.
+Base exception for all spellcrafting errors.
 
-### `MagicallyConfigError`
+### `SpellcraftingConfigError`
 
 Raised for configuration errors.
 
@@ -690,7 +690,7 @@ Raised for validation errors.
 Clear the agent cache.
 
 ```python
-from magically import clear_agent_cache
+from spellcrafting import clear_agent_cache
 
 clear_agent_cache()
 ```
@@ -700,7 +700,7 @@ clear_agent_cache()
 Get cache statistics.
 
 ```python
-from magically import get_cache_stats
+from spellcrafting import get_cache_stats
 
 stats = get_cache_stats()
 print(stats.size)
@@ -713,7 +713,7 @@ print(stats.misses)
 Set the maximum cache size.
 
 ```python
-from magically import set_cache_max_size
+from spellcrafting import set_cache_max_size
 
 set_cache_max_size(100)
 ```
@@ -723,7 +723,7 @@ set_cache_max_size(100)
 Cache statistics dataclass.
 
 ```python
-from magically import CacheStats
+from spellcrafting import CacheStats
 
 stats: CacheStats = get_cache_stats()
 ```

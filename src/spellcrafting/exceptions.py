@@ -1,19 +1,19 @@
-"""Exception hierarchy for magically.
+"""Exception hierarchy for spellcrafting.
 
-All magically exceptions inherit from MagicallyError, allowing users to catch
+All spellcrafting exceptions inherit from SpellcraftingError, allowing users to catch
 all library errors with a single except clause:
 
-    from magically import MagicallyError
+    from spellcrafting import SpellcraftingError
 
     try:
         result = my_spell(text)
-    except MagicallyError as e:
-        # Handle any magically error
+    except SpellcraftingError as e:
+        # Handle any spellcrafting error
         ...
 
 For more specific handling, catch the individual exception types:
 
-    from magically import GuardError, ValidationError, MagicallyConfigError
+    from spellcrafting import GuardError, ValidationError, SpellcraftingConfigError
 
     try:
         result = my_spell(text)
@@ -23,34 +23,34 @@ For more specific handling, catch the individual exception types:
     except ValidationError:
         # LLM output failed Pydantic validation
         ...
-    except MagicallyConfigError:
+    except SpellcraftingConfigError:
         # Configuration error (missing alias, invalid config, etc.)
         ...
 
 Naming Convention (issue #171, #177):
 ------------------------------------
 Exception classes use the *Error suffix consistently:
-- MagicallyError: Base class (prefix indicates library origin)
-- MagicallyConfigError: Prefixed for clarity about library-specific config errors
-- GuardError: No prefix needed (guard is a magically-specific concept)
+- SpellcraftingError: Base class (prefix indicates library origin)
+- SpellcraftingConfigError: Prefixed for clarity about library-specific config errors
+- GuardError: No prefix needed (guard is a spellcrafting-specific concept)
 - ValidationError: No prefix (matches common Python convention)
 
-All exceptions inherit from MagicallyError for catch-all handling.
+All exceptions inherit from SpellcraftingError for catch-all handling.
 """
 
 from __future__ import annotations
 
 
-class MagicallyError(Exception):
-    """Base exception for all magically errors.
+class SpellcraftingError(Exception):
+    """Base exception for all spellcrafting errors.
 
-    Catch this to handle any error from the magically library.
+    Catch this to handle any error from the spellcrafting library.
     """
 
     pass
 
 
-class MagicallyConfigError(MagicallyError):
+class SpellcraftingConfigError(SpellcraftingError):
     """Raised when configuration is invalid or missing.
 
     Examples:
@@ -62,7 +62,7 @@ class MagicallyConfigError(MagicallyError):
     pass
 
 
-class GuardError(MagicallyError):
+class GuardError(SpellcraftingError):
     """Raised when a guard validation fails.
 
     Input guards raise this when they reject input before the LLM call.
@@ -72,14 +72,14 @@ class GuardError(MagicallyError):
     pass
 
 
-class ValidationError(MagicallyError):
+class ValidationError(SpellcraftingError):
     """Raised when LLM output fails Pydantic validation after retries.
 
     This wraps pydantic_ai's internal UnexpectedModelBehavior exception.
     Users should catch this instead of importing from pydantic_ai directly.
 
     Example:
-        from magically import spell, ValidationError
+        from spellcrafting import spell, ValidationError
 
         @spell
         def my_spell(text: str) -> MyModel:
@@ -106,8 +106,8 @@ class ValidationError(MagicallyError):
 
 
 __all__ = [
-    "MagicallyError",
-    "MagicallyConfigError",
+    "SpellcraftingError",
+    "SpellcraftingConfigError",
     "GuardError",
     "ValidationError",
 ]

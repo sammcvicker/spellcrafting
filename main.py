@@ -1,5 +1,5 @@
 def main():
-    print("Hello from magically!")
+    print("Hello from spellcrafting!")
 
 
 if __name__ == "__main__":

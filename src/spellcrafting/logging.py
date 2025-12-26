@@ -1,4 +1,4 @@
-"""Structured logging, distributed tracing, and cost tracking for magically.
+"""Structured logging, distributed tracing, and cost tracking for spellcrafting.
 
 This module provides enterprise-grade observability with zero overhead when disabled.
 
@@ -36,7 +36,7 @@ if sys.version_info >= (3, 11):
 else:
     import tomli as tomllib
 
-from magically._pyproject import find_pyproject
+from spellcrafting._pyproject import find_pyproject
 
 # Module-level logger for debug messages about internal operations
 _logger = stdlib_logging.getLogger(__name__)
@@ -56,7 +56,7 @@ TOKENS_PER_MILLION = 1_000_000
 
 
 class LogLevel(str, Enum):
-    """Log levels for magically logging."""
+    """Log levels for spellcrafting logging."""
 
     DEBUG = "debug"
     INFO = "info"
@@ -418,7 +418,7 @@ class AsyncLogHandler(Protocol):
 class PythonLoggingHandler:
     """Handler that emits logs to Python's stdlib logging."""
 
-    def __init__(self, logger_name: str = "magically"):
+    def __init__(self, logger_name: str = "spellcrafting"):
         self.logger = stdlib_logging.getLogger(logger_name)
 
     def handle(self, log: SpellExecutionLog) -> None:
@@ -457,11 +457,11 @@ class OpenTelemetryHandler:
     """Handler that exports to OpenTelemetry.
 
     Requires opentelemetry-api and opentelemetry-sdk packages.
-    Install with: pip install magically[otel]
+    Install with: pip install spellcrafting[otel]
     Gracefully degrades if packages not installed.
     """
 
-    def __init__(self, service_name: str = "magically"):
+    def __init__(self, service_name: str = "spellcrafting"):
         self._tracer = None
         self._meter = None
         self._available = False
@@ -534,7 +534,7 @@ class OpenTelemetryHandler:
 
 @dataclass
 class LoggingConfig:
-    """Configuration for magically logging."""
+    """Configuration for spellcrafting logging."""
 
     enabled: bool = False
     level: LogLevel = LogLevel.INFO
@@ -600,7 +600,7 @@ def _create_handler(handler_type: str, config: dict[str, Any]) -> LogHandler | N
         LogHandler instance or None if handler cannot be created.
     """
     if handler_type == "python":
-        logger_name = config.get("logger_name", "magically")
+        logger_name = config.get("logger_name", "spellcrafting")
         return PythonLoggingHandler(logger_name)
 
     if handler_type == "json_file":
@@ -673,7 +673,7 @@ def _load_logging_config_from_file() -> LoggingConfig | None:
     except (OSError, tomllib.TOMLDecodeError):
         return None
 
-    logging_config = data.get("tool", {}).get("magically", {}).get("logging", {})
+    logging_config = data.get("tool", {}).get("spellcrafting", {}).get("logging", {})
     if not logging_config:
         return None
 
@@ -816,7 +816,7 @@ def _load_pricing_from_file() -> dict[str, ModelPricing]:
     """Load custom pricing configuration from pyproject.toml.
 
     Example pyproject.toml configuration:
-        [tool.magically.pricing."my-custom-model"]
+        [tool.spellcrafting.pricing."my-custom-model"]
         input = 1.0
         output = 2.0
     """
@@ -836,7 +836,7 @@ def _load_pricing_from_file() -> dict[str, ModelPricing]:
     except (OSError, tomllib.TOMLDecodeError):
         return _file_pricing_cache
 
-    pricing_config = data.get("tool", {}).get("magically", {}).get("pricing", {})
+    pricing_config = data.get("tool", {}).get("spellcrafting", {}).get("pricing", {})
     if not pricing_config or not isinstance(pricing_config, dict):
         return _file_pricing_cache
 
@@ -1000,7 +1000,7 @@ def setup_logfire(*, redact_content: bool = False) -> None:
     2. Future extensibility - provider-specific options can be added later
 
     Prerequisites:
-        pip install magically[logfire]
+        pip install spellcrafting[logfire]
         Configure via LOGFIRE_TOKEN environment variable or logfire.configure()
 
     Args:
@@ -1008,7 +1008,7 @@ def setup_logfire(*, redact_content: bool = False) -> None:
 
     Example:
         import logfire
-        from magically import setup_logfire
+        from spellcrafting import setup_logfire
 
         logfire.configure()  # Uses LOGFIRE_TOKEN env var
         setup_logfire()
@@ -1028,14 +1028,14 @@ def setup_datadog(*, redact_content: bool = False) -> None:
     2. Future extensibility - provider-specific options can be added later
 
     Prerequisites:
-        pip install magically[datadog]  # installs ddtrace
+        pip install spellcrafting[datadog]  # installs ddtrace
         Configure via DD_* environment variables
 
     Args:
         redact_content: If True, redact input/output content from logs
 
     Example:
-        from magically import setup_datadog
+        from spellcrafting import setup_datadog
 
         # Ensure DD_AGENT_HOST, DD_TRACE_AGENT_PORT are set
         setup_datadog()

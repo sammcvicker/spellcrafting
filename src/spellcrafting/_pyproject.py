@@ -48,13 +48,13 @@ def load_pyproject() -> dict[str, Any] | None:
         return None
 
 
-def get_magically_config() -> dict[str, Any]:
-    """Get the [tool.magically] section from pyproject.toml.
+def get_spellcrafting_config() -> dict[str, Any]:
+    """Get the [tool.spellcrafting] section from pyproject.toml.
 
     Returns:
-        The magically config dict, or empty dict if not found.
+        The spellcrafting config dict, or empty dict if not found.
     """
     data = load_pyproject()
     if data is None:
         return {}
-    return data.get("tool", {}).get("magically", {})
+    return data.get("tool", {}).get("spellcrafting", {})

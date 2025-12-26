@@ -5,7 +5,7 @@
 
 ## Implementation Note
 
-This research document informed the design of magically's guard system. The library now includes:
+This research document informed the design of spellcrafting's guard system. The library now includes:
 
 - `@guard.input(validator_fn)` - Semantic input validation before LLM execution
 - `@guard.output(validator_fn)` - Output validation after LLM execution

@@ -5,7 +5,7 @@ after exhausting all retries. This extends PydanticAI's retry mechanism with mor
 sophisticated failure handling patterns.
 
 Example:
-    from magically import spell, OnFail
+    from spellcrafting import spell, OnFail
 
     # Escalate to a more capable model on validation failure
     @spell(model="fast", on_fail=OnFail.escalate("reasoning"))

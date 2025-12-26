@@ -5,9 +5,9 @@ from unittest.mock import MagicMock, patch
 import pytest
 from pydantic import BaseModel
 
-from magically import spell, SpellResult
-from magically.config import Config, ModelConfig
-from magically.logging import trace_context, with_trace_id
+from spellcrafting import spell, SpellResult
+from spellcrafting.config import Config, ModelConfig
+from spellcrafting.logging import trace_context, with_trace_id
 
 
 class Category(BaseModel):
@@ -314,7 +314,7 @@ class TestWithMetadataSync:
         mock_agent = MagicMock()
         mock_agent.run_sync.return_value = mock_result
 
-        with patch("magically.spell.Agent", return_value=mock_agent):
+        with patch("spellcrafting.spell.Agent", return_value=mock_agent):
             result = classify.with_metadata("some text")
 
             assert isinstance(result, SpellResult)
@@ -342,7 +342,7 @@ class TestWithMetadataSync:
         mock_agent = MagicMock()
         mock_agent.run_sync.return_value = mock_result
 
-        with patch("magically.spell.Agent", return_value=mock_agent):
+        with patch("spellcrafting.spell.Agent", return_value=mock_agent):
             result = classify.with_metadata("some text")
 
             assert isinstance(result, SpellResult)
@@ -367,7 +367,7 @@ class TestWithMetadataSync:
         mock_agent = MagicMock()
         mock_agent.run_sync.return_value = mock_result
 
-        with patch("magically.spell.Agent", return_value=mock_agent):
+        with patch("spellcrafting.spell.Agent", return_value=mock_agent):
             result = classify.with_metadata("some text")
 
             assert result.model_used == "openai:gpt-4o"
@@ -394,7 +394,7 @@ class TestWithMetadataSync:
         mock_agent.run_sync.return_value = mock_result
 
         with config:
-            with patch("magically.spell.Agent", return_value=mock_agent):
+            with patch("spellcrafting.spell.Agent", return_value=mock_agent):
                 result = classify.with_metadata("some text")
                 # model_used should be the resolved model, not the alias
                 assert result.model_used == "anthropic:claude-haiku"
@@ -413,7 +413,7 @@ class TestWithMetadataSync:
         mock_agent = MagicMock()
         mock_agent.run_sync.return_value = mock_result
 
-        with patch("magically.spell.Agent", return_value=mock_agent):
+        with patch("spellcrafting.spell.Agent", return_value=mock_agent):
             result = classify.with_metadata("some text")
 
             # Should not raise, just have 0 tokens
@@ -455,7 +455,7 @@ class TestWithMetadataAsync:
             return mock_result
         mock_agent.run = mock_run
 
-        with patch("magically.spell.Agent", return_value=mock_agent):
+        with patch("spellcrafting.spell.Agent", return_value=mock_agent):
             result = await classify.with_metadata("some text")
 
             assert isinstance(result, SpellResult)
@@ -487,7 +487,7 @@ class TestWithMetadataAsync:
             return mock_result
         mock_agent.run = mock_run
 
-        with patch("magically.spell.Agent", return_value=mock_agent):
+        with patch("spellcrafting.spell.Agent", return_value=mock_agent):
             result = await classify.with_metadata("some text")
 
             assert isinstance(result, SpellResult)
@@ -516,7 +516,7 @@ class TestWithMetadataAsync:
             return mock_result
         mock_agent.run = mock_run
 
-        with patch("magically.spell.Agent", return_value=mock_agent):
+        with patch("spellcrafting.spell.Agent", return_value=mock_agent):
             result = await classify.with_metadata("some text")
             assert result.model_used == "openai:gpt-4o-mini"
 
@@ -537,7 +537,7 @@ class TestWithMetadataEdgeCases:
         mock_agent = MagicMock()
         mock_agent.run_sync.return_value = mock_result
 
-        with patch("magically.spell.Agent", return_value=mock_agent):
+        with patch("spellcrafting.spell.Agent", return_value=mock_agent):
             # Normal call should still return just the output
             result = classify("some text")
             assert result == "positive"
@@ -561,7 +561,7 @@ class TestWithMetadataEdgeCases:
         mock_agent = MagicMock()
         mock_agent.run_sync.return_value = mock_result
 
-        with patch("magically.spell.Agent", return_value=mock_agent) as mock_agent_class:
+        with patch("spellcrafting.spell.Agent", return_value=mock_agent) as mock_agent_class:
             # Normal call
             classify("text 1")
             assert mock_agent_class.call_count == 1
@@ -595,7 +595,7 @@ class TestSpellResultCostEstimate:
         mock_agent = MagicMock()
         mock_agent.run_sync.return_value = mock_result
 
-        with patch("magically.spell.Agent", return_value=mock_agent):
+        with patch("spellcrafting.spell.Agent", return_value=mock_agent):
             result = classify.with_metadata("some text")
 
             assert result.cost_estimate is not None
@@ -622,7 +622,7 @@ class TestSpellResultCostEstimate:
         mock_agent = MagicMock()
         mock_agent.run_sync.return_value = mock_result
 
-        with patch("magically.spell.Agent", return_value=mock_agent):
+        with patch("spellcrafting.spell.Agent", return_value=mock_agent):
             result = classify.with_metadata("some text")
 
             assert result.cost_estimate is None
@@ -642,7 +642,7 @@ class TestSpellResultCostEstimate:
         mock_agent = MagicMock()
         mock_agent.run_sync.return_value = mock_result
 
-        with patch("magically.spell.Agent", return_value=mock_agent):
+        with patch("spellcrafting.spell.Agent", return_value=mock_agent):
             result = classify.with_metadata("some text")
 
             assert result.cost_estimate is None
@@ -669,7 +669,7 @@ class TestSpellResultTraceId:
         mock_agent = MagicMock()
         mock_agent.run_sync.return_value = mock_result
 
-        with patch("magically.spell.Agent", return_value=mock_agent):
+        with patch("spellcrafting.spell.Agent", return_value=mock_agent):
             result = classify.with_metadata("some text")
 
             assert result.trace_id is None
@@ -692,7 +692,7 @@ class TestSpellResultTraceId:
         mock_agent = MagicMock()
         mock_agent.run_sync.return_value = mock_result
 
-        with patch("magically.spell.Agent", return_value=mock_agent):
+        with patch("spellcrafting.spell.Agent", return_value=mock_agent):
             with trace_context() as ctx:
                 result = classify.with_metadata("some text")
 
@@ -719,7 +719,7 @@ class TestSpellResultTraceId:
 
         expected_trace_id = "my-external-trace-id-12345"
 
-        with patch("magically.spell.Agent", return_value=mock_agent):
+        with patch("spellcrafting.spell.Agent", return_value=mock_agent):
             with with_trace_id(expected_trace_id):
                 result = classify.with_metadata("some text")
 
@@ -747,7 +747,7 @@ class TestSpellResultTraceId:
             return mock_result
         mock_agent.run = mock_run
 
-        with patch("magically.spell.Agent", return_value=mock_agent):
+        with patch("spellcrafting.spell.Agent", return_value=mock_agent):
             with trace_context() as ctx:
                 result = await classify.with_metadata("some text")
 
@@ -776,7 +776,7 @@ class TestSpellResultTotalTokens:
         mock_agent = MagicMock()
         mock_agent.run_sync.return_value = mock_result
 
-        with patch("magically.spell.Agent", return_value=mock_agent):
+        with patch("spellcrafting.spell.Agent", return_value=mock_agent):
             result = classify.with_metadata("some text")
 
             assert result.input_tokens == 150
@@ -789,8 +789,8 @@ class TestWithMetadataOnFailStrategies:
 
     def test_with_metadata_tracks_fallback(self):
         """with_metadata returns fallback default when on_fail=fallback is triggered."""
-        from magically.on_fail import OnFail
-        from magically._pydantic_ai import UnexpectedModelBehavior
+        from spellcrafting.on_fail import OnFail
+        from spellcrafting._pydantic_ai import UnexpectedModelBehavior
 
         fallback_default = "fallback result"
 
@@ -802,7 +802,7 @@ class TestWithMetadataOnFailStrategies:
         mock_agent = MagicMock()
         mock_agent.run_sync.side_effect = UnexpectedModelBehavior("Validation failed")
 
-        with patch("magically.spell.Agent", return_value=mock_agent):
+        with patch("spellcrafting.spell.Agent", return_value=mock_agent):
             result = analyze.with_metadata("test input")
 
             assert isinstance(result, SpellResult)
@@ -812,8 +812,8 @@ class TestWithMetadataOnFailStrategies:
 
     def test_with_metadata_tracks_escalation(self):
         """with_metadata tracks escalated model when on_fail=escalate is triggered."""
-        from magically.on_fail import OnFail
-        from magically._pydantic_ai import UnexpectedModelBehavior
+        from spellcrafting.on_fail import OnFail
+        from spellcrafting._pydantic_ai import UnexpectedModelBehavior
 
         @spell(model="openai:gpt-4o-mini", on_fail=OnFail.escalate("openai:gpt-4o"))
         def analyze(text: str) -> str:
@@ -844,7 +844,7 @@ class TestWithMetadataOnFailStrategies:
                 return mock_agent_mini
             return mock_agent_escalated
 
-        with patch("magically.spell.Agent", side_effect=agent_side_effect):
+        with patch("spellcrafting.spell.Agent", side_effect=agent_side_effect):
             result = analyze.with_metadata("test input")
 
             assert isinstance(result, SpellResult)
@@ -854,8 +854,8 @@ class TestWithMetadataOnFailStrategies:
 
     def test_with_metadata_tracks_custom_handler(self):
         """with_metadata works with custom on_fail handler."""
-        from magically.on_fail import OnFail
-        from magically._pydantic_ai import UnexpectedModelBehavior
+        from spellcrafting.on_fail import OnFail
+        from spellcrafting._pydantic_ai import UnexpectedModelBehavior
 
         custom_output = "custom handled result"
 
@@ -870,7 +870,7 @@ class TestWithMetadataOnFailStrategies:
         mock_agent = MagicMock()
         mock_agent.run_sync.side_effect = UnexpectedModelBehavior("Validation failed")
 
-        with patch("magically.spell.Agent", return_value=mock_agent):
+        with patch("spellcrafting.spell.Agent", return_value=mock_agent):
             result = analyze.with_metadata("test input")
 
             assert isinstance(result, SpellResult)
@@ -879,8 +879,8 @@ class TestWithMetadataOnFailStrategies:
     @pytest.mark.asyncio
     async def test_async_with_metadata_tracks_fallback(self):
         """Async with_metadata returns fallback default when on_fail=fallback is triggered."""
-        from magically.on_fail import OnFail
-        from magically._pydantic_ai import UnexpectedModelBehavior
+        from spellcrafting.on_fail import OnFail
+        from spellcrafting._pydantic_ai import UnexpectedModelBehavior
 
         fallback_default = "async fallback"
 
@@ -895,7 +895,7 @@ class TestWithMetadataOnFailStrategies:
             raise UnexpectedModelBehavior("Validation failed")
         mock_agent.run = mock_run
 
-        with patch("magically.spell.Agent", return_value=mock_agent):
+        with patch("spellcrafting.spell.Agent", return_value=mock_agent):
             result = await analyze.with_metadata("test input")
 
             assert isinstance(result, SpellResult)
@@ -904,8 +904,8 @@ class TestWithMetadataOnFailStrategies:
     @pytest.mark.asyncio
     async def test_async_with_metadata_tracks_escalation(self):
         """Async with_metadata tracks escalation when on_fail=escalate is triggered."""
-        from magically.on_fail import OnFail
-        from magically._pydantic_ai import UnexpectedModelBehavior
+        from spellcrafting.on_fail import OnFail
+        from spellcrafting._pydantic_ai import UnexpectedModelBehavior
 
         @spell(model="openai:gpt-4o-mini", on_fail=OnFail.escalate("openai:gpt-4o"))
         async def analyze(text: str) -> str:
@@ -942,7 +942,7 @@ class TestWithMetadataOnFailStrategies:
                 return mock_agent_mini
             return mock_agent_escalated
 
-        with patch("magically.spell.Agent", side_effect=agent_side_effect):
+        with patch("spellcrafting.spell.Agent", side_effect=agent_side_effect):
             result = await analyze.with_metadata("test input")
 
             assert isinstance(result, SpellResult)
@@ -954,7 +954,7 @@ class TestWithMetadataWithGuards:
 
     def test_with_metadata_runs_input_guards_sync(self):
         """Sync: with_metadata runs input guards before LLM call."""
-        from magically import guard
+        from spellcrafting import guard
 
         guard_called = []
 
@@ -979,7 +979,7 @@ class TestWithMetadataWithGuards:
         mock_agent = MagicMock()
         mock_agent.run_sync.return_value = mock_result
 
-        with patch("magically.spell.Agent", return_value=mock_agent):
+        with patch("spellcrafting.spell.Agent", return_value=mock_agent):
             result = classify.with_metadata("test input")
 
             assert isinstance(result, SpellResult)
@@ -988,7 +988,7 @@ class TestWithMetadataWithGuards:
 
     def test_with_metadata_runs_output_guards_sync(self):
         """Sync: with_metadata runs output guards after LLM call."""
-        from magically import guard
+        from spellcrafting import guard
 
         guard_called = []
 
@@ -1013,7 +1013,7 @@ class TestWithMetadataWithGuards:
         mock_agent = MagicMock()
         mock_agent.run_sync.return_value = mock_result
 
-        with patch("magically.spell.Agent", return_value=mock_agent):
+        with patch("spellcrafting.spell.Agent", return_value=mock_agent):
             result = classify.with_metadata("test input")
 
             assert isinstance(result, SpellResult)
@@ -1023,7 +1023,7 @@ class TestWithMetadataWithGuards:
 
     def test_with_metadata_runs_both_guards_sync(self):
         """Sync: with_metadata runs both input and output guards in correct order."""
-        from magically import guard
+        from spellcrafting import guard
 
         guard_order = []
 
@@ -1053,7 +1053,7 @@ class TestWithMetadataWithGuards:
         mock_agent = MagicMock()
         mock_agent.run_sync.return_value = mock_result
 
-        with patch("magically.spell.Agent", return_value=mock_agent):
+        with patch("spellcrafting.spell.Agent", return_value=mock_agent):
             result = classify.with_metadata("test input")
 
             assert isinstance(result, SpellResult)
@@ -1064,7 +1064,7 @@ class TestWithMetadataWithGuards:
     @pytest.mark.asyncio
     async def test_with_metadata_runs_input_guards_async(self):
         """Async: with_metadata runs input guards before LLM call."""
-        from magically import guard
+        from spellcrafting import guard
 
         guard_called = []
 
@@ -1092,7 +1092,7 @@ class TestWithMetadataWithGuards:
             return mock_result
         mock_agent.run = mock_run
 
-        with patch("magically.spell.Agent", return_value=mock_agent):
+        with patch("spellcrafting.spell.Agent", return_value=mock_agent):
             result = await classify.with_metadata("test input")
 
             assert isinstance(result, SpellResult)
@@ -1102,7 +1102,7 @@ class TestWithMetadataWithGuards:
     @pytest.mark.asyncio
     async def test_with_metadata_runs_output_guards_async(self):
         """Async: with_metadata runs output guards after LLM call."""
-        from magically import guard
+        from spellcrafting import guard
 
         guard_called = []
 
@@ -1130,7 +1130,7 @@ class TestWithMetadataWithGuards:
             return mock_result
         mock_agent.run = mock_run
 
-        with patch("magically.spell.Agent", return_value=mock_agent):
+        with patch("spellcrafting.spell.Agent", return_value=mock_agent):
             result = await classify.with_metadata("test input")
 
             assert isinstance(result, SpellResult)
@@ -1141,7 +1141,7 @@ class TestWithMetadataWithGuards:
     @pytest.mark.asyncio
     async def test_with_metadata_runs_async_guards(self):
         """Async: with_metadata properly awaits async guard functions."""
-        from magically import guard
+        from spellcrafting import guard
 
         guard_called = []
 
@@ -1174,7 +1174,7 @@ class TestWithMetadataWithGuards:
             return mock_result
         mock_agent.run = mock_run
 
-        with patch("magically.spell.Agent", return_value=mock_agent):
+        with patch("spellcrafting.spell.Agent", return_value=mock_agent):
             result = await classify.with_metadata("test input")
 
             assert isinstance(result, SpellResult)
@@ -1184,7 +1184,7 @@ class TestWithMetadataWithGuards:
 
     def test_with_metadata_guard_transforms_input(self):
         """with_metadata correctly uses transformed input from guard."""
-        from magically import guard
+        from spellcrafting import guard
 
         def uppercase_input(input_args: dict, ctx: dict) -> dict:
             # Transform the text input to uppercase
@@ -1209,7 +1209,7 @@ class TestWithMetadataWithGuards:
         mock_agent = MagicMock()
         mock_agent.run_sync.return_value = mock_result
 
-        with patch("magically.spell.Agent", return_value=mock_agent):
+        with patch("spellcrafting.spell.Agent", return_value=mock_agent):
             result = classify.with_metadata("hello world")
 
             assert isinstance(result, SpellResult)
@@ -1220,8 +1220,8 @@ class TestWithMetadataWithGuards:
 
     def test_with_metadata_guard_error_propagates(self):
         """with_metadata propagates guard errors correctly."""
-        from magically import guard
-        from magically.exceptions import GuardError
+        from spellcrafting import guard
+        from spellcrafting.exceptions import GuardError
 
         def failing_guard(input_args: dict, ctx: dict) -> dict:
             raise ValueError("Guard validation failed")
@@ -1234,6 +1234,6 @@ class TestWithMetadataWithGuards:
 
         mock_agent = MagicMock()
 
-        with patch("magically.spell.Agent", return_value=mock_agent):
+        with patch("spellcrafting.spell.Agent", return_value=mock_agent):
             with pytest.raises(GuardError, match="Guard validation failed"):
                 classify.with_metadata("test input")

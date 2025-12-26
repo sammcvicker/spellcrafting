@@ -33,7 +33,7 @@ Async Guard Support:
         ...
 
 Example:
-    from magically import spell, guard
+    from spellcrafting import spell, guard
 
     def validate_not_empty(input_args: dict, context: dict) -> dict:
         if not input_args.get("text", "").strip():
@@ -56,8 +56,8 @@ from collections.abc import Awaitable, Coroutine
 from dataclasses import dataclass, field
 from typing import Any, Callable, Generic, ParamSpec, Protocol, TypeVar, Union, runtime_checkable
 
-from magically.exceptions import GuardError
-from magically.on_fail import OnFail, RaiseStrategy
+from spellcrafting.exceptions import GuardError
+from spellcrafting.on_fail import OnFail, RaiseStrategy
 
 P = ParamSpec("P")
 T = TypeVar("T")
@@ -188,7 +188,7 @@ Example (async):
 
 
 # Internal marker attribute name - use get_guard_config() for public access
-_GUARD_MARKER = "_magically_guards"
+_GUARD_MARKER = "_spellcrafting_guards"
 
 
 @dataclass(frozen=True)
@@ -499,7 +499,7 @@ class _GuardNamespace:
     """Namespace for guard decorators.
 
     Usage:
-        from magically import guard
+        from spellcrafting import guard
 
         @spell(model="fast")
         @guard.input(my_input_validator)
@@ -725,7 +725,7 @@ class _GuardNamespace:
 # Create singleton instance
 # Note: This module uses __getattr__ to forward attribute access (like guard.input)
 # directly to the _GuardNamespace singleton. This resolves naming confusion (issue #180)
-# where `from magically import guard` imports the module but users expect to access
+# where `from spellcrafting import guard` imports the module but users expect to access
 # guard.input, guard.output, etc. See module-level __getattr__ below.
 _guard = _GuardNamespace()
 
@@ -862,24 +862,24 @@ __all__ = [
 # Module-level __getattr__ for cleaner import semantics (issue #180)
 # ---------------------------------------------------------------------------
 #
-# This allows `from magically import guard` to work naturally where
+# This allows `from spellcrafting import guard` to work naturally where
 # `guard.input`, `guard.output`, and `guard.max_length` resolve to
 # the _GuardNamespace methods without confusion about whether `guard`
 # is a module or an object.
 #
 # After this change:
-#   import magically.guard  # Works: imports module
-#   magically.guard.input   # Works: forwards to _guard.input via __getattr__
-#   from magically import guard  # Works: imports the 'guard' variable from __init__.py
+#   import spellcrafting.guard  # Works: imports module
+#   spellcrafting.guard.input   # Works: forwards to _guard.input via __getattr__
+#   from spellcrafting import guard  # Works: imports the 'guard' variable from __init__.py
 #   guard.input  # Works: calls _guard.input
 
 
 def __getattr__(name: str):
     """Forward attribute access to the _GuardNamespace singleton.
 
-    This allows `magically.guard.input(...)` to work whether guard
+    This allows `spellcrafting.guard.input(...)` to work whether guard
     is imported as a module or accessed as an attribute.
     """
     if hasattr(_guard, name):
         return getattr(_guard, name)
-    raise AttributeError(f"module 'magically.guard' has no attribute {name!r}")
+    raise AttributeError(f"module 'spellcrafting.guard' has no attribute {name!r}")

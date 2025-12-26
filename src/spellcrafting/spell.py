@@ -15,7 +15,7 @@ from typing import Any, Callable, ParamSpec, Protocol, TypeVar, overload, runtim
 # Module-level logger for debug messages about internal operations
 _logger = logging.getLogger(__name__)
 
-from magically._pydantic_ai import (
+from spellcrafting._pydantic_ai import (
     Agent,
     EndStrategy,
     ModelSettings,
@@ -23,16 +23,16 @@ from magically._pydantic_ai import (
     ValidationError,
 )
 
-from magically.config import Config, MagicallyConfigError, ModelConfig
-from magically.on_fail import (
+from spellcrafting.config import Config, SpellcraftingConfigError, ModelConfig
+from spellcrafting.on_fail import (
     OnFailStrategy,
     RetryStrategy,
     EscalateStrategy,
     FallbackStrategy,
     CustomStrategy,
 )
-from magically.guard import GuardContext, GuardError, GuardExecutor
-from magically.logging import (
+from spellcrafting.guard import GuardContext, GuardError, GuardExecutor
+from spellcrafting.logging import (
     SpellExecutionLog,
     ToolCallLog,
     TokenUsage,
@@ -45,7 +45,7 @@ from magically.logging import (
     is_capture_mode,
     trace_context,
 )
-from magically.result import SpellResult
+from spellcrafting.result import SpellResult
 
 P = ParamSpec("P")
 T = TypeVar("T")
@@ -296,7 +296,7 @@ def clear_agent_cache() -> int:
         Number of agents that were cleared from the cache.
 
     Example:
-        >>> from magically import clear_agent_cache
+        >>> from spellcrafting import clear_agent_cache
         >>> cleared = clear_agent_cache()
         >>> print(f"Cleared {cleared} agents from cache")
     """
@@ -314,7 +314,7 @@ def get_cache_stats() -> CacheStats:
     - evictions: Number of agents evicted due to cache full
 
     Example:
-        >>> from magically import get_cache_stats
+        >>> from spellcrafting import get_cache_stats
         >>> stats = get_cache_stats()
         >>> print(f"Cache: {stats.size}/{stats.max_size} agents")
         >>> print(f"Hit rate: {stats.hits / (stats.hits + stats.misses):.1%}")
@@ -336,7 +336,7 @@ def set_cache_max_size(max_size: int) -> None:
         ValueError: If max_size is negative.
 
     Example:
-        >>> from magically import set_cache_max_size
+        >>> from spellcrafting import set_cache_max_size
         >>> set_cache_max_size(50)  # Reduce cache size
         >>> set_cache_max_size(0)   # Disable caching
     """
@@ -534,8 +534,8 @@ def _resolve_escalation_model(
     config = Config.current()
     try:
         model_config = config.resolve(escalate_model)
-    except MagicallyConfigError:
-        raise MagicallyConfigError(
+    except SpellcraftingConfigError:
+        raise SpellcraftingConfigError(
             f"Escalation model alias '{escalate_model}' could not be resolved. "
             f"Define it in pyproject.toml or provide via Config context."
         )
@@ -782,8 +782,8 @@ class _SpellConfig:
         config = Config.current()
         try:
             model_config = config.resolve(self.model)
-        except MagicallyConfigError:
-            raise MagicallyConfigError(
+        except SpellcraftingConfigError:
+            raise SpellcraftingConfigError(
                 f"Model alias '{self.model}' could not be resolved. "
                 f"Define it in pyproject.toml or provide via Config context."
             )

@@ -1,4 +1,4 @@
-"""Configuration system for magically.
+"""Configuration system for spellcrafting.
 
 Separates intent (model aliases) from implementation (provider strings).
 
@@ -40,9 +40,9 @@ else:
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, ValidationError as PydanticValidationError
 
-from magically._pydantic_ai import ModelSettings
-from magically._pyproject import find_pyproject
-from magically.exceptions import MagicallyConfigError
+from spellcrafting._pydantic_ai import ModelSettings
+from spellcrafting._pyproject import find_pyproject
+from spellcrafting.exceptions import SpellcraftingConfigError
 
 
 # Environment variable names for configuration
@@ -75,7 +75,7 @@ DEFAULT_RATE_LIMIT_PER_MINUTE: int | None = None
 # that only one thread initializes the cache at a time. Once initialized, the cached
 # Config objects are immutable and safe to read concurrently.
 
-_config_context: ContextVar[Config | None] = ContextVar("magically_config", default=None)
+_config_context: ContextVar[Config | None] = ContextVar("spellcrafting_config", default=None)
 _process_default: Config | None = None
 _file_config_cache: Config | None = None
 _env_config_cache: Config | None = None
@@ -253,11 +253,11 @@ class Config:
             The ModelConfig for the alias.
 
         Raises:
-            MagicallyConfigError: If alias is not found.
+            SpellcraftingConfigError: If alias is not found.
         """
         if alias not in self._models:
             available = list(self._models.keys())
-            raise MagicallyConfigError(
+            raise SpellcraftingConfigError(
                 f"Unknown model alias '{alias}'. Available: {available}"
             )
         return self._models[alias]
@@ -308,7 +308,7 @@ class Config:
     def from_file(cls, path: Path | str | None = None) -> Config:
         """Load config from pyproject.toml.
 
-        Parses [tool.magically.models.*] sections into model aliases.
+        Parses [tool.spellcrafting.models.*] sections into model aliases.
 
         Args:
             path: Path to pyproject.toml. If None, searches from cwd upward.
@@ -317,10 +317,10 @@ class Config:
             Config with model aliases from file, or empty Config if not found.
 
         Example pyproject.toml:
-            [tool.magically.models.fast]
+            [tool.spellcrafting.models.fast]
             model = "anthropic:claude-haiku"
 
-            [tool.magically.models.reasoning]
+            [tool.spellcrafting.models.reasoning]
             model = "anthropic:claude-opus-4"
             temperature = 0.7
         """
@@ -338,12 +338,12 @@ class Config:
         except tomllib.TOMLDecodeError as e:
             warnings.warn(
                 f"Failed to parse {pyproject_path}: {e}. "
-                "Magically configuration will be ignored.",
+                "Spellcrafting configuration will be ignored.",
                 stacklevel=2,
             )
             return cls()
 
-        tool_config = data.get("tool", {}).get("magically", {})
+        tool_config = data.get("tool", {}).get("spellcrafting", {})
         models_config = tool_config.get("models", {})
 
         if not models_config:
@@ -354,8 +354,8 @@ class Config:
 
         for alias, settings in models_config.items():
             if not isinstance(settings, dict):
-                raise MagicallyConfigError(
-                    f"Invalid config for [tool.magically.models.{alias}] in {pyproject_path}: "
+                raise SpellcraftingConfigError(
+                    f"Invalid config for [tool.spellcrafting.models.{alias}] in {pyproject_path}: "
                     f"expected a table/dict, got {type(settings).__name__}"
                 )
 
@@ -364,7 +364,7 @@ class Config:
             unknown = set(settings.keys()) - known_fields
             if unknown:
                 warnings.warn(
-                    f"Unknown fields in [tool.magically.models.{alias}]: {unknown}",
+                    f"Unknown fields in [tool.spellcrafting.models.{alias}]: {unknown}",
                     stacklevel=2,
                 )
 
@@ -379,8 +379,8 @@ class Config:
                     msg = error["msg"]
                     error_details.append(f"  - {loc}: {msg}")
 
-                raise MagicallyConfigError(
-                    f"Invalid config for [tool.magically.models.{alias}] in {pyproject_path}:\n"
+                raise SpellcraftingConfigError(
+                    f"Invalid config for [tool.spellcrafting.models.{alias}] in {pyproject_path}:\n"
                     + "\n".join(error_details)
                 ) from e
 
@@ -541,7 +541,7 @@ class RateLimitConfig:
             None means unlimited.
 
     Example:
-        from magically import configure_rate_limits
+        from spellcrafting import configure_rate_limits
 
         # Limit to 10 concurrent calls and 100 per minute
         configure_rate_limits(
@@ -585,7 +585,7 @@ def configure_rate_limits(
         during application startup.
 
     Example:
-        from magically import configure_rate_limits
+        from spellcrafting import configure_rate_limits
 
         # Conservative limits for production
         configure_rate_limits(

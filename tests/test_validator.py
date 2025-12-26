@@ -6,8 +6,8 @@ import pytest
 from pydantic import BaseModel, BeforeValidator, ValidationError
 from typing import Annotated
 
-from magically.on_fail import OnFail
-from magically.validator import llm_validator, ValidationResult
+from spellcrafting.on_fail import OnFail
+from spellcrafting.validator import llm_validator, ValidationResult
 
 
 class TestValidationResult:
@@ -42,7 +42,7 @@ class TestLlmValidatorBasic:
         assert callable(validator)
 
     def test_default_model_is_fast(self):
-        with patch("magically.validator.spell") as mock_spell:
+        with patch("spellcrafting.validator.spell") as mock_spell:
             def mock_decorator(model, system_prompt):
                 def decorator(fn):
                     fn._spell_id = 12345
@@ -57,7 +57,7 @@ class TestLlmValidatorBasic:
             assert "system_prompt" in mock_spell.call_args.kwargs
 
     def test_custom_model(self):
-        with patch("magically.validator.spell") as mock_spell:
+        with patch("spellcrafting.validator.spell") as mock_spell:
             def mock_decorator(model, system_prompt):
                 def decorator(fn):
                     fn._spell_id = 12345
@@ -83,7 +83,7 @@ class TestLlmValidatorOnFailRaise:
             validator, "__wrapped__", create=True
         ):
             # Patch at module level since validator creates internal spell
-            with patch("magically.validator.spell") as mock_spell:
+            with patch("spellcrafting.validator.spell") as mock_spell:
                 # Create a mock that returns our validation result
                 mock_validate = MagicMock(return_value=mock_result)
                 mock_spell.return_value = lambda fn: mock_validate
@@ -96,7 +96,7 @@ class TestLlmValidatorOnFailRaise:
     def test_invalid_value_raises(self):
         mock_result = ValidationResult(valid=False, reason="Contains profanity")
 
-        with patch("magically.validator.spell") as mock_spell:
+        with patch("spellcrafting.validator.spell") as mock_spell:
             mock_validate = MagicMock(return_value=mock_result)
             mock_spell.return_value = lambda fn: mock_validate
 
@@ -112,7 +112,7 @@ class TestLlmValidatorOnFailFix:
     def test_valid_value_passes_through(self):
         mock_result = ValidationResult(valid=True)
 
-        with patch("magically.validator.spell") as mock_spell:
+        with patch("spellcrafting.validator.spell") as mock_spell:
             mock_validate = MagicMock(return_value=mock_result)
             mock_spell.return_value = lambda fn: mock_validate
 
@@ -128,7 +128,7 @@ class TestLlmValidatorOnFailFix:
             fixed_value="Good day, how may I assist you?",
         )
 
-        with patch("magically.validator.spell") as mock_spell:
+        with patch("spellcrafting.validator.spell") as mock_spell:
             mock_validate = MagicMock(return_value=mock_result)
             mock_spell.return_value = lambda fn: mock_validate
 
@@ -145,7 +145,7 @@ class TestLlmValidatorOnFailFix:
             fixed_value=None,
         )
 
-        with patch("magically.validator.spell") as mock_spell:
+        with patch("spellcrafting.validator.spell") as mock_spell:
             mock_validate = MagicMock(return_value=mock_result)
             mock_spell.return_value = lambda fn: mock_validate
 
@@ -161,7 +161,7 @@ class TestLlmValidatorWithPydantic:
     def test_as_before_validator_valid(self):
         mock_result = ValidationResult(valid=True)
 
-        with patch("magically.validator.spell") as mock_spell:
+        with patch("spellcrafting.validator.spell") as mock_spell:
             mock_validate = MagicMock(return_value=mock_result)
             mock_spell.return_value = lambda fn: mock_validate
 
@@ -176,7 +176,7 @@ class TestLlmValidatorWithPydantic:
     def test_as_before_validator_invalid(self):
         mock_result = ValidationResult(valid=False, reason="Contains adult content")
 
-        with patch("magically.validator.spell") as mock_spell:
+        with patch("spellcrafting.validator.spell") as mock_spell:
             mock_validate = MagicMock(return_value=mock_result)
             mock_spell.return_value = lambda fn: mock_validate
 
@@ -197,7 +197,7 @@ class TestLlmValidatorWithPydantic:
             fixed_value="Good morning",
         )
 
-        with patch("magically.validator.spell") as mock_spell:
+        with patch("spellcrafting.validator.spell") as mock_spell:
             mock_validate = MagicMock(return_value=mock_result)
             mock_spell.return_value = lambda fn: mock_validate
 
@@ -214,7 +214,7 @@ class TestLlmValidatorSystemPrompt:
     """Tests for system prompt generation."""
 
     def test_raise_mode_prompt_does_not_mention_fix(self):
-        with patch("magically.validator.spell") as mock_spell:
+        with patch("spellcrafting.validator.spell") as mock_spell:
             captured_prompt = None
 
             def capture_spell(model, system_prompt):
@@ -234,7 +234,7 @@ class TestLlmValidatorSystemPrompt:
             assert "fixed_value" not in captured_prompt
 
     def test_fix_mode_prompt_mentions_fixed_value(self):
-        with patch("magically.validator.spell") as mock_spell:
+        with patch("spellcrafting.validator.spell") as mock_spell:
             captured_prompt = None
 
             def capture_spell(model, system_prompt):
@@ -261,7 +261,7 @@ class TestLlmValidatorNonStringTypes:
         """Validator should accept dict input and return dict on success."""
         mock_result = ValidationResult(valid=True)
 
-        with patch("magically.validator.spell") as mock_spell:
+        with patch("spellcrafting.validator.spell") as mock_spell:
             mock_validate = MagicMock(return_value=mock_result)
             mock_spell.return_value = lambda fn: mock_validate
 
@@ -276,7 +276,7 @@ class TestLlmValidatorNonStringTypes:
         """Validator should accept list input and return list on success."""
         mock_result = ValidationResult(valid=True)
 
-        with patch("magically.validator.spell") as mock_spell:
+        with patch("spellcrafting.validator.spell") as mock_spell:
             mock_validate = MagicMock(return_value=mock_result)
             mock_spell.return_value = lambda fn: mock_validate
 
@@ -291,7 +291,7 @@ class TestLlmValidatorNonStringTypes:
         """Validator should accept int input and return int on success."""
         mock_result = ValidationResult(valid=True)
 
-        with patch("magically.validator.spell") as mock_spell:
+        with patch("spellcrafting.validator.spell") as mock_spell:
             mock_validate = MagicMock(return_value=mock_result)
             mock_spell.return_value = lambda fn: mock_validate
 
@@ -306,7 +306,7 @@ class TestLlmValidatorNonStringTypes:
         mock_result = ValidationResult(valid=True)
         captured_calls = []
 
-        with patch("magically.validator.spell") as mock_spell:
+        with patch("spellcrafting.validator.spell") as mock_spell:
             def make_mock_validate(value):
                 captured_calls.append(value)
                 return mock_result
@@ -326,7 +326,7 @@ class TestLlmValidatorNonStringTypes:
         """Invalid non-string value should raise ValueError."""
         mock_result = ValidationResult(valid=False, reason="Missing 'name' key")
 
-        with patch("magically.validator.spell") as mock_spell:
+        with patch("spellcrafting.validator.spell") as mock_spell:
             mock_validate = MagicMock(return_value=mock_result)
             mock_spell.return_value = lambda fn: mock_validate
 
@@ -343,7 +343,7 @@ class TestLlmValidatorNonStringTypes:
             fixed_value="{'name': 'unknown', 'value': 123}",
         )
 
-        with patch("magically.validator.spell") as mock_spell:
+        with patch("spellcrafting.validator.spell") as mock_spell:
             mock_validate = MagicMock(return_value=mock_result)
             mock_spell.return_value = lambda fn: mock_validate
 
@@ -364,7 +364,7 @@ class TestLlmValidatorNonStringTypes:
 
         mock_result = ValidationResult(valid=True)
 
-        with patch("magically.validator.spell") as mock_spell:
+        with patch("spellcrafting.validator.spell") as mock_spell:
             mock_validate = MagicMock(return_value=mock_result)
             mock_spell.return_value = lambda fn: mock_validate
 
@@ -379,7 +379,7 @@ class TestLlmValidatorNonStringTypes:
         """Validator should handle None values."""
         mock_result = ValidationResult(valid=True)
 
-        with patch("magically.validator.spell") as mock_spell:
+        with patch("spellcrafting.validator.spell") as mock_spell:
             mock_validate = MagicMock(return_value=mock_result)
             mock_spell.return_value = lambda fn: mock_validate
 
@@ -396,7 +396,7 @@ class TestLlmValidatorEdgeCases:
         """Empty string should be validated by LLM and can fail."""
         mock_result = ValidationResult(valid=False, reason="Empty string not allowed")
 
-        with patch("magically.validator.spell") as mock_spell:
+        with patch("spellcrafting.validator.spell") as mock_spell:
             mock_validate = MagicMock(return_value=mock_result)
             mock_spell.return_value = lambda fn: mock_validate
 
@@ -409,7 +409,7 @@ class TestLlmValidatorEdgeCases:
         """Empty string can pass validation if LLM determines it's valid."""
         mock_result = ValidationResult(valid=True)
 
-        with patch("magically.validator.spell") as mock_spell:
+        with patch("spellcrafting.validator.spell") as mock_spell:
             mock_validate = MagicMock(return_value=mock_result)
             mock_spell.return_value = lambda fn: mock_validate
 
@@ -422,7 +422,7 @@ class TestLlmValidatorEdgeCases:
         """Whitespace-only string should be validated by LLM and can fail."""
         mock_result = ValidationResult(valid=False, reason="Contains only whitespace")
 
-        with patch("magically.validator.spell") as mock_spell:
+        with patch("spellcrafting.validator.spell") as mock_spell:
             mock_validate = MagicMock(return_value=mock_result)
             mock_spell.return_value = lambda fn: mock_validate
 
@@ -435,7 +435,7 @@ class TestLlmValidatorEdgeCases:
         """Whitespace-only string can pass validation if rule allows."""
         mock_result = ValidationResult(valid=True)
 
-        with patch("magically.validator.spell") as mock_spell:
+        with patch("spellcrafting.validator.spell") as mock_spell:
             mock_validate = MagicMock(return_value=mock_result)
             mock_spell.return_value = lambda fn: mock_validate
 
@@ -449,7 +449,7 @@ class TestLlmValidatorEdgeCases:
         mock_result = ValidationResult(valid=True)
         long_string = "a" * 10000
 
-        with patch("magically.validator.spell") as mock_spell:
+        with patch("spellcrafting.validator.spell") as mock_spell:
             mock_validate = MagicMock(return_value=mock_result)
             mock_spell.return_value = lambda fn: mock_validate
 
@@ -465,7 +465,7 @@ class TestLlmValidatorEdgeCases:
         mock_result = ValidationResult(valid=False, reason="Input too long")
         long_string = "a" * 10000
 
-        with patch("magically.validator.spell") as mock_spell:
+        with patch("spellcrafting.validator.spell") as mock_spell:
             mock_validate = MagicMock(return_value=mock_result)
             mock_spell.return_value = lambda fn: mock_validate
 
@@ -482,7 +482,7 @@ class TestLlmValidatorEdgeCases:
             fixed_value="[placeholder]"
         )
 
-        with patch("magically.validator.spell") as mock_spell:
+        with patch("spellcrafting.validator.spell") as mock_spell:
             mock_validate = MagicMock(return_value=mock_result)
             mock_spell.return_value = lambda fn: mock_validate
 
@@ -499,7 +499,7 @@ class TestLlmValidatorEdgeCases:
             fixed_value="default value"
         )
 
-        with patch("magically.validator.spell") as mock_spell:
+        with patch("spellcrafting.validator.spell") as mock_spell:
             mock_validate = MagicMock(return_value=mock_result)
             mock_spell.return_value = lambda fn: mock_validate
 
@@ -513,7 +513,7 @@ class TestLlmValidatorEdgeCases:
         mock_result = ValidationResult(valid=True)
         multiline = "line1\nline2\nline3"
 
-        with patch("magically.validator.spell") as mock_spell:
+        with patch("spellcrafting.validator.spell") as mock_spell:
             mock_validate = MagicMock(return_value=mock_result)
             mock_spell.return_value = lambda fn: mock_validate
 
@@ -527,7 +527,7 @@ class TestLlmValidatorEdgeCases:
         mock_result = ValidationResult(valid=True)
         special = "Hello! @#$%^&*() 你好 مرحبا"
 
-        with patch("magically.validator.spell") as mock_spell:
+        with patch("spellcrafting.validator.spell") as mock_spell:
             mock_validate = MagicMock(return_value=mock_result)
             mock_spell.return_value = lambda fn: mock_validate
 
@@ -542,7 +542,7 @@ class TestLlmValidatorSystemPromptParameter:
 
     def test_system_prompt_passed_to_spell(self):
         """llm_validator should use system_prompt parameter instead of mutating internals."""
-        with patch("magically.validator.spell") as mock_spell:
+        with patch("spellcrafting.validator.spell") as mock_spell:
             captured_prompt = None
 
             def capture_spell(model, system_prompt):
@@ -564,14 +564,14 @@ class TestLlmValidatorSystemPromptParameter:
 
     def test_no_cache_mutation_needed(self):
         """llm_validator should not need to clear cache since system_prompt is passed directly."""
-        from magically.spell import _agent_cache
+        from spellcrafting.spell import _agent_cache
 
         # Pre-populate cache
         fake_spell_id = 99999
         original_agent = MagicMock()
         _agent_cache.set((fake_spell_id, 0), original_agent)
 
-        with patch("magically.validator.spell") as mock_spell:
+        with patch("spellcrafting.validator.spell") as mock_spell:
             def make_spell(model, system_prompt):
                 def decorator(fn):
                     fn._spell_id = 88888  # Different ID - won't affect cache

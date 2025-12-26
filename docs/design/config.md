@@ -2,7 +2,7 @@
 
 ## Overview
 
-Magically config separates **intent** from **implementation** through model aliases. Developers declare what kind of model they need semantically; operators define what those aliases resolve to.
+Spellcrafting config separates **intent** from **implementation** through model aliases. Developers declare what kind of model they need semantically; operators define what those aliases resolve to.
 
 ## Goals
 
@@ -25,17 +25,17 @@ An alias bundles a model identifier with its settings:
 
 ```toml
 # pyproject.toml
-[tool.magically.models.reasoning]
+[tool.spellcrafting.models.reasoning]
 model = "anthropic:claude-opus-4"
 temperature = 0.7
 max_tokens = 8192
 
-[tool.magically.models.fast]
+[tool.spellcrafting.models.fast]
 model = "anthropic:claude-haiku"
 temperature = 0.2
 max_tokens = 1024
 
-[tool.magically.models.default]
+[tool.spellcrafting.models.default]
 model = "anthropic:claude-sonnet"
 ```
 
@@ -57,7 +57,7 @@ Detection: If `model` contains `:`, treat as literal provider string. Otherwise,
 @spell(model="typo-alias")
 def my_spell(...): ...
 
-# Raises: MagicallyConfigError("Unknown model alias 'typo-alias'.
+# Raises: SpellcraftingConfigError("Unknown model alias 'typo-alias'.
 #         Available: reasoning, fast, default")
 ```
 
@@ -79,7 +79,7 @@ class ModelConfig(BaseModel):
     # Passthrough for provider-specific settings
     extra: dict[str, Any] = {}
 
-class MagicallyConfig(BaseModel):
+class SpellcraftingConfig(BaseModel):
     """Root configuration."""
     models: dict[str, ModelConfig] = {}
 ```
@@ -91,12 +91,12 @@ class MagicallyConfig(BaseModel):
 
 ```python
 # Warning at config load (unknown field, might be typo)
-[tool.magically.models.fast]
+[tool.spellcrafting.models.fast]
 model = "anthropic:claude-haiku"
 temprature = 0.2  # typo → warning
 
 # Error at runtime (pydantic-ai rejects)
-[tool.magically.models.fast]
+[tool.spellcrafting.models.fast]
 model = "anthropic:not-a-real-model"  # fails when spell executes
 ```
 
@@ -109,7 +109,7 @@ model = "anthropic:not-a-real-model"  # fails when spell executes
 ```
 1. Active Config context (contextvars)
 2. Process default (set_as_default)
-3. pyproject.toml [tool.magically]
+3. pyproject.toml [tool.spellcrafting]
 4. Built-in defaults (just "default" → None, letting pydantic-ai pick)
 ```
 
@@ -120,7 +120,7 @@ Loaded once at import time from `pyproject.toml`. Immutable after load.
 ```python
 # Automatic on first spell execution
 # Or explicit:
-from magically import config
+from spellcrafting import config
 print(config.current().models)
 ```
 
@@ -129,7 +129,7 @@ print(config.current().models)
 For operators who need dynamic config (database, secrets, per-tenant):
 
 ```python
-from magically import Config
+from spellcrafting import Config
 
 # Load from wherever
 db_settings = fetch_from_vault()
@@ -169,7 +169,7 @@ This is still explicit—you call `set_as_default()` once. Not hidden global mut
 ## API
 
 ```python
-# magically/config.py
+# spellcrafting/config.py
 
 class Config:
     """Immutable configuration container."""
@@ -194,7 +194,7 @@ class Config:
         ...
 
     def resolve(self, alias: str) -> ModelConfig:
-        """Resolve alias to ModelConfig. Raises MagicallyConfigError if missing."""
+        """Resolve alias to ModelConfig. Raises SpellcraftingConfigError if missing."""
         ...
 
     @classmethod
@@ -253,7 +253,7 @@ def spell(
                 warnings.warn(
                     f"Model alias '{model_alias}' not found in pyproject.toml. "
                     f"Available: {list(file_config.models.keys())}",
-                    MagicallyConfigWarning,
+                    SpellcraftingConfigWarning,
                 )
 
         @functools.wraps(fn)
@@ -299,7 +299,7 @@ def test_missing_alias_raises():
     empty_config = Config(models={})
 
     with empty_config:
-        with pytest.raises(MagicallyConfigError, match="Unknown model alias"):
+        with pytest.raises(SpellcraftingConfigError, match="Unknown model alias"):
             classify("hello")
 ```
 
@@ -307,27 +307,27 @@ def test_missing_alias_raises():
 
 ## File Format
 
-Using `pyproject.toml` under `[tool.magically]`:
+Using `pyproject.toml` under `[tool.spellcrafting]`:
 
 ```toml
-[tool.magically]
-# Future: other magically settings
+[tool.spellcrafting]
+# Future: other spellcrafting settings
 
-[tool.magically.models.default]
+[tool.spellcrafting.models.default]
 model = "anthropic:claude-sonnet"
 
-[tool.magically.models.reasoning]
+[tool.spellcrafting.models.reasoning]
 model = "anthropic:claude-opus-4"
 temperature = 0.7
 max_tokens = 8192
 
-[tool.magically.models.fast]
+[tool.spellcrafting.models.fast]
 model = "anthropic:claude-haiku"
 temperature = 0.2
 max_tokens = 1024
 retries = 1
 
-[tool.magically.models.creative]
+[tool.spellcrafting.models.creative]
 model = "anthropic:claude-sonnet"
 temperature = 0.9
 top_p = 0.95

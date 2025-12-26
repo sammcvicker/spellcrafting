@@ -19,7 +19,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Generic, ParamSpec, Protocol, TypeVar
 
 if TYPE_CHECKING:
-    from magically.logging import SpellExecutionLog
+    from spellcrafting.logging import SpellExecutionLog
 
 P = ParamSpec("P")
 T = TypeVar("T")

@@ -1,23 +1,23 @@
-"""Magically - LLMs as a Python language feature.
+"""Spellcrafting - LLMs as a Python language feature.
 
 This module provides @spell and @guard decorators to turn functions into
 LLM-powered operations with input/output validation.
 
 Import Guidelines:
     All public API is exported at the top level:
-        from magically import spell, guard, Config, OnFail, ...
+        from spellcrafting import spell, guard, Config, OnFail, ...
 
     For type hints, import directly from the module:
-        from magically import SpellResult, ValidationResult
+        from spellcrafting import SpellResult, ValidationResult
 
     Individual modules are NOT exported at package level.
     Use explicit imports if needed:
-        from magically.logging import SpellExecutionLog
+        from spellcrafting.logging import SpellExecutionLog
 """
 
 from importlib.metadata import version, PackageNotFoundError
 
-from magically.config import (
+from spellcrafting.config import (
     Config,
     ModelConfig,
     ModelConfigDict,
@@ -27,13 +27,13 @@ from magically.config import (
     configure_rate_limits,
     get_rate_limit_config,
 )
-from magically.exceptions import (
-    MagicallyError,
-    MagicallyConfigError,
+from spellcrafting.exceptions import (
+    SpellcraftingError,
+    SpellcraftingConfigError,
     GuardError,
     ValidationError,
 )
-from magically.guard import (
+from spellcrafting.guard import (
     guard,
     GuardConfig,
     GuardContext,
@@ -41,7 +41,7 @@ from magically.guard import (
     InputGuard,
     OutputGuard,
 )
-from magically.on_fail import (
+from spellcrafting.on_fail import (
     OnFail,
     OnFailStrategy,
     ValidatorOnFailStrategy,
@@ -52,8 +52,8 @@ from magically.on_fail import (
     FallbackStrategy,
     CustomStrategy,
 )
-from magically.validator import llm_validator, ValidationResult
-from magically.logging import (
+from spellcrafting.validator import llm_validator, ValidationResult
+from spellcrafting.logging import (
     # Configuration
     LoggingConfig,
     LogLevel,
@@ -85,24 +85,24 @@ from magically.logging import (
     register_model_pricing,
     get_model_pricing,
 )
-from magically.spell import (
+from spellcrafting.spell import (
     spell,
     clear_agent_cache,
     get_cache_stats,
     set_cache_max_size,
     CacheStats,
 )
-from magically.result import SpellResult, SyncSpell, AsyncSpell
+from spellcrafting.result import SpellResult, SyncSpell, AsyncSpell
 
 # Package metadata
 try:
-    __version__ = version("magically")
+    __version__ = version("spellcrafting")
 except PackageNotFoundError:
     __version__ = "0.1.0"  # Fallback for development/editable installs
 
-# Explicit public API - all items importable via `from magically import X`
+# Explicit public API - all items importable via `from spellcrafting import X`
 # NOTE: Individual modules (logging, spell, config, etc.) are NOT exported.
-# Use direct imports: `from magically.logging import SpellExecutionLog`
+# Use direct imports: `from spellcrafting.logging import SpellExecutionLog`
 __all__ = [
     # Package metadata
     "__version__",
@@ -126,9 +126,9 @@ __all__ = [
     "RateLimitConfig",
     "configure_rate_limits",
     "get_rate_limit_config",
-    # Exceptions (all inherit from MagicallyError)
-    "MagicallyError",
-    "MagicallyConfigError",
+    # Exceptions (all inherit from SpellcraftingError)
+    "SpellcraftingError",
+    "SpellcraftingConfigError",
     "GuardError",
     "ValidationError",
     # Guards - validation decorators

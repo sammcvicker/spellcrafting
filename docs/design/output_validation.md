@@ -2,16 +2,16 @@
 
 > **Note:** This is a **research/reference document** describing general output validation patterns
 > for LLM applications. It catalogs Pydantic validation techniques, external libraries, and
-> validation strategies that can be used with or alongside magically.
+> validation strategies that can be used with or alongside spellcrafting.
 >
-> For the actual magically implementation, see:
+> For the actual spellcrafting implementation, see:
 > - **Guards:** `@guard.input()` and `@guard.output()` decorators in `guard.py`
 > - **Failure Strategies:** `OnFail.escalate()`, `OnFail.fallback()`, etc. in `on_fail.py`
 > - **Design Decisions:** `guards.md` for what we chose to build vs. defer
 
 ## Overview
 
-This document catalogs output validation patterns for LLM applications: structural enforcement via Pydantic, semantic validation techniques, safety filtering approaches, and quality metrics. These patterns can be used with magically's `@spell` decorator or with external validation libraries.
+This document catalogs output validation patterns for LLM applications: structural enforcement via Pydantic, semantic validation techniques, safety filtering approaches, and quality metrics. These patterns can be used with spellcrafting's `@spell` decorator or with external validation libraries.
 
 ## Pattern Categories
 
@@ -22,9 +22,9 @@ This document covers patterns for:
 3. **Safety filtering**: Toxicity detection, refusal detection, off-topic filtering
 4. **Quality metrics**: Relevance scoring, completeness checking, confidence estimation
 
-## What magically Provides vs. External Libraries
+## What spellcrafting Provides vs. External Libraries
 
-| Need | magically Provides | External Libraries |
+| Need | spellcrafting Provides | External Libraries |
 |------|-------------------|-------------------|
 | Structural validation | Pydantic return types + `retries` | Instructor |
 | Retry with feedback | Built-in via PydanticAI | - |
@@ -114,7 +114,7 @@ partial_result = adapter.validate_json(
 **Integration with Spells:**
 
 ```python
-from magically import spell, StreamingConfig
+from spellcrafting import spell, StreamingConfig
 
 @spell(model="fast", streaming=StreamingConfig(partial_validation=True))
 async def analyze_stream(text: str) -> Analysis:
@@ -165,9 +165,9 @@ class Response(BaseModel):
 
 ## 2. Semantic Validation
 
-> **Status**: The patterns in this section are NOT implemented in magically.
+> **Status**: The patterns in this section are NOT implemented in spellcrafting.
 > They describe external library patterns and techniques that can be used alongside
-> magically's `@guard.output()` decorator. See `guards.md` for design rationale.
+> spellcrafting's `@guard.output()` decorator. See `guards.md` for design rationale.
 
 ### 2.1 Hallucination Detection
 
@@ -324,9 +324,9 @@ def answer_with_sources(question: str, documents: list[Document]) -> CitedRespon
 
 ## 3. Safety and Content Filtering
 
-> **Status**: The patterns in this section are NOT implemented in magically.
+> **Status**: The patterns in this section are NOT implemented in spellcrafting.
 > They describe external library patterns (Detoxify, LLM Guard, Guardrails AI)
-> that can be used alongside magically's guards. See `guards.md` for design rationale.
+> that can be used alongside spellcrafting's guards. See `guards.md` for design rationale.
 
 ### 3.1 Toxicity Detection
 
@@ -527,9 +527,9 @@ CompetitorFreeText = Annotated[str, AfterValidator(filter_competitors)]
 
 ## 4. Quality Metrics
 
-> **Status**: The patterns in this section are NOT implemented in magically.
+> **Status**: The patterns in this section are NOT implemented in spellcrafting.
 > They describe external library patterns (embedding models, LLM-as-judge)
-> that can be used alongside magically's guards. See `guards.md` for design rationale.
+> that can be used alongside spellcrafting's guards. See `guards.md` for design rationale.
 
 ### 4.1 Relevance Scoring
 
@@ -663,16 +663,16 @@ def calculate_semantic_entropy(logprobs: list[float]) -> float:
 ## 5. Validation Pipeline Architecture
 
 > **Note:** This section describes **conceptual patterns** that can be implemented using
-> magically's `@guard.output()` decorator or external validation libraries. The `ValidationConfig`
-> shown below is a hypothetical API, not currently implemented in magically.
+> spellcrafting's `@guard.output()` decorator or external validation libraries. The `ValidationConfig`
+> shown below is a hypothetical API, not currently implemented in spellcrafting.
 
 ### 5.1 Composable Validation Layers (Pattern)
 
-This pattern shows how to build a validation pipeline. In magically, you achieve this
+This pattern shows how to build a validation pipeline. In spellcrafting, you achieve this
 with stacked `@guard.output()` decorators:
 
 ```python
-# magically approach: stacked guards
+# spellcrafting approach: stacked guards
 @spell
 @guard.output(check_toxicity)
 @guard.output(check_competitors)
@@ -738,10 +738,10 @@ class ValidationPipeline(Generic[T]):
 
 ### 5.2 Integration with Spells
 
-**Current magically approach** - use `@guard.output()` decorators:
+**Current spellcrafting approach** - use `@guard.output()` decorators:
 
 ```python
-from magically import spell, guard
+from spellcrafting import spell, guard
 
 def no_competitors(output: Response, ctx: dict) -> Response:
     """Block competitor mentions."""
@@ -760,7 +760,7 @@ def generate_response(query: str, context: str) -> Response:
 **Hypothetical declarative API** (not implemented - shown for reference):
 
 ```python
-# This is a HYPOTHETICAL API, not currently available in magically
+# This is a HYPOTHETICAL API, not currently available in spellcrafting
 @spell(
     model="fast",
     validation=ValidationConfig(
@@ -777,7 +777,7 @@ def generate_response(query: str, context: str) -> Response:
 
 ### 5.3 Validation Metrics in Logging
 
-magically's `SpellExecutionLog` includes `ValidationMetrics` for tracking guard results
+spellcrafting's `SpellExecutionLog` includes `ValidationMetrics` for tracking guard results
 and retry information. The **actual implementation** in `logging.py`:
 
 ```python
@@ -822,18 +822,18 @@ class ExtendedValidationMetrics(ValidationMetrics):
     confidence_score: float | None = None
 ```
 
-See `guards.md` for why magically defers semantic/safety scoring to external libraries.
+See `guards.md` for why spellcrafting defers semantic/safety scoring to external libraries.
 
 ---
 
-## 6. Actual magically Implementation
+## 6. Actual spellcrafting Implementation
 
-For reference, here's what magically actually provides:
+For reference, here's what spellcrafting actually provides:
 
 ### 6.1 Guard Decorators (`guard.py`)
 
 ```python
-from magically import spell, guard
+from spellcrafting import spell, guard
 
 def validate_input(input_args: dict, ctx: dict) -> dict:
     """Validate/transform inputs before LLM call."""
@@ -858,7 +858,7 @@ def summarize(text: str) -> str:
 ### 6.2 OnFail Strategies (`on_fail.py`)
 
 ```python
-from magically import spell, OnFail
+from spellcrafting import spell, OnFail
 
 # Escalate to better model on validation failure
 @spell(model="fast", on_fail=OnFail.escalate("reasoning"))

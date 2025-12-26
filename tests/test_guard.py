@@ -5,8 +5,8 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from magically import spell, guard, GuardError, OnFail, GuardContext
-from magically.guard import (
+from spellcrafting import spell, guard, GuardError, OnFail, GuardContext
+from spellcrafting.guard import (
     GuardConfig,
     get_guard_config,
     _get_or_create_guard_config,
@@ -212,7 +212,7 @@ class TestGuardBehavior:
         mock_agent = MagicMock()
         mock_agent.run_sync.return_value = mock_result
 
-        with patch("magically.spell.Agent", return_value=mock_agent):
+        with patch("spellcrafting.spell.Agent", return_value=mock_agent):
             test_spell("hello")
 
         assert len(called) == 1
@@ -237,7 +237,7 @@ class TestGuardBehavior:
         mock_agent = MagicMock()
         mock_agent.run_sync.return_value = mock_result
 
-        with patch("magically.spell.Agent", return_value=mock_agent):
+        with patch("spellcrafting.spell.Agent", return_value=mock_agent):
             result = test_spell("hello")
 
         assert len(called) == 1
@@ -260,7 +260,7 @@ class TestGuardBehavior:
         mock_agent = MagicMock()
         mock_agent.run_sync.return_value = mock_result
 
-        with patch("magically.spell.Agent", return_value=mock_agent):
+        with patch("spellcrafting.spell.Agent", return_value=mock_agent):
             test_spell("hello")
 
         # Verify the prompt sent to agent contains transformed input
@@ -283,7 +283,7 @@ class TestGuardBehavior:
         mock_agent = MagicMock()
         mock_agent.run_sync.return_value = mock_result
 
-        with patch("magically.spell.Agent", return_value=mock_agent):
+        with patch("spellcrafting.spell.Agent", return_value=mock_agent):
             result = test_spell("test")
 
         assert result == "HELLO"
@@ -843,7 +843,7 @@ class TestGuardWithSpell:
 
         mock_agent.run_sync = track_agent
 
-        with patch("magically.spell.Agent", return_value=mock_agent):
+        with patch("spellcrafting.spell.Agent", return_value=mock_agent):
             summarize("test input")
 
         assert call_order == ["input_guard", "agent_run"]
@@ -871,7 +871,7 @@ class TestGuardWithSpell:
 
         mock_agent.run_sync = track_agent
 
-        with patch("magically.spell.Agent", return_value=mock_agent):
+        with patch("spellcrafting.spell.Agent", return_value=mock_agent):
             summarize("test input")
 
         assert call_order == ["agent_run", "output_guard"]
@@ -888,7 +888,7 @@ class TestGuardWithSpell:
 
         mock_agent = MagicMock()
 
-        with patch("magically.spell.Agent", return_value=mock_agent):
+        with patch("spellcrafting.spell.Agent", return_value=mock_agent):
             with pytest.raises(GuardError, match="Rejected!"):
                 summarize("test input")
 
@@ -910,7 +910,7 @@ class TestGuardWithSpell:
         mock_agent = MagicMock()
         mock_agent.run_sync.return_value = mock_result
 
-        with patch("magically.spell.Agent", return_value=mock_agent):
+        with patch("spellcrafting.spell.Agent", return_value=mock_agent):
             with pytest.raises(GuardError, match="Bad output!"):
                 summarize("test input")
 
@@ -932,7 +932,7 @@ class TestGuardWithSpell:
         mock_agent = MagicMock()
         mock_agent.run_sync.return_value = mock_result
 
-        with patch("magically.spell.Agent", return_value=mock_agent):
+        with patch("spellcrafting.spell.Agent", return_value=mock_agent):
             summarize("hello")
 
             # Check the prompt was transformed
@@ -954,7 +954,7 @@ class TestGuardWithSpell:
         mock_agent = MagicMock()
         mock_agent.run_sync.return_value = mock_result
 
-        with patch("magically.spell.Agent", return_value=mock_agent):
+        with patch("spellcrafting.spell.Agent", return_value=mock_agent):
             result = summarize("test")
             assert result == "SUMMARY"
 
@@ -967,7 +967,7 @@ class TestGuardWithSpell:
 
         mock_agent = MagicMock()
 
-        with patch("magically.spell.Agent", return_value=mock_agent):
+        with patch("spellcrafting.spell.Agent", return_value=mock_agent):
             with pytest.raises(GuardError, match="exceeds maximum length"):
                 summarize("this is a very long input that exceeds the limit")
 
@@ -996,7 +996,7 @@ class TestGuardWithSpell:
         mock_agent = MagicMock()
         mock_agent.run_sync.return_value = mock_result
 
-        with patch("magically.spell.Agent", return_value=mock_agent):
+        with patch("spellcrafting.spell.Agent", return_value=mock_agent):
             summarize("hello")
 
             # guard1 runs first (outermost decorator applied last via insert(0))
@@ -1051,7 +1051,7 @@ class TestAsyncGuardWithSpell:
 
         mock_agent.run = mock_run
 
-        with patch("magically.spell.Agent", return_value=mock_agent):
+        with patch("spellcrafting.spell.Agent", return_value=mock_agent):
             await summarize("test")
 
         assert guard_called == [True]
@@ -1080,7 +1080,7 @@ class TestAsyncGuardWithSpell:
 
         mock_agent.run = mock_run
 
-        with patch("magically.spell.Agent", return_value=mock_agent):
+        with patch("spellcrafting.spell.Agent", return_value=mock_agent):
             await summarize("test")
 
         assert guard_called == [True]
@@ -1100,7 +1100,7 @@ class TestAsyncGuardWithSpell:
 
         mock_agent = MagicMock()
 
-        with patch("magically.spell.Agent", return_value=mock_agent):
+        with patch("spellcrafting.spell.Agent", return_value=mock_agent):
             with pytest.raises(GuardError, match="Rejected!"):
                 await summarize("test")
 
@@ -1129,7 +1129,7 @@ class TestAsyncGuardWithSpell:
 
         mock_agent.run = mock_run
 
-        with patch("magically.spell.Agent", return_value=mock_agent):
+        with patch("spellcrafting.spell.Agent", return_value=mock_agent):
             await summarize("test")
 
         assert guard_called == ["async_guard"]
@@ -1156,7 +1156,7 @@ class TestGuardContext:
         mock_agent = MagicMock()
         mock_agent.run_sync.return_value = mock_result
 
-        with patch("magically.spell.Agent", return_value=mock_agent):
+        with patch("spellcrafting.spell.Agent", return_value=mock_agent):
             my_spell_name("test")
 
         assert received_ctx["spell_name"] == "my_spell_name"
@@ -1179,7 +1179,7 @@ class TestGuardContext:
         mock_agent = MagicMock()
         mock_agent.run_sync.return_value = mock_result
 
-        with patch("magically.spell.Agent", return_value=mock_agent):
+        with patch("spellcrafting.spell.Agent", return_value=mock_agent):
             my_spell("test")
 
         assert received_ctx["model"] == "openai:gpt-4o"
@@ -1329,7 +1329,7 @@ class TestDecoratorOrderWarning:
         mock_agent = MagicMock()
         mock_agent.run_sync.return_value = mock_result
 
-        with patch("magically.spell.Agent", return_value=mock_agent):
+        with patch("spellcrafting.spell.Agent", return_value=mock_agent):
             my_spell("test")
 
         # Guard on outer wrapper is NOT integrated with spell execution
@@ -1356,7 +1356,7 @@ class TestDecoratorOrderWarning:
         mock_agent = MagicMock()
         mock_agent.run_sync.return_value = mock_result
 
-        with patch("magically.spell.Agent", return_value=mock_agent):
+        with patch("spellcrafting.spell.Agent", return_value=mock_agent):
             my_spell("test")
 
         # Guard inside @spell IS integrated and runs
@@ -1443,7 +1443,7 @@ class TestGuardContextDataclass:
         mock_agent = MagicMock()
         mock_agent.run_sync.return_value = mock_result
 
-        with patch("magically.spell.Agent", return_value=mock_agent):
+        with patch("spellcrafting.spell.Agent", return_value=mock_agent):
             my_test_spell("hello")
 
         assert len(received_contexts) == 1
@@ -1471,7 +1471,7 @@ class TestGuardContextDataclass:
         mock_agent = MagicMock()
         mock_agent.run_sync.return_value = mock_result
 
-        with patch("magically.spell.Agent", return_value=mock_agent):
+        with patch("spellcrafting.spell.Agent", return_value=mock_agent):
             my_output_spell("hello")
 
         assert len(received_contexts) == 1
@@ -1796,7 +1796,7 @@ class TestAsyncGuardFunctions:
 
         mock_agent.run = mock_run
 
-        with patch("magically.spell.Agent", return_value=mock_agent):
+        with patch("spellcrafting.spell.Agent", return_value=mock_agent):
             result = await summarize("hello")
 
         assert guard_calls == ["async_input"]
@@ -1833,7 +1833,7 @@ class TestAsyncGuardFunctions:
 
         mock_agent.run = mock_run
 
-        with patch("magically.spell.Agent", return_value=mock_agent):
+        with patch("spellcrafting.spell.Agent", return_value=mock_agent):
             result = await summarize("test")
 
         assert guard_calls == ["async_output"]
@@ -1856,7 +1856,7 @@ class TestAsyncGuardFunctions:
 
         mock_agent = MagicMock()
 
-        with patch("magically.spell.Agent", return_value=mock_agent):
+        with patch("spellcrafting.spell.Agent", return_value=mock_agent):
             with pytest.raises(GuardError, match="Async rejection!"):
                 await summarize("test")
 
@@ -1884,7 +1884,7 @@ class TestAsyncGuardFunctions:
 
         mock_agent.run = mock_run
 
-        with patch("magically.spell.Agent", return_value=mock_agent):
+        with patch("spellcrafting.spell.Agent", return_value=mock_agent):
             with pytest.raises(GuardError, match="Async output rejection!"):
                 await summarize("test")
 
@@ -1931,7 +1931,7 @@ class TestAsyncGuardFunctions:
 
         mock_agent.run = mock_run
 
-        with patch("magically.spell.Agent", return_value=mock_agent):
+        with patch("spellcrafting.spell.Agent", return_value=mock_agent):
             await summarize("test")
 
         # Input guards run first (in decorator order), then output guards
@@ -1972,7 +1972,7 @@ class TestAsyncGuardFunctions:
 
         mock_agent.run = mock_run
 
-        with patch("magically.spell.Agent", return_value=mock_agent):
+        with patch("spellcrafting.spell.Agent", return_value=mock_agent):
             await summarize("hello")
 
         # Check the prompt contains the transformed input

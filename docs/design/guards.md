@@ -1,13 +1,13 @@
-# Guards Design for magically
+# Guards Design for spellcrafting
 
-> Synthesis of research into an opinionated design for the magically library.
+> Synthesis of research into an opinionated design for the spellcrafting library.
 > This document recommends what to build, what NOT to build, and why.
 
 ## Terminology
 
 This library uses consistent terminology:
 
-- **guard**: The `@guard.input()` and `@guard.output()` decorators implemented in magically
+- **guard**: The `@guard.input()` and `@guard.output()` decorators implemented in spellcrafting
 - **validator**: Pydantic validators (`@field_validator`, `@model_validator`) and the `llm_validator()` helper
 - **guardrail**: General industry term for LLM safety/validation systems; used in research docs when referencing external frameworks (Guardrails AI, NeMo Guardrails, etc.)
 
@@ -30,7 +30,7 @@ After analyzing four research documents covering framework comparisons, input va
 - Complex DSLs or configuration systems (NeMo-style)
 - Rate limiting, budgeting, circuit breakers (use LiteLLM Proxy, Portkey)
 
-**Philosophy:** magically is about making LLM calls feel like native Python. Guards should feel the same way - Pydantic validators, not YAML configs.
+**Philosophy:** spellcrafting is about making LLM calls feel like native Python. Guards should feel the same way - Pydantic validators, not YAML configs.
 
 ---
 
@@ -91,7 +91,7 @@ Pydantic handles *structural* validation (types, ranges, formats). But some vali
 Guards are composable decorators for input and output validation:
 
 ```python
-from magically import spell, guard
+from spellcrafting import spell, guard
 
 def check_key_points(result: Analysis, ctx: dict) -> Analysis:
     """Validate that we have enough key points."""
@@ -145,7 +145,7 @@ The most powerful insight from the research: some validation is best done by ano
 
 ```python
 from pydantic import BaseModel
-from magically import spell
+from spellcrafting import spell
 
 class ValidationResult(BaseModel):
     is_valid: bool
@@ -203,8 +203,8 @@ async def validated_report(data: str) -> Report:
 We *could* ship a few common validator spells:
 
 ```python
-# magically.validators (optional module)
-from magically import spell
+# spellcrafting.validators (optional module)
+from spellcrafting import spell
 from pydantic import BaseModel
 
 class ToneCheck(BaseModel):
@@ -295,13 +295,13 @@ The research documents LiteLLM Proxy, Portkey, and other gateways that handle:
 - Circuit breakers and fallbacks
 - Provider routing
 
-**Why not in magically?**
+**Why not in spellcrafting?**
 - Requires persistence (Redis, database) for stateful tracking
 - Multi-process/distributed coordination is complex
 - Existing solutions are battle-tested
 - We'd be building a gateway inside a library
 
-**Recommendation:** Document how to use magically with LiteLLM Proxy or similar.
+**Recommendation:** Document how to use spellcrafting with LiteLLM Proxy or similar.
 
 ### 3.3 Configuration DSLs
 
@@ -337,10 +337,10 @@ Guardrails AI has a validator hub requiring separate installation (`guardrails h
 
 ```python
 # Users install once
-pip install magically
+pip install spellcrafting
 
 # Validators are just functions
-from magically.validators import check_tone, check_grounding
+from spellcrafting.validators import check_tone, check_grounding
 ```
 
 ---
@@ -400,14 +400,14 @@ def moderate_input(func):
 
 ```python
 # pyproject.toml
-[tool.magically.models]
+[tool.spellcrafting.models]
 fast = { model = "openai:gpt-4o-mini" }  # Actually routes through proxy
 
 # Environment
 OPENAI_API_BASE=http://localhost:4000  # LiteLLM Proxy
 
 # The proxy handles rate limiting, budgets, etc.
-# magically just makes the call
+# spellcrafting just makes the call
 @spell(model="fast")
 def process(text: str) -> Output:
     ...
@@ -437,7 +437,7 @@ This approach is more flexible than the proposed `@validate` because:
 We also added `llm_validator()` for LLM-powered validation:
 
 ```python
-from magically import llm_validator
+from spellcrafting import llm_validator
 
 # Create a validator that uses an LLM to check constraints
 validator = llm_validator("Must be polite and professional")
@@ -451,7 +451,7 @@ def generate_response(query: str) -> str:
 
 ### Not Implemented: Validator Spells Module
 
-The optional `magically.validators` module with pre-built validator spells was not implemented. Users can create their own validator spells as needed.
+The optional `spellcrafting.validators` module with pre-built validator spells was not implemented. Users can create their own validator spells as needed.
 
 ---
 
@@ -461,7 +461,7 @@ The optional `magically.validators` module with pre-built validator spells was n
 
 ```python
 from pydantic import BaseModel, Field, field_validator
-from magically import spell, guard
+from spellcrafting import spell, guard
 
 class Report(BaseModel):
     title: str = Field(min_length=5)
@@ -502,7 +502,7 @@ def generate_report(topic: str) -> Report:
 
 ### Key Insights from Framework Comparison
 
-| Framework | Lesson for magically |
+| Framework | Lesson for spellcrafting |
 |-----------|---------------------|
 | Guardrails AI | Composable validators are good, but hub dependencies are bad |
 | NeMo Guardrails | DSLs add complexity and latency - avoid |

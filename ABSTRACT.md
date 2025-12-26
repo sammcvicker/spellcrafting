@@ -1,6 +1,6 @@
-# Magically: Design Philosophy
+# Spellcrafting: Design Philosophy
 
-Magically makes LLMs a Python language feature. This document explains the design decisions behind the library.
+Spellcrafting makes LLMs a Python language feature. This document explains the design decisions behind the library.
 
 ## Core Concept: Spells, Not Agents
 
@@ -14,7 +14,7 @@ This design choice prioritizes predictability over flexibility. When you call a 
 
 ## Intent vs Implementation
 
-Configuration in Magically separates **intent** (what you want) from **implementation** (how to get it):
+Configuration in Spellcrafting separates **intent** (what you want) from **implementation** (how to get it):
 
 ```python
 # Intent: Use a "fast" model
@@ -22,7 +22,7 @@ Configuration in Magically separates **intent** (what you want) from **implement
 def summarize(text: str) -> str: ...
 
 # Implementation: pyproject.toml maps "fast" to a specific provider/model
-# [tool.magically.models.fast]
+# [tool.spellcrafting.models.fast]
 # model = "anthropic:claude-haiku"
 ```
 
@@ -33,12 +33,12 @@ This separation allows:
 
 ## Relationship with PydanticAI
 
-Magically is built on [PydanticAI](https://ai.pydantic.dev/), which provides:
+Spellcrafting is built on [PydanticAI](https://ai.pydantic.dev/), which provides:
 - Multi-provider LLM support (Anthropic, OpenAI, etc.)
 - Structured output via Pydantic models
 - Retry logic with validation feedback
 
-Magically adds:
+Spellcrafting adds:
 - Declarative function-based API (`@spell` decorator)
 - Configuration system (pyproject.toml, env vars, runtime config)
 - Guards for input/output validation
@@ -46,7 +46,7 @@ Magically adds:
 
 ## Target Use Cases
 
-Magically is designed for:
+Spellcrafting is designed for:
 
 1. **Structured data extraction**: Parse unstructured text into typed objects
 2. **Content transformation**: Summarization, translation, reformatting
@@ -55,7 +55,7 @@ Magically is designed for:
 
 ## Non-Goals
 
-Magically explicitly does NOT aim to:
+Spellcrafting explicitly does NOT aim to:
 
 - **Replace agent frameworks**: For complex multi-step reasoning with tool use, use PydanticAI directly or dedicated agent frameworks
 - **Provide chat interfaces**: Spells are single-turn, stateless operations

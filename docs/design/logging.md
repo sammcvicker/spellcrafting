@@ -2,7 +2,7 @@
 
 ## Overview
 
-Enterprise-grade observability for magically: structured logging, distributed tracing, cost tracking, and performance metrics. Zero overhead when disabled, rich telemetry when enabled.
+Enterprise-grade observability for spellcrafting: structured logging, distributed tracing, cost tracking, and performance metrics. Zero overhead when disabled, rich telemetry when enabled.
 
 ## Goals
 
@@ -126,7 +126,7 @@ def pipeline(data: str) -> str:
 ### External Correlation
 
 ```python
-from magically import with_trace_id
+from spellcrafting import with_trace_id
 
 # Correlate with incoming HTTP request
 @app.post("/analyze")
@@ -169,7 +169,7 @@ _trace_context: ContextVar[TraceContext | None] = ContextVar("trace", default=No
 ### Quick Setup
 
 ```python
-from magically import setup_logging, LogLevel
+from spellcrafting import setup_logging, LogLevel
 
 # Development: console output
 setup_logging(level=LogLevel.DEBUG)
@@ -185,14 +185,14 @@ setup_logging(
 ### Full Configuration
 
 ```python
-from magically import LoggingConfig, configure_logging
+from spellcrafting import LoggingConfig, configure_logging
 
 configure_logging(LoggingConfig(
     enabled=True,
     level=LogLevel.INFO,
     handlers=[
-        PythonLoggingHandler(logger_name="magically"),
-        JSONFileHandler("/var/log/magically.jsonl"),
+        PythonLoggingHandler(logger_name="spellcrafting"),
+        JSONFileHandler("/var/log/spellcrafting.jsonl"),
         OpenTelemetryHandler(),
     ],
     redact_content=False,
@@ -206,19 +206,19 @@ configure_logging(LoggingConfig(
 ### pyproject.toml
 
 ```toml
-[tool.magically.logging]
+[tool.spellcrafting.logging]
 enabled = true
 level = "info"
 redact_content = false
 cost_tracking = true
 
-[tool.magically.logging.handlers.python]
+[tool.spellcrafting.logging.handlers.python]
 type = "python"
-logger_name = "magically"
+logger_name = "spellcrafting"
 
-[tool.magically.logging.handlers.json]
+[tool.spellcrafting.logging.handlers.json]
 type = "json_file"
-path = "logs/magically.jsonl"
+path = "logs/spellcrafting.jsonl"
 ```
 
 ---
@@ -260,7 +260,7 @@ class CloudWatchHandler:
             return
         self.client.put_log_events(
             logGroupName=self.log_group,
-            logStreamName="magically",
+            logStreamName="spellcrafting",
             logEvents=[{
                 "timestamp": int(log.start_time.timestamp() * 1000),
                 "message": log.to_json(),
@@ -427,25 +427,25 @@ def _emit_log(log: SpellExecutionLog) -> None:
 ### Public Exports
 
 ```python
-# magically/__init__.py additions
+# spellcrafting/__init__.py additions
 
 # Configuration
-from magically.logging import (
+from spellcrafting.logging import (
     LoggingConfig,
     LogLevel,
     configure_logging,
     get_logging_config,
 )
 
-# Quick setup (also in magically.logging)
-from magically.logging import (
+# Quick setup (also in spellcrafting.logging)
+from spellcrafting.logging import (
     setup_logging,
     setup_logfire,
     setup_datadog,
 )
 
 # Tracing
-from magically.logging import (
+from spellcrafting.logging import (
     TraceContext,
     trace_context,
     current_trace,
@@ -453,7 +453,7 @@ from magically.logging import (
 )
 
 # Handlers
-from magically.logging import (
+from spellcrafting.logging import (
     LogHandler,
     PythonLoggingHandler,
     JSONFileHandler,
@@ -461,7 +461,7 @@ from magically.logging import (
 )
 
 # Types (for custom handlers)
-from magically.logging import (
+from spellcrafting.logging import (
     SpellExecutionLog,
     TokenUsage,
     CostEstimate,
@@ -528,7 +528,7 @@ def test_spell_logs_execution():
         """Greet someone."""
         ...
 
-    with patch("magically.spell.Agent") as mock:
+    with patch("spellcrafting.spell.Agent") as mock:
         mock.return_value.run_sync.return_value.output = "Hello"
         mock.return_value.run_sync.return_value.usage.return_value = Usage(...)
         greet("World")

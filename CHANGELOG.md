@@ -87,7 +87,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Function arguments become user message
 - `Config` class for model configuration with context manager support
 - `ModelConfig` for defining model aliases with settings (temperature, max_tokens, etc.)
-- Model alias resolution from `pyproject.toml` under `[tool.magically.models]`
+- Model alias resolution from `pyproject.toml` under `[tool.spellcrafting.models]`
 - Async support (`async def` functions automatically use async LLM calls)
 - Agent caching to avoid recreating PydanticAI agents
 - Comprehensive logging system:

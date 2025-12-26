@@ -1,6 +1,6 @@
-# Contributing to Magically
+# Contributing to Spellcrafting
 
-Thank you for your interest in contributing to Magically! This document provides guidelines for contributing to the project.
+Thank you for your interest in contributing to Spellcrafting! This document provides guidelines for contributing to the project.
 
 ## Development Setup
 
@@ -13,8 +13,8 @@ Thank you for your interest in contributing to Magically! This document provides
 
 1. Clone the repository:
    ```bash
-   git clone https://github.com/sammcvicker/magically.git
-   cd magically
+   git clone https://github.com/sammcvicker/spellcrafting.git
+   cd spellcrafting
    ```
 
 2. Install dependencies:
@@ -24,7 +24,7 @@ Thank you for your interest in contributing to Magically! This document provides
 
 3. Verify the installation:
    ```bash
-   uv run python -c "from magically import spell, guard, Config; print('OK')"
+   uv run python -c "from spellcrafting import spell, guard, Config; print('OK')"
    ```
 
 ## Running Tests
@@ -132,7 +132,7 @@ Examples:
 ## Project Structure
 
 ```
-src/magically/       # Main package
+src/spellcrafting/       # Main package
   spell.py           # @spell decorator - core LLM function wrapper
   guard.py           # @guard.input/output decorators - validation
   config.py          # Model alias configuration (Config context manager)

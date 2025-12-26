@@ -1,11 +1,11 @@
-# Magically
+# Spellcrafting
 
 LLMs as a Python language feature. Provides `@spell` and `@guard` decorators to turn functions into LLM-powered operations with input/output validation.
 
 ## Package Structure
 
 ```
-src/magically/       # Main package
+src/spellcrafting/       # Main package
   spell.py           # @spell decorator - core LLM function wrapper
   guard.py           # @guard.input/output decorators - validation
   config.py          # Model alias configuration (Config context manager)
@@ -30,7 +30,7 @@ uv run pytest tests/ -q
 uv run pytest tests/ -m "not smoke"
 
 # Verify imports work
-uv run python -c "from magically import spell, guard, Config; print('OK')"
+uv run python -c "from spellcrafting import spell, guard, Config; print('OK')"
 ```
 
 ## Core Patterns

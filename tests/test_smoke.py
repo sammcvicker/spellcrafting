@@ -5,7 +5,7 @@ import os
 import pytest
 from pydantic import BaseModel
 
-from magically import spell
+from spellcrafting import spell
 
 
 pytestmark = pytest.mark.smoke

@@ -7,7 +7,7 @@ When you use a Pydantic model as your spell's return type, you get powerful vali
 The `@spell` decorator uses [PydanticAI](https://ai.pydantic.dev/) under the hood. Your return type annotation becomes the output schema:
 
 ```python
-from magically import spell
+from spellcrafting import spell
 from pydantic import BaseModel
 
 class Analysis(BaseModel):
@@ -490,7 +490,7 @@ When validation fails after all retries, you can specify what happens next:
 ### Escalate to a Better Model
 
 ```python
-from magically import spell, OnFail
+from spellcrafting import spell, OnFail
 
 @spell(model="fast", retries=2, on_fail=OnFail.escalate("reasoning"))
 def analyze(text: str) -> Analysis:
@@ -533,7 +533,7 @@ For validation that requires understanding, use `llm_validator`:
 ```python
 from pydantic import BaseModel, BeforeValidator
 from typing import Annotated
-from magically import llm_validator
+from spellcrafting import llm_validator
 
 # The LLM validates that content is family-friendly
 FamilyFriendly = Annotated[str, BeforeValidator(llm_validator("Must be family-friendly"))]

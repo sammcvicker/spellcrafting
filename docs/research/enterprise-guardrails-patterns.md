@@ -5,7 +5,7 @@
 
 ## Implementation Status
 
-This research document informed the design of magically's observability and configuration systems. Key decisions:
+This research document informed the design of spellcrafting's observability and configuration systems. Key decisions:
 
 **Implemented:**
 - `SpellExecutionLog` dataclass for structured audit logging (section 4.1 pattern)
