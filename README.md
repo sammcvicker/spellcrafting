@@ -28,7 +28,7 @@ result = analyze("Python is fantastic for AI development!")
 pip install magically
 ```
 
-Requires Python 3.13+.
+Requires Python 3.10+.
 
 ### Optional Dependencies
 
