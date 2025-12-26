@@ -5,7 +5,7 @@ import os
 import pytest
 from pydantic import BaseModel
 
-from spellcrafting import spell
+from spellcrafting import spell, Image
 
 
 pytestmark = pytest.mark.smoke
@@ -183,3 +183,77 @@ async def test_async_spell_with_tools():
     # Allow small variance for floating point, though exact match expected
     # The LLM should use the calculator tool and get 128.0
     assert abs(result.result - 128.0) < 1.0, f"Expected ~128.0, got {result.result}"
+
+
+# ---------------------------------------------------------------------------
+# Multi-modal tests (require vision models)
+# ---------------------------------------------------------------------------
+
+
+def test_spell_with_image_url():
+    """Test that spells can accept Image inputs from URLs."""
+
+    class ImageDescription(BaseModel):
+        description: str
+        colors: list[str]
+
+    @spell(model="anthropic:claude-sonnet-4-20250514")
+    def describe_image(image: Image) -> ImageDescription:
+        """Describe what you see in this image. List the main colors present."""
+        ...
+
+    # Use a well-known public domain image (Wikipedia Commons red circle)
+    img = Image.from_url(
+        "https://upload.wikimedia.org/wikipedia/commons/thumb/0/02/Red_Circle%28small%29.svg/200px-Red_Circle%28small%29.svg.png"
+    )
+
+    result = describe_image(img)
+    assert isinstance(result, ImageDescription)
+    assert len(result.description) > 0
+    # The image is a red circle, should mention red
+    assert any("red" in color.lower() for color in result.colors)
+
+
+@pytest.mark.asyncio
+async def test_async_spell_with_image():
+    """Test that async spells can accept Image inputs."""
+
+    @spell(model="anthropic:claude-sonnet-4-20250514")
+    async def count_objects(image: Image, question: str) -> str:
+        """Answer the question about the image."""
+        ...
+
+    # Use the same red circle image
+    img = Image.from_url(
+        "https://upload.wikimedia.org/wikipedia/commons/thumb/0/02/Red_Circle%28small%29.svg/200px-Red_Circle%28small%29.svg.png"
+    )
+
+    result = await count_objects(img, "What shape do you see?")
+    assert isinstance(result, str)
+    # Should mention circle
+    assert "circle" in result.lower()
+
+
+def test_spell_with_image_and_text():
+    """Test spells with mixed image and text arguments."""
+
+    class Analysis(BaseModel):
+        answer: str
+        confidence: str
+
+    @spell(model="anthropic:claude-sonnet-4-20250514")
+    def analyze_with_context(context: str, image: Image) -> Analysis:
+        """Given the context, analyze the image and provide your answer with confidence level."""
+        ...
+
+    img = Image.from_url(
+        "https://upload.wikimedia.org/wikipedia/commons/thumb/0/02/Red_Circle%28small%29.svg/200px-Red_Circle%28small%29.svg.png"
+    )
+
+    result = analyze_with_context(
+        context="Is this image primarily a warm or cool color?",
+        image=img
+    )
+    assert isinstance(result, Analysis)
+    # Red is a warm color
+    assert "warm" in result.answer.lower() or "red" in result.answer.lower()
