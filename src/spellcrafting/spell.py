@@ -1123,7 +1123,7 @@ def spell(
                     guard_context = GuardExecutor.build_context(fn, model=spell_config.model)
                     if logging_enabled and validation_metrics:
                         guard_result = await GuardExecutor.run_input_guards_tracked_async(
-                            guard_config, input_args, guard_context
+                            guard_config, input_args, guard_context, emit_events=True
                         )
                         input_args = guard_result.result
                         validation_metrics.input_guards_passed = guard_result.passed
@@ -1193,14 +1193,14 @@ def spell(
                             guard_context = GuardExecutor.build_context(fn, model=spell_config.model)
                             if validation_metrics:
                                 guard_result = await GuardExecutor.run_output_guards_tracked_async(
-                                    guard_config, output, guard_context
+                                    guard_config, output, guard_context, emit_events=True
                                 )
                                 output = guard_result.result
                                 validation_metrics.output_guards_passed = guard_result.passed
                                 validation_metrics.output_guards_failed = guard_result.failed
                             else:
                                 output = await GuardExecutor.run_output_guards_async(
-                                    guard_config, output, guard_context
+                                    guard_config, output, guard_context, emit_events=True
                                 )
 
                         _finalize_log_success(log, result, resolved_model, output)
@@ -1237,7 +1237,7 @@ def spell(
                     guard_context = GuardExecutor.build_context(fn, model=spell_config.model)
                     if logging_enabled and validation_metrics:
                         guard_result = GuardExecutor.run_input_guards_tracked(
-                            guard_config, input_args, guard_context
+                            guard_config, input_args, guard_context, emit_events=True
                         )
                         input_args = guard_result.result
                         validation_metrics.input_guards_passed = guard_result.passed
@@ -1307,14 +1307,14 @@ def spell(
                             guard_context = GuardExecutor.build_context(fn, model=spell_config.model)
                             if validation_metrics:
                                 guard_result = GuardExecutor.run_output_guards_tracked(
-                                    guard_config, output, guard_context
+                                    guard_config, output, guard_context, emit_events=True
                                 )
                                 output = guard_result.result
                                 validation_metrics.output_guards_passed = guard_result.passed
                                 validation_metrics.output_guards_failed = guard_result.failed
                             else:
                                 output = GuardExecutor.run_output_guards(
-                                    guard_config, output, guard_context
+                                    guard_config, output, guard_context, emit_events=True
                                 )
 
                         _finalize_log_success(log, result, resolved_model, output)
