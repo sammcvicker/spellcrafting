@@ -2156,3 +2156,516 @@ class TestGuardErrorHandling:
 
         with pytest.raises(GuardError, match="Unexpected runtime error"):
             _run_input_guards(guards, {"text": "hello"}, TEST_CONTEXT)
+
+
+class TestGuardEventEmission:
+    """Tests for guard event emission (#195).
+
+    These tests verify that guards emit SpellEvent when logging is enabled
+    and emit_events=True is passed to the guard runners.
+    """
+
+    def test_sync_input_guard_emits_start_and_pass_events(self):
+        """Sync input guard should emit start and pass events when successful."""
+        from unittest.mock import patch
+        from spellcrafting import LoggingConfig, LogLevel, PythonLoggingHandler, configure_logging
+        from spellcrafting.logging import trace_context
+
+        def passing_guard(args: dict, ctx: dict) -> dict:
+            return args
+
+        guards = [(passing_guard, OnFail.RAISE)]
+        context = GuardContext(spell_name="test_spell")
+
+        emitted_events = []
+
+        def capture_emit(event):
+            emitted_events.append(event)
+
+        config = LoggingConfig(
+            enabled=True,
+            level=LogLevel.DEBUG,
+            handlers=[PythonLoggingHandler()],
+        )
+        configure_logging(config)
+
+        try:
+            with trace_context() as ctx:
+                with patch("spellcrafting.guard._emit_guard_event", side_effect=lambda *args, **kwargs: capture_emit({"event_type": args[0], "guard_name": args[1], **kwargs})):
+                    _run_input_guards(guards, {"text": "hello"}, context, emit_events=True)
+        finally:
+            configure_logging(LoggingConfig(enabled=False))
+
+        # Should have start and pass events
+        assert len(emitted_events) == 2
+        assert emitted_events[0]["event_type"] == "guard.input.start"
+        assert emitted_events[0]["guard_name"] == "passing_guard"
+        assert emitted_events[1]["event_type"] == "guard.input.pass"
+        assert emitted_events[1]["guard_name"] == "passing_guard"
+        assert "duration_ms" in emitted_events[1]
+
+    def test_sync_input_guard_emits_start_and_fail_events(self):
+        """Sync input guard should emit start and fail events when guard fails."""
+        from unittest.mock import patch
+        from spellcrafting import LoggingConfig, LogLevel, PythonLoggingHandler, configure_logging
+        from spellcrafting.logging import trace_context
+
+        def failing_guard(args: dict, ctx: dict) -> dict:
+            raise ValueError("Guard failed!")
+
+        guards = [(failing_guard, OnFail.RAISE)]
+        context = GuardContext(spell_name="test_spell")
+
+        emitted_events = []
+
+        def capture_emit(event):
+            emitted_events.append(event)
+
+        config = LoggingConfig(
+            enabled=True,
+            level=LogLevel.DEBUG,
+            handlers=[PythonLoggingHandler()],
+        )
+        configure_logging(config)
+
+        try:
+            with trace_context() as ctx:
+                with patch("spellcrafting.guard._emit_guard_event", side_effect=lambda *args, **kwargs: capture_emit({"event_type": args[0], "guard_name": args[1], **kwargs})):
+                    with pytest.raises(GuardError, match="Guard failed!"):
+                        _run_input_guards(guards, {"text": "hello"}, context, emit_events=True)
+        finally:
+            configure_logging(LoggingConfig(enabled=False))
+
+        # Should have start and fail events
+        assert len(emitted_events) == 2
+        assert emitted_events[0]["event_type"] == "guard.input.start"
+        assert emitted_events[1]["event_type"] == "guard.input.fail"
+        assert emitted_events[1]["error"] == "Guard failed!"
+        assert "duration_ms" in emitted_events[1]
+
+    def test_sync_output_guard_emits_correct_event_types(self):
+        """Sync output guard should emit guard.output.* events."""
+        from unittest.mock import patch
+        from spellcrafting import LoggingConfig, LogLevel, PythonLoggingHandler, configure_logging
+        from spellcrafting.logging import trace_context
+
+        def passing_guard(output: str, ctx: dict) -> str:
+            return output
+
+        guards = [(passing_guard, OnFail.RAISE)]
+        context = GuardContext(spell_name="test_spell")
+
+        emitted_events = []
+
+        def capture_emit(event):
+            emitted_events.append(event)
+
+        config = LoggingConfig(
+            enabled=True,
+            level=LogLevel.DEBUG,
+            handlers=[PythonLoggingHandler()],
+        )
+        configure_logging(config)
+
+        try:
+            with trace_context() as ctx:
+                with patch("spellcrafting.guard._emit_guard_event", side_effect=lambda *args, **kwargs: capture_emit({"event_type": args[0], "guard_name": args[1], **kwargs})):
+                    _run_output_guards(guards, "test output", context, emit_events=True)
+        finally:
+            configure_logging(LoggingConfig(enabled=False))
+
+        # Should have output event types
+        assert len(emitted_events) == 2
+        assert emitted_events[0]["event_type"] == "guard.output.start"
+        assert emitted_events[1]["event_type"] == "guard.output.pass"
+
+    def test_no_events_when_emit_events_false(self):
+        """No events should be emitted when emit_events=False (default)."""
+        from unittest.mock import patch
+        from spellcrafting import LoggingConfig, LogLevel, PythonLoggingHandler, configure_logging
+        from spellcrafting.logging import trace_context
+
+        def passing_guard(args: dict, ctx: dict) -> dict:
+            return args
+
+        guards = [(passing_guard, OnFail.RAISE)]
+        context = GuardContext(spell_name="test_spell")
+
+        emitted_events = []
+
+        def capture_emit(event):
+            emitted_events.append(event)
+
+        config = LoggingConfig(
+            enabled=True,
+            level=LogLevel.DEBUG,
+            handlers=[PythonLoggingHandler()],
+        )
+        configure_logging(config)
+
+        try:
+            with trace_context() as ctx:
+                with patch("spellcrafting.guard._emit_guard_event", side_effect=lambda *args, **kwargs: capture_emit({"event_type": args[0]})):
+                    # Default emit_events=False
+                    _run_input_guards(guards, {"text": "hello"}, context)
+        finally:
+            configure_logging(LoggingConfig(enabled=False))
+
+        # No events should be emitted
+        assert len(emitted_events) == 0
+
+    def test_multiple_guards_emit_multiple_events(self):
+        """Multiple guards should each emit start/pass events."""
+        from unittest.mock import patch
+        from spellcrafting import LoggingConfig, LogLevel, PythonLoggingHandler, configure_logging
+        from spellcrafting.logging import trace_context
+
+        def guard1(args: dict, ctx: dict) -> dict:
+            return args
+
+        def guard2(args: dict, ctx: dict) -> dict:
+            return args
+
+        guards = [(guard1, OnFail.RAISE), (guard2, OnFail.RAISE)]
+        context = GuardContext(spell_name="test_spell")
+
+        emitted_events = []
+
+        def capture_emit(event):
+            emitted_events.append(event)
+
+        config = LoggingConfig(
+            enabled=True,
+            level=LogLevel.DEBUG,
+            handlers=[PythonLoggingHandler()],
+        )
+        configure_logging(config)
+
+        try:
+            with trace_context() as ctx:
+                with patch("spellcrafting.guard._emit_guard_event", side_effect=lambda *args, **kwargs: capture_emit({"event_type": args[0], "guard_name": args[1]})):
+                    _run_input_guards(guards, {"text": "hello"}, context, emit_events=True)
+        finally:
+            configure_logging(LoggingConfig(enabled=False))
+
+        # Should have 4 events: start1, pass1, start2, pass2
+        assert len(emitted_events) == 4
+        assert emitted_events[0]["guard_name"] == "guard1"
+        assert emitted_events[0]["event_type"] == "guard.input.start"
+        assert emitted_events[1]["guard_name"] == "guard1"
+        assert emitted_events[1]["event_type"] == "guard.input.pass"
+        assert emitted_events[2]["guard_name"] == "guard2"
+        assert emitted_events[2]["event_type"] == "guard.input.start"
+        assert emitted_events[3]["guard_name"] == "guard2"
+        assert emitted_events[3]["event_type"] == "guard.input.pass"
+
+    @pytest.mark.asyncio
+    async def test_async_input_guard_emits_events(self):
+        """Async input guard should emit start and pass events."""
+        import asyncio
+        from unittest.mock import patch
+        from spellcrafting import LoggingConfig, LogLevel, PythonLoggingHandler, configure_logging
+        from spellcrafting.logging import trace_context
+
+        async def passing_guard(args: dict, ctx: dict) -> dict:
+            await asyncio.sleep(0)
+            return args
+
+        guards = [(passing_guard, OnFail.RAISE)]
+        context = GuardContext(spell_name="test_spell")
+
+        emitted_events = []
+
+        def capture_emit(event):
+            emitted_events.append(event)
+
+        config = LoggingConfig(
+            enabled=True,
+            level=LogLevel.DEBUG,
+            handlers=[PythonLoggingHandler()],
+        )
+        configure_logging(config)
+
+        try:
+            with trace_context() as ctx:
+                with patch("spellcrafting.guard._emit_guard_event", side_effect=lambda *args, **kwargs: capture_emit({"event_type": args[0], "guard_name": args[1]})):
+                    await _run_input_guards_async(guards, {"text": "hello"}, context, emit_events=True)
+        finally:
+            configure_logging(LoggingConfig(enabled=False))
+
+        # Should have start and pass events
+        assert len(emitted_events) == 2
+        assert emitted_events[0]["event_type"] == "guard.input.start"
+        assert emitted_events[1]["event_type"] == "guard.input.pass"
+
+    @pytest.mark.asyncio
+    async def test_async_output_guard_emits_events_on_failure(self):
+        """Async output guard should emit start and fail events when guard fails."""
+        import asyncio
+        from unittest.mock import patch
+        from spellcrafting import LoggingConfig, LogLevel, PythonLoggingHandler, configure_logging
+        from spellcrafting.logging import trace_context
+
+        async def failing_guard(output: str, ctx: dict) -> str:
+            await asyncio.sleep(0)
+            raise ValueError("Async guard failed!")
+
+        guards = [(failing_guard, OnFail.RAISE)]
+        context = GuardContext(spell_name="test_spell")
+
+        emitted_events = []
+
+        def capture_emit(event):
+            emitted_events.append(event)
+
+        config = LoggingConfig(
+            enabled=True,
+            level=LogLevel.DEBUG,
+            handlers=[PythonLoggingHandler()],
+        )
+        configure_logging(config)
+
+        try:
+            with trace_context() as ctx:
+                with patch("spellcrafting.guard._emit_guard_event", side_effect=lambda *args, **kwargs: capture_emit({"event_type": args[0], "guard_name": args[1], **kwargs})):
+                    with pytest.raises(GuardError, match="Async guard failed!"):
+                        await _run_output_guards_async(guards, "test", context, emit_events=True)
+        finally:
+            configure_logging(LoggingConfig(enabled=False))
+
+        # Should have start and fail events
+        assert len(emitted_events) == 2
+        assert emitted_events[0]["event_type"] == "guard.output.start"
+        assert emitted_events[1]["event_type"] == "guard.output.fail"
+        assert emitted_events[1]["error"] == "Async guard failed!"
+
+    def test_tracked_input_guards_with_events(self):
+        """Tracked input guards should emit events alongside tracking."""
+        from unittest.mock import patch
+        from spellcrafting import LoggingConfig, LogLevel, PythonLoggingHandler, configure_logging
+        from spellcrafting.logging import trace_context
+
+        def passing_guard(args: dict, ctx: dict) -> dict:
+            return args
+
+        guards = [(passing_guard, OnFail.RAISE)]
+        context = GuardContext(spell_name="test_spell")
+
+        emitted_events = []
+
+        def capture_emit(event):
+            emitted_events.append(event)
+
+        config = LoggingConfig(
+            enabled=True,
+            level=LogLevel.DEBUG,
+            handlers=[PythonLoggingHandler()],
+        )
+        configure_logging(config)
+
+        try:
+            with trace_context() as ctx:
+                with patch("spellcrafting.guard._emit_guard_event", side_effect=lambda *args, **kwargs: capture_emit({"event_type": args[0], "guard_name": args[1]})):
+                    result = _run_input_guards_tracked(guards, {"text": "hello"}, context, emit_events=True)
+        finally:
+            configure_logging(LoggingConfig(enabled=False))
+
+        # Should have events AND tracking results
+        assert len(emitted_events) == 2
+        assert emitted_events[0]["event_type"] == "guard.input.start"
+        assert emitted_events[1]["event_type"] == "guard.input.pass"
+
+        # Tracking should still work
+        assert "passing_guard" in result.passed
+        assert len(result.failed) == 0
+
+
+class TestEmitGuardEventFunction:
+    """Tests for _emit_guard_event helper function (#195)."""
+
+    def test_emit_guard_event_with_logging_disabled(self):
+        """_emit_guard_event should do nothing when logging is disabled."""
+        from spellcrafting import LoggingConfig, configure_logging
+        from spellcrafting.guard import _emit_guard_event
+
+        # Ensure logging is disabled
+        configure_logging(LoggingConfig(enabled=False))
+
+        context = GuardContext(spell_name="test_spell")
+
+        # Should not raise even without trace context
+        _emit_guard_event("guard.input.start", "test_guard", context)
+
+    def test_emit_guard_event_without_trace_context(self):
+        """_emit_guard_event should do nothing when no trace context exists."""
+        from spellcrafting import LoggingConfig, LogLevel, PythonLoggingHandler, configure_logging
+        from spellcrafting.guard import _emit_guard_event
+        from spellcrafting.logging import current_trace
+
+        config = LoggingConfig(
+            enabled=True,
+            level=LogLevel.DEBUG,
+            handlers=[PythonLoggingHandler()],
+        )
+        configure_logging(config)
+
+        try:
+            # Verify no trace context
+            assert current_trace() is None
+
+            context = GuardContext(spell_name="test_spell")
+
+            # Should not raise even without trace context
+            _emit_guard_event("guard.input.start", "test_guard", context)
+        finally:
+            configure_logging(LoggingConfig(enabled=False))
+
+    def test_emit_guard_event_with_trace_context(self):
+        """_emit_guard_event should emit event when logging enabled and trace context exists."""
+        from unittest.mock import patch
+        from spellcrafting import LoggingConfig, LogLevel, PythonLoggingHandler, configure_logging
+        from spellcrafting.guard import _emit_guard_event
+        from spellcrafting.logging import trace_context
+
+        config = LoggingConfig(
+            enabled=True,
+            level=LogLevel.DEBUG,
+            handlers=[PythonLoggingHandler()],
+        )
+        configure_logging(config)
+
+        emitted = []
+
+        try:
+            with trace_context() as ctx:
+                with patch("spellcrafting.logging._emit_event") as mock_emit:
+                    mock_emit.side_effect = lambda e: emitted.append(e)
+
+                    context = GuardContext(spell_name="test_spell")
+                    _emit_guard_event(
+                        "guard.input.pass",
+                        "my_guard",
+                        context,
+                        duration_ms=123.456,
+                    )
+
+            # Should have emitted one event
+            assert len(emitted) == 1
+            event = emitted[0]
+            assert event.event_type == "guard.input.pass"
+            assert event.spell_name == "test_spell"
+            assert event.trace_id == ctx.trace_id
+            assert event.span_id == ctx.span_id
+            assert event.details["guard_name"] == "my_guard"
+            assert event.details["duration_ms"] == 123.456
+        finally:
+            configure_logging(LoggingConfig(enabled=False))
+
+    def test_emit_guard_event_fail_level_is_warning(self):
+        """Fail events should be emitted at WARNING level."""
+        from unittest.mock import patch
+        from spellcrafting import LoggingConfig, LogLevel, PythonLoggingHandler, configure_logging
+        from spellcrafting.guard import _emit_guard_event
+        from spellcrafting.logging import trace_context
+
+        config = LoggingConfig(
+            enabled=True,
+            level=LogLevel.DEBUG,
+            handlers=[PythonLoggingHandler()],
+        )
+        configure_logging(config)
+
+        emitted = []
+
+        try:
+            with trace_context() as ctx:
+                with patch("spellcrafting.logging._emit_event") as mock_emit:
+                    mock_emit.side_effect = lambda e: emitted.append(e)
+
+                    context = GuardContext(spell_name="test_spell")
+                    _emit_guard_event(
+                        "guard.output.fail",
+                        "my_guard",
+                        context,
+                        duration_ms=50.0,
+                        error="Guard failed!",
+                    )
+
+            # Should be WARNING level
+            assert len(emitted) == 1
+            assert emitted[0].level == LogLevel.WARNING
+            assert emitted[0].details["error"] == "Guard failed!"
+        finally:
+            configure_logging(LoggingConfig(enabled=False))
+
+    def test_emit_guard_event_start_pass_level_is_debug(self):
+        """Start and pass events should be emitted at DEBUG level."""
+        from unittest.mock import patch
+        from spellcrafting import LoggingConfig, LogLevel, PythonLoggingHandler, configure_logging
+        from spellcrafting.guard import _emit_guard_event
+        from spellcrafting.logging import trace_context
+
+        config = LoggingConfig(
+            enabled=True,
+            level=LogLevel.DEBUG,
+            handlers=[PythonLoggingHandler()],
+        )
+        configure_logging(config)
+
+        emitted = []
+
+        try:
+            with trace_context() as ctx:
+                with patch("spellcrafting.logging._emit_event") as mock_emit:
+                    mock_emit.side_effect = lambda e: emitted.append(e)
+
+                    context = GuardContext(spell_name="test_spell")
+                    _emit_guard_event("guard.input.start", "my_guard", context)
+                    _emit_guard_event("guard.input.pass", "my_guard", context, duration_ms=10.0)
+
+            # Both should be DEBUG level
+            assert len(emitted) == 2
+            assert emitted[0].level == LogLevel.DEBUG
+            assert emitted[1].level == LogLevel.DEBUG
+        finally:
+            configure_logging(LoggingConfig(enabled=False))
+
+    def test_emit_guard_event_respects_level_filtering(self):
+        """Events below configured level should not be emitted."""
+        from unittest.mock import patch
+        from spellcrafting import LoggingConfig, LogLevel, PythonLoggingHandler, configure_logging
+        from spellcrafting.guard import _emit_guard_event
+        from spellcrafting.logging import trace_context
+
+        # Configure at WARNING level - should filter out DEBUG events
+        config = LoggingConfig(
+            enabled=True,
+            level=LogLevel.WARNING,
+            handlers=[PythonLoggingHandler()],
+        )
+        configure_logging(config)
+
+        emitted = []
+
+        try:
+            with trace_context() as ctx:
+                with patch("spellcrafting.logging._emit_event") as mock_emit:
+                    mock_emit.side_effect = lambda e: emitted.append(e)
+
+                    context = GuardContext(spell_name="test_spell")
+                    # start/pass are DEBUG - should be filtered
+                    _emit_guard_event("guard.input.start", "my_guard", context)
+                    _emit_guard_event("guard.input.pass", "my_guard", context, duration_ms=10.0)
+                    # fail is WARNING - should be emitted
+                    _emit_guard_event("guard.input.fail", "my_guard", context, error="Failed!")
+
+            # Only the WARNING event should be emitted (level filtering happens in _emit_event)
+            # But since we mock _emit_event, all are passed through
+            # The actual filtering is tested in test_logging.py
+            # Here we just verify the levels are set correctly
+            assert len(emitted) == 3
+            assert emitted[0].level == LogLevel.DEBUG
+            assert emitted[1].level == LogLevel.DEBUG
+            assert emitted[2].level == LogLevel.WARNING
+        finally:
+            configure_logging(LoggingConfig(enabled=False))

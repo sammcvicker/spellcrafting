@@ -51,13 +51,18 @@ Example:
 from __future__ import annotations
 
 import asyncio
+import time
 import warnings
 from collections.abc import Awaitable, Coroutine
 from dataclasses import dataclass, field
-from typing import Any, Callable, Generic, ParamSpec, Protocol, TypeVar, Union, runtime_checkable
+from datetime import datetime, timezone
+from typing import Any, Callable, Generic, Literal, ParamSpec, Protocol, TypeVar, Union, runtime_checkable
 
 from spellcrafting.exceptions import GuardError
 from spellcrafting.on_fail import OnFail, RaiseStrategy
+
+# Type alias for guard type (input or output)
+GuardType = Literal["input", "output"]
 
 P = ParamSpec("P")
 T = TypeVar("T")
@@ -304,6 +309,74 @@ def _build_context(func: Callable, attempt: int = 1, model: str | None = None) -
 # ---------------------------------------------------------------------------
 
 
+def _emit_guard_event(
+    event_type: str,
+    guard_name: str,
+    context: GuardContext,
+    *,
+    duration_ms: float | None = None,
+    error: str | None = None,
+) -> None:
+    """Emit a guard event to the logging system.
+
+    This function emits SpellEvent for guard execution visibility.
+    Events are only emitted if logging is enabled and the event level
+    meets the configured level threshold.
+
+    Args:
+        event_type: Event type like "guard.input.start", "guard.output.pass"
+        guard_name: Name of the guard function being executed
+        context: Guard execution context containing spell_name
+        duration_ms: Execution duration in milliseconds (for pass/fail events)
+        error: Error message (for fail events)
+    """
+    # Import here to avoid circular import
+    from spellcrafting.logging import (
+        LogLevel,
+        SpellEvent,
+        _emit_event,
+        current_trace,
+        get_logging_config,
+    )
+
+    # Check if logging is enabled
+    config = get_logging_config()
+    if not config.enabled:
+        return
+
+    # Get trace context
+    trace = current_trace()
+    if trace is None:
+        # No trace context, can't emit event (guards run inside spell execution
+        # which should have a trace context when logging is enabled)
+        return
+
+    # Determine log level based on event type
+    if event_type.endswith(".fail"):
+        level = LogLevel.WARNING
+    else:
+        level = LogLevel.DEBUG
+
+    # Build event details
+    details: dict[str, Any] = {"guard_name": guard_name}
+    if duration_ms is not None:
+        details["duration_ms"] = round(duration_ms, 3)
+    if error is not None:
+        details["error"] = error
+
+    event = SpellEvent(
+        event_type=event_type,
+        spell_name=context.spell_name,
+        trace_id=trace.trace_id,
+        span_id=trace.span_id,
+        timestamp=datetime.now(timezone.utc),
+        level=level,
+        details=details,
+    )
+
+    _emit_event(event)
+
+
 @dataclass
 class GuardRunResult(Generic[T]):
     """Result of running guards with tracking information.
@@ -334,6 +407,7 @@ def _run_guards_sync(
     context: GuardContext,
     *,
     track: bool = False,
+    guard_type: GuardType | None = None,
 ) -> T | GuardRunResult[T]:
     """Core synchronous guard runner.
 
@@ -342,6 +416,7 @@ def _run_guards_sync(
         initial_value: The initial value to transform (input_args or output).
         context: Guard execution context.
         track: If True, return GuardRunResult with passed/failed tracking.
+        guard_type: "input" or "output" for event emission. If None, no events emitted.
 
     Returns:
         If track=False: The transformed value.
@@ -353,14 +428,44 @@ def _run_guards_sync(
     failed: list[str] = [] if track else None  # type: ignore[assignment]
 
     for guard_fn, _on_fail in guards:
-        guard_name = _get_guard_name(guard_fn) if track else None
+        guard_name = _get_guard_name(guard_fn)
+
+        # Emit start event
+        if guard_type is not None:
+            _emit_guard_event(f"guard.{guard_type}.start", guard_name, context)
+
+        start_time = time.perf_counter()
         try:
             current = guard_fn(current, context_dict)
+            duration_ms = (time.perf_counter() - start_time) * 1000
+
             if track and passed is not None:
-                passed.append(guard_name)  # type: ignore[arg-type]
+                passed.append(guard_name)
+
+            # Emit pass event
+            if guard_type is not None:
+                _emit_guard_event(
+                    f"guard.{guard_type}.pass",
+                    guard_name,
+                    context,
+                    duration_ms=duration_ms,
+                )
         except Exception as e:
+            duration_ms = (time.perf_counter() - start_time) * 1000
+
             if track and failed is not None:
-                failed.append(guard_name)  # type: ignore[arg-type]
+                failed.append(guard_name)
+
+            # Emit fail event
+            if guard_type is not None:
+                _emit_guard_event(
+                    f"guard.{guard_type}.fail",
+                    guard_name,
+                    context,
+                    duration_ms=duration_ms,
+                    error=str(e),
+                )
+
             if isinstance(e, GuardError):
                 raise
             raise GuardError(str(e)) from e
@@ -376,6 +481,7 @@ async def _run_guards_async(
     context: GuardContext,
     *,
     track: bool = False,
+    guard_type: GuardType | None = None,
 ) -> T | GuardRunResult[T]:
     """Core asynchronous guard runner.
 
@@ -386,6 +492,7 @@ async def _run_guards_async(
         initial_value: The initial value to transform (input_args or output).
         context: Guard execution context.
         track: If True, return GuardRunResult with passed/failed tracking.
+        guard_type: "input" or "output" for event emission. If None, no events emitted.
 
     Returns:
         If track=False: The transformed value.
@@ -397,18 +504,48 @@ async def _run_guards_async(
     failed: list[str] = [] if track else None  # type: ignore[assignment]
 
     for guard_fn, _on_fail in guards:
-        guard_name = _get_guard_name(guard_fn) if track else None
+        guard_name = _get_guard_name(guard_fn)
+
+        # Emit start event
+        if guard_type is not None:
+            _emit_guard_event(f"guard.{guard_type}.start", guard_name, context)
+
+        start_time = time.perf_counter()
         try:
             result = guard_fn(current, context_dict)
             if asyncio.iscoroutine(result):
                 current = await result
             else:
                 current = result
+            duration_ms = (time.perf_counter() - start_time) * 1000
+
             if track and passed is not None:
-                passed.append(guard_name)  # type: ignore[arg-type]
+                passed.append(guard_name)
+
+            # Emit pass event
+            if guard_type is not None:
+                _emit_guard_event(
+                    f"guard.{guard_type}.pass",
+                    guard_name,
+                    context,
+                    duration_ms=duration_ms,
+                )
         except Exception as e:
+            duration_ms = (time.perf_counter() - start_time) * 1000
+
             if track and failed is not None:
-                failed.append(guard_name)  # type: ignore[arg-type]
+                failed.append(guard_name)
+
+            # Emit fail event
+            if guard_type is not None:
+                _emit_guard_event(
+                    f"guard.{guard_type}.fail",
+                    guard_name,
+                    context,
+                    duration_ms=duration_ms,
+                    error=str(e),
+                )
+
             if isinstance(e, GuardError):
                 raise
             raise GuardError(str(e)) from e
@@ -427,72 +564,152 @@ def _run_input_guards(
     guards: list[tuple[InputGuard, RaiseStrategy]],
     input_args: dict[str, Any],
     context: GuardContext,
+    *,
+    emit_events: bool = False,
 ) -> dict[str, Any]:
-    """Run input guards in order, transforming input_args."""
-    return _run_guards_sync(guards, input_args, context, track=False)  # type: ignore[return-value]
+    """Run input guards in order, transforming input_args.
+
+    Args:
+        guards: List of (guard_fn, on_fail) tuples.
+        input_args: Input arguments to validate/transform.
+        context: Guard execution context.
+        emit_events: If True, emit guard events to logging system.
+    """
+    guard_type: GuardType | None = "input" if emit_events else None
+    return _run_guards_sync(guards, input_args, context, track=False, guard_type=guard_type)  # type: ignore[return-value]
 
 
 def _run_output_guards(
     guards: list[tuple[OutputGuard, RaiseStrategy]],
     output: T,
     context: GuardContext,
+    *,
+    emit_events: bool = False,
 ) -> T:
-    """Run output guards in order (outermost first), transforming output."""
-    return _run_guards_sync(guards, output, context, track=False)  # type: ignore[return-value]
+    """Run output guards in order (outermost first), transforming output.
+
+    Args:
+        guards: List of (guard_fn, on_fail) tuples.
+        output: Output value to validate/transform.
+        context: Guard execution context.
+        emit_events: If True, emit guard events to logging system.
+    """
+    guard_type: GuardType | None = "output" if emit_events else None
+    return _run_guards_sync(guards, output, context, track=False, guard_type=guard_type)  # type: ignore[return-value]
 
 
 async def _run_input_guards_async(
     guards: list[tuple[InputGuard, RaiseStrategy]],
     input_args: dict[str, Any],
     context: GuardContext,
+    *,
+    emit_events: bool = False,
 ) -> dict[str, Any]:
-    """Run input guards in order, supporting async guard functions."""
-    return await _run_guards_async(guards, input_args, context, track=False)  # type: ignore[return-value]
+    """Run input guards in order, supporting async guard functions.
+
+    Args:
+        guards: List of (guard_fn, on_fail) tuples.
+        input_args: Input arguments to validate/transform.
+        context: Guard execution context.
+        emit_events: If True, emit guard events to logging system.
+    """
+    guard_type: GuardType | None = "input" if emit_events else None
+    return await _run_guards_async(guards, input_args, context, track=False, guard_type=guard_type)  # type: ignore[return-value]
 
 
 async def _run_output_guards_async(
     guards: list[tuple[OutputGuard, RaiseStrategy]],
     output: T,
     context: GuardContext,
+    *,
+    emit_events: bool = False,
 ) -> T:
-    """Run output guards in order, supporting async guard functions."""
-    return await _run_guards_async(guards, output, context, track=False)  # type: ignore[return-value]
+    """Run output guards in order, supporting async guard functions.
+
+    Args:
+        guards: List of (guard_fn, on_fail) tuples.
+        output: Output value to validate/transform.
+        context: Guard execution context.
+        emit_events: If True, emit guard events to logging system.
+    """
+    guard_type: GuardType | None = "output" if emit_events else None
+    return await _run_guards_async(guards, output, context, track=False, guard_type=guard_type)  # type: ignore[return-value]
 
 
 def _run_input_guards_tracked(
     guards: list[tuple[InputGuard, RaiseStrategy]],
     input_args: dict[str, Any],
     context: GuardContext,
+    *,
+    emit_events: bool = False,
 ) -> GuardRunResult[dict[str, Any]]:
-    """Run input guards with tracking. Returns result and guard names that passed/failed."""
-    return _run_guards_sync(guards, input_args, context, track=True)  # type: ignore[return-value]
+    """Run input guards with tracking. Returns result and guard names that passed/failed.
+
+    Args:
+        guards: List of (guard_fn, on_fail) tuples.
+        input_args: Input arguments to validate/transform.
+        context: Guard execution context.
+        emit_events: If True, emit guard events to logging system.
+    """
+    guard_type: GuardType | None = "input" if emit_events else None
+    return _run_guards_sync(guards, input_args, context, track=True, guard_type=guard_type)  # type: ignore[return-value]
 
 
 def _run_output_guards_tracked(
     guards: list[tuple[OutputGuard, RaiseStrategy]],
     output: T,
     context: GuardContext,
+    *,
+    emit_events: bool = False,
 ) -> GuardRunResult[T]:
-    """Run output guards with tracking. Returns result and guard names that passed/failed."""
-    return _run_guards_sync(guards, output, context, track=True)  # type: ignore[return-value]
+    """Run output guards with tracking. Returns result and guard names that passed/failed.
+
+    Args:
+        guards: List of (guard_fn, on_fail) tuples.
+        output: Output value to validate/transform.
+        context: Guard execution context.
+        emit_events: If True, emit guard events to logging system.
+    """
+    guard_type: GuardType | None = "output" if emit_events else None
+    return _run_guards_sync(guards, output, context, track=True, guard_type=guard_type)  # type: ignore[return-value]
 
 
 async def _run_input_guards_tracked_async(
     guards: list[tuple[InputGuard, RaiseStrategy]],
     input_args: dict[str, Any],
     context: GuardContext,
+    *,
+    emit_events: bool = False,
 ) -> GuardRunResult[dict[str, Any]]:
-    """Run input guards with tracking, supporting async guard functions."""
-    return await _run_guards_async(guards, input_args, context, track=True)  # type: ignore[return-value]
+    """Run input guards with tracking, supporting async guard functions.
+
+    Args:
+        guards: List of (guard_fn, on_fail) tuples.
+        input_args: Input arguments to validate/transform.
+        context: Guard execution context.
+        emit_events: If True, emit guard events to logging system.
+    """
+    guard_type: GuardType | None = "input" if emit_events else None
+    return await _run_guards_async(guards, input_args, context, track=True, guard_type=guard_type)  # type: ignore[return-value]
 
 
 async def _run_output_guards_tracked_async(
     guards: list[tuple[OutputGuard, RaiseStrategy]],
     output: T,
     context: GuardContext,
+    *,
+    emit_events: bool = False,
 ) -> GuardRunResult[T]:
-    """Run output guards with tracking, supporting async guard functions."""
-    return await _run_guards_async(guards, output, context, track=True)  # type: ignore[return-value]
+    """Run output guards with tracking, supporting async guard functions.
+
+    Args:
+        guards: List of (guard_fn, on_fail) tuples.
+        output: Output value to validate/transform.
+        context: Guard execution context.
+        emit_events: If True, emit guard events to logging system.
+    """
+    guard_type: GuardType | None = "output" if emit_events else None
+    return await _run_guards_async(guards, output, context, track=True, guard_type=guard_type)  # type: ignore[return-value]
 
 
 class _GuardNamespace:
@@ -771,72 +988,88 @@ class GuardExecutor:
         guard_config: GuardConfig,
         input_args: dict[str, Any],
         context: GuardContext,
+        *,
+        emit_events: bool = False,
     ) -> dict[str, Any]:
         """Run input guards synchronously."""
-        return _run_input_guards(guard_config.input_guards, input_args, context)
+        return _run_input_guards(guard_config.input_guards, input_args, context, emit_events=emit_events)
 
     @staticmethod
     async def run_input_guards_async(
         guard_config: GuardConfig,
         input_args: dict[str, Any],
         context: GuardContext,
+        *,
+        emit_events: bool = False,
     ) -> dict[str, Any]:
         """Run input guards asynchronously."""
-        return await _run_input_guards_async(guard_config.input_guards, input_args, context)
+        return await _run_input_guards_async(guard_config.input_guards, input_args, context, emit_events=emit_events)
 
     @staticmethod
     def run_input_guards_tracked(
         guard_config: GuardConfig,
         input_args: dict[str, Any],
         context: GuardContext,
+        *,
+        emit_events: bool = False,
     ) -> GuardRunResult[dict[str, Any]]:
         """Run input guards with tracking for metrics."""
-        return _run_input_guards_tracked(guard_config.input_guards, input_args, context)
+        return _run_input_guards_tracked(guard_config.input_guards, input_args, context, emit_events=emit_events)
 
     @staticmethod
     async def run_input_guards_tracked_async(
         guard_config: GuardConfig,
         input_args: dict[str, Any],
         context: GuardContext,
+        *,
+        emit_events: bool = False,
     ) -> GuardRunResult[dict[str, Any]]:
         """Run input guards asynchronously with tracking."""
-        return await _run_input_guards_tracked_async(guard_config.input_guards, input_args, context)
+        return await _run_input_guards_tracked_async(guard_config.input_guards, input_args, context, emit_events=emit_events)
 
     @staticmethod
     def run_output_guards(
         guard_config: GuardConfig,
         output: T,
         context: GuardContext,
+        *,
+        emit_events: bool = False,
     ) -> T:
         """Run output guards synchronously."""
-        return _run_output_guards(guard_config.output_guards, output, context)
+        return _run_output_guards(guard_config.output_guards, output, context, emit_events=emit_events)
 
     @staticmethod
     async def run_output_guards_async(
         guard_config: GuardConfig,
         output: T,
         context: GuardContext,
+        *,
+        emit_events: bool = False,
     ) -> T:
         """Run output guards asynchronously."""
-        return await _run_output_guards_async(guard_config.output_guards, output, context)
+        return await _run_output_guards_async(guard_config.output_guards, output, context, emit_events=emit_events)
 
     @staticmethod
     def run_output_guards_tracked(
         guard_config: GuardConfig,
         output: T,
         context: GuardContext,
+        *,
+        emit_events: bool = False,
     ) -> GuardRunResult[T]:
         """Run output guards with tracking for metrics."""
-        return _run_output_guards_tracked(guard_config.output_guards, output, context)
+        return _run_output_guards_tracked(guard_config.output_guards, output, context, emit_events=emit_events)
 
     @staticmethod
     async def run_output_guards_tracked_async(
         guard_config: GuardConfig,
         output: T,
         context: GuardContext,
+        *,
+        emit_events: bool = False,
     ) -> GuardRunResult[T]:
         """Run output guards asynchronously with tracking."""
-        return await _run_output_guards_tracked_async(guard_config.output_guards, output, context)
+        return await _run_output_guards_tracked_async(guard_config.output_guards, output, context, emit_events=emit_events)
 
 
 # Export for use in spell.py
