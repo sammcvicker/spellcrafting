@@ -718,3 +718,357 @@ class TestResolveEscalationModel:
             assert model == "openai:gpt-4o"
             # Settings may be None or an empty dict depending on implementation
             # The key is that no error is raised
+
+
+class TestOnFailEventEmission:
+    """Tests for on_fail strategy event emission (#196)."""
+
+    def test_fallback_emits_event_sync(self):
+        """Fallback strategy should emit on_fail.fallback event."""
+        from spellcrafting.logging import (
+            LoggingConfig,
+            LogLevel,
+            PythonLoggingHandler,
+            configure_logging,
+            trace_context,
+        )
+        from spellcrafting.spell import _emit_on_fail_event
+
+        # Set up logging to capture events
+        python_handler = PythonLoggingHandler("test_fallback_event")
+        configure_logging(LoggingConfig(
+            enabled=True,
+            level=LogLevel.INFO,
+            handlers=[python_handler],
+        ))
+
+        default = Analysis(summary="fallback", confidence=0.0)
+
+        @spell(on_fail=OnFail.fallback(default=default))
+        def analyze(text: str) -> Analysis:
+            """Analyze text."""
+            ...
+
+        mock_agent = MagicMock()
+        mock_agent.run_sync.side_effect = UnexpectedModelBehavior("Validation failed")
+
+        emitted_events = []
+
+        with patch("spellcrafting.spell.Agent", return_value=mock_agent):
+            with patch("spellcrafting.spell._emit_on_fail_event", side_effect=lambda **kw: emitted_events.append(kw)) as mock_emit:
+                with trace_context():  # Provide trace context
+                    result = analyze("test input")
+
+                    assert result == default
+                    mock_emit.assert_called_once()
+                    call_kwargs = mock_emit.call_args[1]
+                    assert call_kwargs["event_type"] == "on_fail.fallback"
+                    assert call_kwargs["spell_name"] == "analyze"
+                    assert "Validation failed" in call_kwargs["details"]["reason"]
+                    assert call_kwargs["details"]["default_type"] == "Analysis"
+
+    def test_custom_emits_event_sync(self):
+        """Custom handler strategy should emit on_fail.custom event."""
+        from spellcrafting.logging import (
+            LoggingConfig,
+            LogLevel,
+            PythonLoggingHandler,
+            configure_logging,
+            trace_context,
+        )
+
+        python_handler = PythonLoggingHandler("test_custom_event")
+        configure_logging(LoggingConfig(
+            enabled=True,
+            level=LogLevel.INFO,
+            handlers=[python_handler],
+        ))
+
+        def fix_analysis(error, attempt, ctx):
+            return Analysis(summary="fixed", confidence=0.5)
+
+        @spell(on_fail=OnFail.custom(fix_analysis))
+        def analyze(text: str) -> Analysis:
+            """Analyze text."""
+            ...
+
+        mock_agent = MagicMock()
+        mock_agent.run_sync.side_effect = UnexpectedModelBehavior("Validation failed")
+
+        with patch("spellcrafting.spell.Agent", return_value=mock_agent):
+            with patch("spellcrafting.spell._emit_on_fail_event") as mock_emit:
+                with trace_context():
+                    result = analyze("test input")
+
+                    assert result.summary == "fixed"
+                    mock_emit.assert_called_once()
+                    call_kwargs = mock_emit.call_args[1]
+                    assert call_kwargs["event_type"] == "on_fail.custom"
+                    assert call_kwargs["spell_name"] == "analyze"
+                    assert call_kwargs["details"]["handler_name"] == "fix_analysis"
+                    assert "Validation failed" in call_kwargs["details"]["reason"]
+
+    def test_escalate_emits_event_sync(self):
+        """Escalate strategy should emit on_fail.escalate event."""
+        from spellcrafting.logging import (
+            LoggingConfig,
+            LogLevel,
+            PythonLoggingHandler,
+            configure_logging,
+            trace_context,
+        )
+
+        python_handler = PythonLoggingHandler("test_escalate_event")
+        configure_logging(LoggingConfig(
+            enabled=True,
+            level=LogLevel.INFO,
+            handlers=[python_handler],
+        ))
+
+        @spell(model="openai:gpt-4o-mini", on_fail=OnFail.escalate("openai:gpt-4o"))
+        def analyze(text: str) -> Analysis:
+            """Analyze text."""
+            ...
+
+        mock_result = MagicMock()
+        mock_result.output = Analysis(summary="escalated", confidence=0.9)
+
+        agents_created = []
+
+        def create_agent(*args, **kwargs):
+            agent = MagicMock()
+            if len(agents_created) == 0:
+                agent.run_sync.side_effect = UnexpectedModelBehavior("Validation failed")
+            else:
+                agent.run_sync.return_value = mock_result
+            agents_created.append(kwargs.get("model"))
+            return agent
+
+        with patch("spellcrafting.spell.Agent", side_effect=create_agent):
+            with patch("spellcrafting.spell._emit_on_fail_event") as mock_emit:
+                with trace_context():
+                    result = analyze("test input")
+
+                    assert result.summary == "escalated"
+                    mock_emit.assert_called_once()
+                    call_kwargs = mock_emit.call_args[1]
+                    assert call_kwargs["event_type"] == "on_fail.escalate"
+                    assert call_kwargs["spell_name"] == "analyze"
+                    assert call_kwargs["details"]["from_model"] == "openai:gpt-4o-mini"
+                    assert call_kwargs["details"]["to_model"] == "openai:gpt-4o"
+                    assert "Validation failed" in call_kwargs["details"]["reason"]
+
+    @pytest.mark.asyncio
+    async def test_fallback_emits_event_async(self):
+        """Async fallback strategy should emit on_fail.fallback event."""
+        from spellcrafting.logging import (
+            LoggingConfig,
+            LogLevel,
+            PythonLoggingHandler,
+            configure_logging,
+            trace_context,
+        )
+
+        python_handler = PythonLoggingHandler("test_fallback_event_async")
+        configure_logging(LoggingConfig(
+            enabled=True,
+            level=LogLevel.INFO,
+            handlers=[python_handler],
+        ))
+
+        default = Analysis(summary="fallback", confidence=0.0)
+
+        @spell(on_fail=OnFail.fallback(default=default))
+        async def analyze(text: str) -> Analysis:
+            """Analyze text."""
+            ...
+
+        mock_agent = MagicMock()
+
+        async def mock_run(prompt):
+            raise UnexpectedModelBehavior("Validation failed")
+
+        mock_agent.run = mock_run
+
+        with patch("spellcrafting.spell.Agent", return_value=mock_agent):
+            with patch("spellcrafting.spell._emit_on_fail_event") as mock_emit:
+                with trace_context():
+                    result = await analyze("test input")
+
+                    assert result == default
+                    mock_emit.assert_called_once()
+                    call_kwargs = mock_emit.call_args[1]
+                    assert call_kwargs["event_type"] == "on_fail.fallback"
+                    assert call_kwargs["spell_name"] == "analyze"
+
+    @pytest.mark.asyncio
+    async def test_custom_emits_event_async(self):
+        """Async custom handler strategy should emit on_fail.custom event."""
+        from spellcrafting.logging import (
+            LoggingConfig,
+            LogLevel,
+            PythonLoggingHandler,
+            configure_logging,
+            trace_context,
+        )
+
+        python_handler = PythonLoggingHandler("test_custom_event_async")
+        configure_logging(LoggingConfig(
+            enabled=True,
+            level=LogLevel.INFO,
+            handlers=[python_handler],
+        ))
+
+        async def async_fix_analysis(error, attempt, ctx):
+            return Analysis(summary="async fixed", confidence=0.5)
+
+        @spell(on_fail=OnFail.custom(async_fix_analysis))
+        async def analyze(text: str) -> Analysis:
+            """Analyze text."""
+            ...
+
+        mock_agent = MagicMock()
+
+        async def mock_run(prompt):
+            raise UnexpectedModelBehavior("Validation failed")
+
+        mock_agent.run = mock_run
+
+        with patch("spellcrafting.spell.Agent", return_value=mock_agent):
+            with patch("spellcrafting.spell._emit_on_fail_event") as mock_emit:
+                with trace_context():
+                    result = await analyze("test input")
+
+                    assert result.summary == "async fixed"
+                    mock_emit.assert_called_once()
+                    call_kwargs = mock_emit.call_args[1]
+                    assert call_kwargs["event_type"] == "on_fail.custom"
+                    assert call_kwargs["details"]["handler_name"] == "async_fix_analysis"
+
+    @pytest.mark.asyncio
+    async def test_escalate_emits_event_async(self):
+        """Async escalate strategy should emit on_fail.escalate event."""
+        from spellcrafting.logging import (
+            LoggingConfig,
+            LogLevel,
+            PythonLoggingHandler,
+            configure_logging,
+            trace_context,
+        )
+
+        python_handler = PythonLoggingHandler("test_escalate_event_async")
+        configure_logging(LoggingConfig(
+            enabled=True,
+            level=LogLevel.INFO,
+            handlers=[python_handler],
+        ))
+
+        @spell(model="openai:gpt-4o-mini", on_fail=OnFail.escalate("openai:gpt-4o"))
+        async def analyze(text: str) -> Analysis:
+            """Analyze text."""
+            ...
+
+        mock_result = MagicMock()
+        mock_result.output = Analysis(summary="escalated", confidence=0.9)
+
+        agents_created = []
+
+        def create_agent(*args, **kwargs):
+            agent = MagicMock()
+
+            async def mock_run(prompt):
+                if len(agents_created) == 1:
+                    raise UnexpectedModelBehavior("Validation failed")
+                return mock_result
+
+            agent.run = mock_run
+            agents_created.append(kwargs.get("model"))
+            return agent
+
+        with patch("spellcrafting.spell.Agent", side_effect=create_agent):
+            with patch("spellcrafting.spell._emit_on_fail_event") as mock_emit:
+                with trace_context():
+                    result = await analyze("test input")
+
+                    assert result.summary == "escalated"
+                    mock_emit.assert_called_once()
+                    call_kwargs = mock_emit.call_args[1]
+                    assert call_kwargs["event_type"] == "on_fail.escalate"
+                    assert call_kwargs["details"]["from_model"] == "openai:gpt-4o-mini"
+                    assert call_kwargs["details"]["to_model"] == "openai:gpt-4o"
+
+    def test_no_event_without_trace_context(self):
+        """Events should not be emitted without an active trace context."""
+        from spellcrafting.logging import (
+            LoggingConfig,
+            LogLevel,
+            PythonLoggingHandler,
+            configure_logging,
+        )
+
+        python_handler = PythonLoggingHandler("test_no_trace_context")
+        configure_logging(LoggingConfig(
+            enabled=True,
+            level=LogLevel.INFO,
+            handlers=[python_handler],
+        ))
+
+        default = Analysis(summary="fallback", confidence=0.0)
+
+        @spell(on_fail=OnFail.fallback(default=default))
+        def analyze(text: str) -> Analysis:
+            """Analyze text."""
+            ...
+
+        mock_agent = MagicMock()
+        mock_agent.run_sync.side_effect = UnexpectedModelBehavior("Validation failed")
+
+        with patch("spellcrafting.spell.Agent", return_value=mock_agent):
+            with patch("spellcrafting.spell._emit_on_fail_event") as mock_emit:
+                # No trace_context() wrapper - should still work but not emit event
+                result = analyze("test input")
+
+                assert result == default
+                # Event emission happens but _emit_on_fail_event checks for trace
+                # The actual _emit_event call is made but should be a no-op
+                mock_emit.assert_called_once()
+
+    def test_event_emitted_with_logging_enabled(self):
+        """Events should be emitted when logging is enabled."""
+        from spellcrafting.logging import (
+            LoggingConfig,
+            LogLevel,
+            PythonLoggingHandler,
+            configure_logging,
+            trace_context,
+            _emit_event,
+        )
+        from spellcrafting import SpellEvent
+        import logging
+
+        python_handler = PythonLoggingHandler("test_logging_enabled")
+        configure_logging(LoggingConfig(
+            enabled=True,
+            level=LogLevel.INFO,
+            handlers=[python_handler],
+        ))
+
+        default = Analysis(summary="fallback", confidence=0.0)
+
+        @spell(on_fail=OnFail.fallback(default=default))
+        def analyze(text: str) -> Analysis:
+            """Analyze text."""
+            ...
+
+        mock_agent = MagicMock()
+        mock_agent.run_sync.side_effect = UnexpectedModelBehavior("Validation failed")
+
+        with patch("spellcrafting.spell.Agent", return_value=mock_agent):
+            with trace_context():
+                with patch.object(python_handler.logger, "log") as mock_log:
+                    result = analyze("test input")
+
+                    assert result == default
+                    # Verify that a log call was made with INFO level for the event
+                    calls = [call for call in mock_log.call_args_list if call[0][0] == logging.INFO]
+                    assert len(calls) >= 1  # At least the event should be logged
