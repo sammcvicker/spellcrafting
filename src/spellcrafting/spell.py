@@ -10,6 +10,7 @@ import warnings
 from collections import OrderedDict
 from collections.abc import Awaitable
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from typing import Any, Callable, ParamSpec, Protocol, TypeVar, overload, runtime_checkable
 
 # Module-level logger for debug messages about internal operations
@@ -33,10 +34,13 @@ from spellcrafting.on_fail import (
 )
 from spellcrafting.guard import GuardContext, GuardError, GuardExecutor
 from spellcrafting.logging import (
+    LogLevel,
+    SpellEvent,
     SpellExecutionLog,
     ToolCallLog,
     TokenUsage,
     ValidationMetrics,
+    _emit_event,
     _emit_log,
     capture_execution_log,
     current_trace,
@@ -850,6 +854,35 @@ class _SpellConfig:
         )
 
 
+def _emit_on_fail_event(
+    event_type: str,
+    spell_name: str,
+    details: dict[str, Any],
+) -> None:
+    """Emit an on_fail strategy activation event.
+
+    Args:
+        event_type: One of "on_fail.escalate", "on_fail.fallback", "on_fail.custom"
+        spell_name: Name of the spell function
+        details: Event-specific details (reason, model info, etc.)
+    """
+    trace = current_trace()
+    if trace is None:
+        # No active trace context, skip event emission
+        return
+
+    event = SpellEvent(
+        event_type=event_type,
+        spell_name=spell_name,
+        trace_id=trace.trace_id,
+        span_id=trace.span_id,
+        timestamp=datetime.now(timezone.utc),
+        level=LogLevel.INFO,
+        details=details,
+    )
+    _emit_event(event)
+
+
 def _handle_on_fail_sync(ctx: OnFailContext) -> Any:
     """Handle on_fail strategy for sync execution.
 
@@ -864,10 +897,29 @@ def _handle_on_fail_sync(ctx: OnFailContext) -> Any:
         raise ValidationError(str(ctx.error), original_error=ctx.error) from ctx.error
 
     if isinstance(ctx.on_fail, FallbackStrategy):
+        # Emit fallback activation event
+        _emit_on_fail_event(
+            event_type="on_fail.fallback",
+            spell_name=ctx.spell_name,
+            details={
+                "reason": str(ctx.error),
+                "default_type": type(ctx.on_fail.default).__name__,
+            },
+        )
         # Return the default value
         return ctx.on_fail.default
 
     if isinstance(ctx.on_fail, CustomStrategy):
+        # Emit custom handler activation event
+        handler_name = getattr(ctx.on_fail.handler, "__name__", repr(ctx.on_fail.handler))
+        _emit_on_fail_event(
+            event_type="on_fail.custom",
+            spell_name=ctx.spell_name,
+            details={
+                "handler_name": handler_name,
+                "reason": str(ctx.error),
+            },
+        )
         # Call the custom handler
         handler_context = {
             "spell_name": ctx.spell_name,
@@ -879,6 +931,16 @@ def _handle_on_fail_sync(ctx: OnFailContext) -> Any:
     if isinstance(ctx.on_fail, EscalateStrategy):
         # Create a new agent with the escalated model
         escalated_model, escalated_settings = _resolve_escalation_model(ctx.on_fail.model)
+        # Emit escalation trigger event
+        _emit_on_fail_event(
+            event_type="on_fail.escalate",
+            spell_name=ctx.spell_name,
+            details={
+                "from_model": ctx.model_alias or "default",
+                "to_model": escalated_model,
+                "reason": str(ctx.error),
+            },
+        )
         escalated_agent = Agent(
             model=escalated_model,
             output_type=ctx.output_type,
@@ -909,10 +971,29 @@ async def _handle_on_fail_async(ctx: OnFailContext) -> Any:
         raise ValidationError(str(ctx.error), original_error=ctx.error) from ctx.error
 
     if isinstance(ctx.on_fail, FallbackStrategy):
+        # Emit fallback activation event
+        _emit_on_fail_event(
+            event_type="on_fail.fallback",
+            spell_name=ctx.spell_name,
+            details={
+                "reason": str(ctx.error),
+                "default_type": type(ctx.on_fail.default).__name__,
+            },
+        )
         # Return the default value
         return ctx.on_fail.default
 
     if isinstance(ctx.on_fail, CustomStrategy):
+        # Emit custom handler activation event
+        handler_name = getattr(ctx.on_fail.handler, "__name__", repr(ctx.on_fail.handler))
+        _emit_on_fail_event(
+            event_type="on_fail.custom",
+            spell_name=ctx.spell_name,
+            details={
+                "handler_name": handler_name,
+                "reason": str(ctx.error),
+            },
+        )
         # Call the custom handler
         handler_context = {
             "spell_name": ctx.spell_name,
@@ -928,6 +1009,16 @@ async def _handle_on_fail_async(ctx: OnFailContext) -> Any:
     if isinstance(ctx.on_fail, EscalateStrategy):
         # Create a new agent with the escalated model
         escalated_model, escalated_settings = _resolve_escalation_model(ctx.on_fail.model)
+        # Emit escalation trigger event
+        _emit_on_fail_event(
+            event_type="on_fail.escalate",
+            spell_name=ctx.spell_name,
+            details={
+                "from_model": ctx.model_alias or "default",
+                "to_model": escalated_model,
+                "reason": str(ctx.error),
+            },
+        )
         escalated_agent = Agent(
             model=escalated_model,
             output_type=ctx.output_type,
