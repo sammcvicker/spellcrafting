@@ -474,6 +474,98 @@ class TestSetupLogging:
         assert config.include_input is False
         assert config.include_output is False
 
+    def test_setup_configures_stdlib_logger_level(self):
+        """setup_logging should configure stdlib logger with appropriate level (#198)."""
+        import logging as stdlib_logging
+
+        # Get a fresh logger name to avoid test pollution
+        test_logger_name = "spellcrafting"
+
+        # Clear any existing handlers from previous tests
+        logger = stdlib_logging.getLogger(test_logger_name)
+        logger.handlers.clear()
+
+        # Setup with DEBUG level
+        setup_logging(level=LogLevel.DEBUG)
+
+        # Verify the stdlib logger is configured correctly
+        assert logger.level == stdlib_logging.DEBUG
+        assert len(logger.handlers) >= 1
+        assert logger.propagate is False
+
+        # Verify the handler has the correct level and formatter
+        handler = logger.handlers[0]
+        assert isinstance(handler, stdlib_logging.StreamHandler)
+        assert handler.level == stdlib_logging.DEBUG
+
+    def test_setup_configures_stdlib_logger_info_level(self):
+        """setup_logging with INFO level should set stdlib logger to INFO."""
+        import logging as stdlib_logging
+
+        # Clear any existing handlers from previous tests
+        logger = stdlib_logging.getLogger("spellcrafting")
+        logger.handlers.clear()
+
+        setup_logging(level=LogLevel.INFO)
+
+        assert logger.level == stdlib_logging.INFO
+
+    def test_setup_configures_stdlib_logger_warning_level(self):
+        """setup_logging with WARNING level should set stdlib logger to WARNING."""
+        import logging as stdlib_logging
+
+        # Clear any existing handlers from previous tests
+        logger = stdlib_logging.getLogger("spellcrafting")
+        logger.handlers.clear()
+
+        setup_logging(level=LogLevel.WARNING)
+
+        assert logger.level == stdlib_logging.WARNING
+
+    def test_setup_does_not_duplicate_handlers(self):
+        """Calling setup_logging multiple times should not add duplicate handlers."""
+        import logging as stdlib_logging
+
+        logger = stdlib_logging.getLogger("spellcrafting")
+        logger.handlers.clear()
+
+        # Call setup_logging twice
+        setup_logging(level=LogLevel.DEBUG)
+        initial_handler_count = len(logger.handlers)
+
+        setup_logging(level=LogLevel.INFO)
+        # Should not add more handlers
+        assert len(logger.handlers) == initial_handler_count
+
+    def test_debug_events_visible_after_setup(self):
+        """DEBUG level events should be visible after setup_logging(level=DEBUG) (#198)."""
+        import logging as stdlib_logging
+
+        # Clear any existing handlers from previous tests
+        logger = stdlib_logging.getLogger("spellcrafting")
+        logger.handlers.clear()
+
+        setup_logging(level=LogLevel.DEBUG)
+
+        # Capture log output
+        captured_logs = []
+
+        class CapturingHandler(stdlib_logging.Handler):
+            def emit(self, record):
+                captured_logs.append(record.getMessage())
+
+        # Add our capturing handler
+        capturing = CapturingHandler()
+        capturing.setLevel(stdlib_logging.DEBUG)
+        logger.addHandler(capturing)
+
+        # Log a debug message
+        logger.debug("test debug message")
+        logger.info("test info message")
+
+        assert any("debug" in msg for msg in captured_logs)
+        assert any("info" in msg for msg in captured_logs)
+
 
 class TestCostEstimation:
     """Tests for cost estimation."""
