@@ -31,6 +31,9 @@ Documentation = "https://github.com/sammcvicker/spellcrafting"
 Repository = "https://github.com/sammcvicker/spellcrafting"
 
 [project.optional-dependencies]
+images = [
+    "Pillow>=9.0.0",
+]
 otel = [
     "opentelemetry-api>=1.0.0",
     "opentelemetry-sdk>=1.0.0",
@@ -45,6 +48,7 @@ dotenv = [
     "python-dotenv>=1.0.0",
 ]
 all = [
+    "Pillow>=9.0.0",
     "opentelemetry-api>=1.0.0",
     "opentelemetry-sdk>=1.0.0",
     "logfire>=0.1.0",
